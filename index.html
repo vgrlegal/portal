@@ -1578,7 +1578,18 @@ async function canvasesOf(files,say){const out=[];let text="";
 function sharpen(c){const g=c.getContext("2d"),im=g.getImageData(0,0,c.width,c.height),d=im.data;let lo=255,hi=0;
   for(let i=0;i<d.length;i+=4){const y=(d[i]*299+d[i+1]*587+d[i+2]*114)/1000;d[i]=y;if(y<lo)lo=y;if(y>hi)hi=y}
   const k=255/Math.max(1,hi-lo-20);for(let i=0;i<d.length;i+=4){let y=(d[i]-lo)*k;y=y>200?255:y<60?0:y;d[i]=d[i+1]=d[i+2]=y}g.putImageData(im,0,0);return c}
+function jpegOf(c){const k=Math.min(1,1800/Math.max(c.width,c.height)),d=document.createElement("canvas");d.width=Math.round(c.width*k);d.height=Math.round(c.height*k);d.getContext("2d").drawImage(c,0,0,d.width,d.height);return d.toDataURL("image/jpeg",0.88)}
+async function claudeRead(canvases){if(!window.__sb)return null;
+  const{data,error}=await window.__sb.functions.invoke("read-aadhaar",{body:{images:canvases.slice(0,4).map(jpegOf)}});
+  if(error||!data||!data.fields){console.warn("Claude read",error||data);return null}
+  const f=data.fields,o={},rt={"S/O":"Son of","W/O":"Wife of","D/O":"Daughter of","C/O":"Care of"}[String(f.rel_type||"").toUpperCase().replace(/\s/g,"")]||"";
+  const put=(k,v)=>{v=String(v||"").trim();if(v)o[k]=v};
+  put("name",f.name);put("name_ta",f.name_ta);put("rel_name",f.rel_name);put("rel_ta",f.rel_name_ta);put("dob",f.dob);put("gender",/^f/i.test(f.gender||"")?"Female":/^m/i.test(f.gender||"")?"Male":"");
+  put("aadhaar",String(f.aadhaar||"").replace(/\D/g,"").length===12?String(f.aadhaar).replace(/\D/g,""):"");put("addr",f.address_en);put("addr_ta",f.address_ta);put("district",f.district);put("state",f.state);put("pincode",f.pincode);put("mobile",f.mobile);
+  if(rt)o.rel_type=rt;if(o.gender)o.sal=o.gender==="Female"?(rt==="Wife of"?"Mrs":"Ms"):"Mr";
+  lastOcrText=JSON.stringify(f,null,1);return o}
 async function readAadhaar(files,say){const{canvases,text}=await canvasesOf(files,say);let all="";
+  try{say("Reading the Aadhaar with Claude… about 5 seconds.");const c=await claudeRead(canvases);if(c&&c.name){if(c.name)c.name=c.name.toUpperCase();if(c.rel_name)c.rel_name=c.rel_name.toUpperCase();return c}}catch(e){console.warn(e)}
   say("Reading the Aadhaar… about 15–30 seconds the first time.");await loadTess();
   if(!tessWorker)tessWorker=Tesseract.createWorker("eng");const w=await tessWorker;for(const[i,c]of canvases.entries()){say(`Reading page ${i+1} of ${canvases.length}…`);const r=await w.recognize(sharpen(c));all+="\n"+r.data.text}
   lastOcrText=all;const o=parseAadhaar(all),fromLayer=parseAadhaar(text);Object.keys(fromLayer).forEach(k=>{if(!o[k]&&fromLayer[k])o[k]=fromLayer[k]});delete o.name_ta;delete o.rel_ta;delete o.addr_ta;
