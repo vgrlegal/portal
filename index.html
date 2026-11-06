@@ -865,8 +865,11 @@ function applyMasters(force){
   if(rep){put("rep_kyc",rep.kyc,"rep");put("rep_id",rep.id,"rep")}else{clr("rep_kyc");clr("rep_id")}
   [["f_w1","w1_kyc"],["f_w2","w2_kyc"]].forEach(([f,k])=>{const w=(cfg.wit||[]).find(x=>x.name===fv(f));if(w)put(k,w.kyc,"wit");else clr(k)});
 }
+const RD_AUTO=new Set(["rep_kyc","rep_id","w1_kyc","w2_kyc","letter"]);
 function renderDocs(type){
-  const list=docsFor(type);
+  const list=docsFor(type).filter(d=>!(isRD(type)&&RD_AUTO.has(d.k)));
+  if(isRD(type)){const has=k=>(draftDocs[k]||[]).length>0,rep=fv("f_rep")||(editing&&editing.rep)||"",w=[fv("f_w1")||(editing&&editing.w1)||"",fv("f_w2")||(editing&&editing.w2)||""];
+    setTimeout(()=>{const el=$("docList");if(!el||el.querySelector(".rdauto"))return;el.insertAdjacentHTML("afterbegin",`<div class="docrow rdauto"><div class="docl"><b>From KYC Master (automatic)</b><span class="sub">Bank rep${rep?": "+esc(rep):""} · ${has("rep_kyc")?"✓":"○"} KYC · ${has("rep_id")?"✓":"○"} ID card</span>${w.filter(Boolean).length?`<span class="sub">Witnesses: ${w.map((n,i)=>n?`${esc(n)} ${has("w"+(i+1)+"_kyc")?"✓":"○"}`:"").filter(Boolean).join(" · ")}</span>`:""}${!has("rep_kyc")||!has("rep_id")?`<span class="sub">Missing items: add them once in KYC Master.</span>`:""}</div></div>`)},0)}
   const MASTER={rep_kyc:["f_rep","Bank representative","KYC"],rep_id:["f_rep","Bank representative","ID card"],w1_kyc:["f_w1","Witness 1","KYC"],w2_kyc:["f_w2","Witness 2","KYC"]};
   const fromM=k=>(draftDocs[k]||[]).length&&draftDocs[k].every(f=>f.from);
   const mrows=[["rep_kyc","rep_id"],["w1_kyc"],["w2_kyc"]].filter(g=>g.every(k=>list.some(d=>d.k===k))&&g.some(fromM)).map(g=>{const[sel,lab]=MASTER[g[0]];const nm=fv(sel)||(editing&&editing[sel.slice(2)])||"";
@@ -909,7 +912,8 @@ async function addDocs(d,files,type){
   }
   if(!list||!list.length)return;
   draftDocs={...draftDocs,[d.k]:list};renderDocs(type);
-  if(editing&&infoMode==="view"){await patch(editing,{docs:draftDocs},`${d.l} uploaded`);if(H.ok)autoCapture()}
+  if(editing&&infoMode==="view"){await patch(editing,{docs:draftDocs},`${d.l} uploaded`);if(H.ok)autoCapture();
+    if(d.k==="modt"&&isRD(editing.type)){const c2=cases.find(x=>x._doc===editing._doc)||{...editing,docs:draftDocs};rereadModt({...c2,docs:draftDocs},false)}}
 }
 async function saveCase(){
   const err=m=>{$("ferr").textContent=m;$("ferr").hidden=false;return false};
@@ -949,7 +953,7 @@ function openReview(c,gen){
     if(dor&&/^2 /.test(sec)&&!profOf(c.bank))h+=`<p class="banner">No client profile for “${esc(c.bank)}” yet. Set it up in Clients &amp; Staff so the company, representative and witnesses fill in automatically.</p>`;
     h+=`</div>`});
   const docs=docsFor(c.type).filter(d=>(c.docs||{})[d.k]&&c.docs[d.k].length);
-  h=`<div style="margin-bottom:8px"><button type="button" class="btn" id="rvSplit">📄 Show documents side by side</button></div>`+h;
+  h=`<div style="margin-bottom:8px;display:flex;gap:6px;flex-wrap:wrap"><button type="button" class="btn" id="rvSplit">📄 Show documents side by side</button>${dor?`<button type="button" class="btn" id="rvReread" title="Fills the empty fields from the MODT copy">🔄 Read MODT again</button><button type="button" class="btn" id="rvRereadAll" title="Replaces every field with what the MODT says">Read MODT · replace all</button>`:""}</div>`+h;
   h+=`<div class="rvsec"><div class="sect">${dor?"10 · ":""}Documents to upload on TNREGINET</div>${docs.length?docs.map(d=>`<div class="kv"><span>${esc(d.l)}</span><b>${c.docs[d.k].map(f=>esc(f.name)).join(", ")}</b></div>`).join(""):`<p class="sf-note">No documents uploaded yet.</p>`}</div>`;
   if(gen)h+=`<div class="rvsec" id="rvLogin"></div>`;
   $("rvBody").innerHTML=h;
@@ -961,6 +965,7 @@ function openReview(c,gen){
   if($("rvApprove"))$("rvApprove").onclick=approveReview;
   $("review").hidden=false;$("rvscrim").hidden=false;
   $("rvSplit").onclick=()=>$("rvDocPane").hidden?openDocPane(c):closeDocPane();
+  if($("rvReread")){$("rvReread").onclick=()=>rereadModt(c,false);$("rvRereadAll").onclick=()=>ask("Replace all fields?",`<p class="sf-note">Every field the MODT has will replace what is in Drafting now, including your corrections.</p>`,()=>rereadModt(c,true),"Replace")}
   if(window.innerWidth>1000&&caseFiles(c).length)openDocPane(c);else closeDocPane();
 }
 function caseFiles(c){const pri=["modt","deed","legal","noc","sanction","revenue","ec"],out=[];
@@ -1788,6 +1793,15 @@ async function claudeModt(file){if(!window.__sb)return null;const{canvases}=awai
   if(/^(mrs|ms)/i.test(d["Mortgagor salutation"]||""))d["Mortgagor gender"]="Female";else if(d["Mortgagor salutation"]==="Mr")d["Mortgagor gender"]="Male";
   if(/wife/i.test(d["Mortgagor relation"]||""))d["Mortgagor marital status"]="Married";
   return{d,bankText:[f.bank,f.bank_branch].filter(Boolean).join(" ")}}
+async function fileOfDoc(f){const u=await docUrl(f.url);const b=await (await fetch(u)).blob();return new File([b],f.name,{type:b.type||(/\.pdf$/i.test(f.name)?"application/pdf":"image/jpeg")})}
+async function rereadModt(c,force){const f=((c.docs||{}).modt||[])[0];if(!f){toast("Upload the MODT copy first");return}
+  toast("Reading the MODT with Claude… about 10–20 seconds.");
+  try{const r=await claudeModt(await fileOfDoc(f));if(!r||!Object.keys(r.d).length){toast("Could not read the MODT. Check that it is clear and try again.");return}
+    const tp={...(c.tp||{})};let n=0;Object.entries(r.d).forEach(([k,v])=>{if(force||!String(tp[k]||"").trim()){if(tp[k]!==v)n++;tp[k]=v}});
+    const ch={tp};if(!c.applicant&&r.d.Mortgagor)ch.applicant=r.d.Mortgagor;if(!c.loanAmount&&r.d["Loan Amount"])ch.loanAmount=r.d["Loan Amount"];
+    await patch(c,ch,`MODT read again (${n} fields filled)`);toast(`MODT read: ${n} field${n===1?"":"s"} filled. Check them.`);
+    const fresh=cases.find(x=>x._doc===c._doc)||{...c,...ch};if(rv.c&&rv.c._doc===c._doc)openReview(fresh,rv.gen)}
+  catch(e){console.warn(e);toast("Could not read the MODT: "+(e.message||e))}}
 async function autoBankFrom(file){if(!$("f_bank"))return;try{toast("Reading the MODT with Claude… about 10 seconds.");let t="";
   let c=null;try{c=await claudeModt(file)}catch(e){console.warn(e)}
   if(c&&Object.keys(c.d).length){modtAuto=c.d;t=c.bankText}else{toast("Reading the MODT…");t=await textOfPdf(file);modtAuto=parseModt(t)}
