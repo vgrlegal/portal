@@ -105,6 +105,7 @@ tr:last-child td{border-bottom:0}
 .chip{display:inline-flex;align-items:center;gap:6px;background:var(--bg);border:1px solid var(--line);border-radius:999px;padding:4px 6px 4px 11px;font-size:13px}
 .chip button{border:0;background:none;color:var(--muted);cursor:pointer;font-size:15px;line-height:1;padding:2px 5px}
 .addline{display:flex;gap:8px}
+.docf{display:inline-flex;align-items:center;gap:2px;margin-right:6px}.xbtn{border:0;background:transparent;color:#b42318;font-size:16px;line-height:1;cursor:pointer;padding:2px 5px;border-radius:6px}.xbtn:hover{background:#fde8e8}
 .mrow{display:grid;grid-template-columns:1fr auto;gap:6px 10px;align-items:center;padding:10px 0;border-top:1px solid var(--line)}.mrow:first-child{border-top:0}.mrow b{font-size:14px}.mrow>span{display:flex;gap:6px;align-items:center}.mrow .mf{grid-column:1/-1;display:flex;flex-wrap:wrap;gap:6px;align-items:center;font-size:13px}.mrow .mf input[type=text]{flex:1;min-width:140px;padding:6px 8px;border:1px solid var(--line);border-radius:8px;font:inherit;background:var(--surface);color:var(--ink)}.mrow a{font-size:12.5px}.mrow .ok{color:#1b7a43}.mrow .no{color:var(--muted)}
 /* drawer & modal */
 .scrim{position:fixed;inset:0;background:rgba(10,14,18,.42);z-index:20}
@@ -159,6 +160,15 @@ tr.hf input,tr.hf select{font-size:12.5px;padding:5px 7px;margin:2px 0}
 .capt img{height:48px;border:1px solid var(--line);border-radius:6px;background:#fff}
 .capt input{width:160px;font-size:16px;letter-spacing:.08em}
 .drawer.review{width:min(760px,100%);z-index:23}
+.drawer.review.split{width:50vw}
+#rvDocPane{position:fixed;left:0;top:0;bottom:0;width:50vw;z-index:23;background:var(--surface,#fff);border-right:1px solid var(--line);display:flex;flex-direction:column}
+#rvDocPane[hidden]{display:none}
+#rvDocPane .dph{display:flex;gap:6px;align-items:center;padding:8px 10px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+#rvDocPane .dph select{flex:1;min-width:180px;padding:6px 8px;border:1px solid var(--line);border-radius:8px;font:inherit;background:var(--surface);color:var(--ink)}
+#rvDocPane .dpv{flex:1;min-height:0;background:#525659;display:flex;align-items:center;justify-content:center}
+#rvDocPane iframe{width:100%;height:100%;border:0;background:#fff}
+#rvDocPane img{max-width:100%;max-height:100%;object-fit:contain}
+@media (max-width:900px){.drawer.review.split{width:100%}#rvDocPane{display:none!important}}
 #rvscrim{z-index:22}
 .rvsec{border-top:1px solid var(--line);margin-top:6px}
 .stafft input[type=text],.stafft input:not([type]),.stafft input[type=email]{min-width:120px}
@@ -391,6 +401,7 @@ tr.hf input,tr.hf select{font-size:12.5px;padding:5px 7px;margin:2px 0}
 <div class="scrim" id="rvscrim" hidden></div>
 <div class="scrim" id="pescrim" hidden style="z-index:24"></div>
 <aside class="drawer review" id="prof" hidden aria-labelledby="peTitle" style="z-index:25"><div class="dhead"><h2 id="peTitle">Profile</h2><button class="btn" id="peClose" aria-label="Close">✕</button></div><div class="dbody" id="peBody"></div><div class="dfoot"><span class="sp"></span><button class="btn primary" id="peSave" type="button">Save</button></div></aside>
+<div id="rvDocPane" hidden><div class="dph"><select id="rvDocSel" aria-label="Document to view"></select><a class="btn" id="rvDocNew" target="_blank" rel="noopener">Open in new tab</a><button type="button" class="btn" id="rvDocClose">Hide</button></div><div class="dpv" id="rvDocView"></div></div>
 <aside class="drawer review" id="review" hidden aria-labelledby="rvTitle">
   <div class="dhead"><h2 id="rvTitle">Drafting</h2></div>
   <div class="dbody" id="rvBody"></div>
@@ -484,7 +495,7 @@ const assets={async upload(f){const safe=(f.name||"file").replace(/[^\w.\- ]+/g,
   const path=new Date().toISOString().slice(0,7)+"/"+uuid()+"/"+safe;
   const{error}=await sb.storage.from(BUCKET).upload(path,f,{contentType:f.type||"application/octet-stream",upsert:false});if(error)throw error;
   return{id:path,url:"sb:"+path}}};
-async function signed(u){const{data,error}=await sb.storage.from(BUCKET).createSignedUrl(u.slice(3),600);if(error)throw error;return data.signedUrl}
+window.__signed=u=>signed(u);async function signed(u){const{data,error}=await sb.storage.from(BUCKET).createSignedUrl(u.slice(3),600);if(error)throw error;return data.signedUrl}
 const nf=window.fetch.bind(window);
 window.fetch=async(u,o)=>{if(typeof u==="string"&&u.startsWith("sb:"))return nf(await signed(u),o);return nf(u,o)};
 document.addEventListener("click",async e=>{const a=e.target.closest&&e.target.closest('a[href^="sb:"]');if(!a)return;e.preventDefault();
@@ -863,11 +874,18 @@ function renderDocs(type){
   const hideK=new Set(Object.keys(MASTER).filter(fromM));
   $("docList").innerHTML=mrows.join("")+list.filter(d=>!hideK.has(d.k)).map(d=>{const files=draftDocs[d.k]||[];
     return`<div class="docrow"><div class="docl"><b>${esc(d.l)}${d.req?" *":""}${d.grp?" †":""}</b>${d.h?`<span class="sub">${esc(d.h)}</span>`:""}
-      ${files.map(f=>`<a href="${esc(f.url)}" target="_blank" rel="noopener">${f.kyc?"🗂 ":""}${esc(f.name)}</a>${f.from?`<span class="sub">auto · saved ${f.from==="rep"?"bank rep":"witness"}</span>`:""}`).join("")||`<span class="sub">${d.auto?"Added automatically":"Not uploaded"}</span>`}</div>
-      ${canWrite&&!d.auto?`<label class="btn" for="up_${d.k}">${files.length?"Add / replace":"Upload"}</label><input type="file" id="up_${d.k}" data-k="${d.k}" ${d.kyc||d.multi?"multiple":""} accept="${d.k==="photos"?"image/*":"image/*,application/pdf,.pdf"}" hidden>`:""}</div>`}).join("")+
+      ${files.map((f,i)=>`<span class="docf"><a href="${esc(f.url)}" target="_blank" rel="noopener">${f.kyc?"🗂 ":""}${esc(f.name)}</a>${canWrite&&!d.auto?`<button type="button" class="xbtn" data-rmk="${d.k}" data-rmi="${i}" title="Remove this file" aria-label="Remove ${esc(f.name)}">×</button>`:""}</span>${f.from?`<span class="sub">auto · saved ${f.from==="rep"?"bank rep":"witness"}</span>`:""}`).join("")||`<span class="sub">${d.auto?"Added automatically":"Not uploaded"}</span>`}</div>
+      ${canWrite&&!d.auto?`<label class="btn" for="up_${d.k}">${files.length?(d.multi?"Add more":"Replace"):"Upload"}</label><input type="file" id="up_${d.k}" data-k="${d.k}" ${d.kyc||d.multi?"multiple":""} accept="${d.k==="photos"?"image/*":"image/*,application/pdf,.pdf"}" hidden>`:""}</div>`}).join("")+
     (list.some(d=>d.grp)?`<p class="sf-note">† Title deed or legal report: one of the two is enough to create the case.</p>`:"");
   list.forEach(d=>{const el=$("up_"+d.k);if(el)el.onchange=e=>addDocs(d,[...e.target.files],type)});
+  document.querySelectorAll("#docList [data-rmk]").forEach(b=>b.onclick=()=>removeDoc(b.dataset.rmk,+b.dataset.rmi,type));
 }
+function removeDoc(k,i,type){const f=(draftDocs[k]||[])[i];if(!f)return;const lab=(docsFor(type).find(d=>d.k===k)||{}).l||k;
+  ask("Remove this file?",`<p class="sf-note">${esc(f.name)} will be removed from “${esc(lab)}”. You can upload it again any time.</p>`,async()=>{
+    const left=(draftDocs[k]||[]).filter((_,j)=>j!==i);draftDocs={...draftDocs,[k]:left};if(!left.length)delete draftDocs[k];renderDocs(type);
+    if(editing&&infoMode==="view")await patch(editing,{docs:draftDocs},`${lab} removed (${f.name})`);
+    if(isMD&&String(f.url).startsWith("sb:")&&!f.from&&window.__sb)window.__sb.storage.from("docs").remove([f.url.slice(3)]).catch(()=>{});
+    toast("File removed")},"Remove")}
 const DOC_NAME={th_kyc:"Title Holder KYC",w1_kyc:"Witness 1 KYC",w2_kyc:"Witness 2 KYC",revenue:"Patta TSLR",photos:"Property Photo",ec:"EC",legal:"Legal Report",sanction:"Sanction Letter",deed:"Title Deed",modt:"MODT",noc:"NOC",letter:"SRO Letter",report:"Legal Report",tpcopy:"TP Copy",payshot:"Payment Screenshot",rep_kyc:"Bank Rep KYC",rep_id:"Bank Rep ID"};
 async function addDocs(d,files,type){
   if(!files.length)return;
@@ -931,6 +949,7 @@ function openReview(c,gen){
     if(dor&&/^2 /.test(sec)&&!profOf(c.bank))h+=`<p class="banner">No client profile for “${esc(c.bank)}” yet. Set it up in Clients &amp; Staff so the company, representative and witnesses fill in automatically.</p>`;
     h+=`</div>`});
   const docs=docsFor(c.type).filter(d=>(c.docs||{})[d.k]&&c.docs[d.k].length);
+  h=`<div style="margin-bottom:8px"><button type="button" class="btn" id="rvSplit">📄 Show documents side by side</button></div>`+h;
   h+=`<div class="rvsec"><div class="sect">${dor?"10 · ":""}Documents to upload on TNREGINET</div>${docs.length?docs.map(d=>`<div class="kv"><span>${esc(d.l)}</span><b>${c.docs[d.k].map(f=>esc(f.name)).join(", ")}</b></div>`).join(""):`<p class="sf-note">No documents uploaded yet.</p>`}</div>`;
   if(gen)h+=`<div class="rvsec" id="rvLogin"></div>`;
   $("rvBody").innerHTML=h;
@@ -941,8 +960,22 @@ function openReview(c,gen){
   if($("rvDone"))$("rvDone").onclick=()=>saveReview(true);
   if($("rvApprove"))$("rvApprove").onclick=approveReview;
   $("review").hidden=false;$("rvscrim").hidden=false;
+  $("rvSplit").onclick=()=>$("rvDocPane").hidden?openDocPane(c):closeDocPane();
+  if(window.innerWidth>1000&&caseFiles(c).length)openDocPane(c);else closeDocPane();
 }
-function closeReview(){$("review").hidden=true;$("rvscrim").hidden=true;rv={c:null,gen:false}}
+function caseFiles(c){const pri=["modt","deed","legal","noc","sanction","revenue","ec"],out=[];
+  docsFor(c.type).slice().sort((a,b)=>((pri.indexOf(a.k)+1)||99)-((pri.indexOf(b.k)+1)||99)).forEach(d=>((c.docs||{})[d.k]||[]).forEach(f=>out.push({...f,lab:d.l})));return out}
+async function docUrl(u){if(String(u).startsWith("sb:")&&window.__signed)return window.__signed(u);return u}
+async function showDoc(f){const v=$("rvDocView");v.innerHTML=`<p style="color:#fff">Loading…</p>`;
+  try{const u=await docUrl(f.url);$("rvDocNew").href=u;const pdf=/\.pdf$/i.test(f.name)||f.kyc;
+    v.innerHTML=pdf?`<iframe src="${esc(u)}#view=FitH" title="${esc(f.name)}"></iframe>`:`<img src="${esc(u)}" alt="${esc(f.name)}">`}
+  catch(e){v.innerHTML=`<p style="color:#fff">Could not open: ${esc(e.message||e)}</p>`}}
+function openDocPane(c){const fs=caseFiles(c);if(!fs.length){toast("No documents uploaded for this case yet");return}
+  $("rvDocSel").innerHTML=fs.map((f,i)=>`<option value="${i}">${esc(f.lab)} · ${esc(f.name)}</option>`).join("");
+  $("rvDocSel").onchange=()=>showDoc(fs[+$("rvDocSel").value]);$("rvDocClose").onclick=closeDocPane;
+  $("rvDocPane").hidden=false;$("review").classList.add("split");if($("rvSplit"))$("rvSplit").textContent="📄 Hide documents";showDoc(fs[0])}
+function closeDocPane(){$("rvDocPane").hidden=true;$("rvDocView").innerHTML="";$("review").classList.remove("split");if($("rvSplit"))$("rvSplit").textContent="📄 Show documents side by side"}
+function closeReview(){closeDocPane();$("review").hidden=true;$("rvscrim").hidden=true;rv={c:null,gen:false}}
 $("rvscrim").onclick=closeReview;
 function readReview(){const c=rv.c,dor=isRD(c.type),sections=dor?DOR_PAGES:MODT_FIELDS,out={...(dor?c.tp:c.draft)||{}};
   sections.forEach(([,fields])=>fields.forEach(ff=>{const f=Array.isArray(ff)?ff[0]:ff,el=$("rv_"+f.replace(/\W+/g,"_"));if(el)out[f]=el.value.trim()}));return out}
