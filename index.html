@@ -357,7 +357,9 @@ tr.hf input,tr.hf select{font-size:12.5px;padding:5px 7px;margin:2px 0}
       <div class="card"><h2>TNREGINET login IDs</h2><p>Saved only on the MD's Mac in Documents/VGR_Helper/tnreg_logins.json. Passwords never come to this portal.</p><div class="chips" id="loginList"></div></div>
     </div>
     <div class="grid2" style="margin-top:16px">
-      <div class="card"><h2>Bank representatives</h2><p>Save each client's rep once: Aadhaar + signature KYC and bank ID card. They attach to every case of that client and go to Auto TP.</p><div id="repList"></div></div>
+      <div class="card"><h2>Client profiles · Deed of Receipt</h2><p>For each client: company address, representatives (details + Aadhaar KYC + bank ID card) and default witnesses. Picking the client on a case fills all of it.</p>
+        <div id="xlBox" class="mrow" style="border:1px dashed var(--line);border-radius:10px;padding:10px 12px;margin-bottom:8px"><b>Import from your Excel</b><span><label class="btn primary" for="xlIn">Choose Excel</label><input type="file" id="xlIn" accept=".xlsx,.xls" hidden></span><div class="mf"><span class="no">“RD _ TP Details - Common Data.xlsx”: bank sheets and the Witness Master are read in this browser.</span></div></div>
+        <div id="repList"></div></div>
       <div class="card"><h2>Witnesses</h2><p>Save each witness once. Mark W1 / W2 to fill new cases automatically; staff can change them per case.</p><div id="witList"></div>
         <form class="addline" id="witAdd" style="margin-top:10px"><input placeholder="Witness name"><button class="btn primary">Add</button></form></div>
     </div>
@@ -374,6 +376,8 @@ tr.hf input,tr.hf select{font-size:12.5px;padding:5px 7px;margin:2px 0}
   <div class="dfoot" id="dfoot"></div>
 </aside>
 <div class="scrim" id="rvscrim" hidden></div>
+<div class="scrim" id="pescrim" hidden style="z-index:24"></div>
+<aside class="drawer review" id="prof" hidden aria-labelledby="peTitle" style="z-index:25"><div class="dhead"><h2 id="peTitle">Profile</h2><button class="btn" id="peClose" aria-label="Close">✕</button></div><div class="dbody" id="peBody"></div><div class="dfoot"><span class="sp"></span><button class="btn primary" id="peSave" type="button">Save</button></div></aside>
 <aside class="drawer review" id="review" hidden aria-labelledby="rvTitle">
   <div class="dhead"><h2 id="rvTitle">Drafting</h2></div>
   <div class="dbody" id="rvBody"></div>
@@ -539,7 +543,7 @@ const MODT_FIELDS=[["Mortgagee",["Company name","Branch address"]],["Mortgagor (
 const BANK_SHEETS=["VISTAAR","Manapuram","Digimoney","CA Grameen-Rep","Chola HL-Rep","Chola LAP-Rep","Chola SME-Rep","Chola SBPL-Rep","APAC-Rep","Infinity_Rep","AMBIT-Rep","Vastu-Rep","Indostar-Rep"];
 
 /* ================= state & utils ================= */
-let isAdmin=false,isMD=false,db=null,user=null,cases=[],cfg={banks:[],staff:[],types:DEFAULT_TYPES.slice(),pay:{},reps:{},wit:[]},tab="dash",range="7d",tat="all",asg="all",page=0,editing=null,canWrite=true,me="",myStaff=null;
+let isAdmin=false,isMD=false,db=null,user=null,cases=[],cfg={banks:[],staff:[],types:DEFAULT_TYPES.slice(),pay:{},profiles:{},wit:[]},tab="dash",range="7d",tat="all",asg="all",page=0,editing=null,canWrite=true,me="",myStaff=null;
 const $=id=>document.getElementById(id);
 const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 const lsGet=k=>{try{return localStorage.getItem(k)}catch(e){return null}};const lsSet=(k,v)=>{try{localStorage.setItem(k,v)}catch(e){}};
@@ -771,7 +775,7 @@ async function kycFrom(files,filename){
 let draftDocs={},infoMode="view";
 function opts(sel,list,first){const v=sel.value;sel.innerHTML=(first!==undefined?`<option value="">${esc(first)}</option>`:"")+list.map(x=>`<option>${esc(x)}</option>`).join("");if([...sel.options].some(o=>o.value===v))sel.value=v}
 function newId(){const d=localDT(new Date()).slice(0,10).replace(/-/g,"");const n=cases.filter(c=>(c.id||"").startsWith("VGR-"+d)).map(c=>+c.id.split("-")[2]||0);return`VGR-${d}-${String((n.length?Math.max(...n):0)+1).padStart(3,"0")}`}
-const FF=["type","bank","branch","loanNo","applicant","phone","loanAmount","assignee","w1","w2"];
+const FF=["type","bank","branch","loanNo","applicant","phone","loanAmount","assignee","rep","w1","w2"];
 function openInfo(c){editing=c;infoMode="view";draftDocs={...(c.docs||{})};paintInfo();showDrawer()}
 function openNew(){
   if(!cfg.banks.length&&!isMD){toast("Ask the MD to add clients first");return}
@@ -798,8 +802,9 @@ function paintInfo(){
       <label>Customer phone<input id="f_phone" value="${esc(c?c.phone:"")}" inputmode="tel" placeholder="10-digit mobile"></label>
       <label>Loan amount (₹)<input id="f_loanAmount" type="number" min="0" value="${esc(c?c.loanAmount:"")}"></label>
       <label>Request date &amp; time<input type="datetime-local" id="f_requestedAt" required value="${localDT(c?c.requestedAt:new Date())}"></label>
-      <label>Witness 1<select id="f_w1"><option value="">— none —</option>${(cfg.wit||[]).map(w=>`<option${(c?c.w1:(cfg.wit.find(x=>x.def===1)||{}).name)===w.name?" selected":""}>${esc(w.name)}</option>`).join("")}</select></label>
-      <label>Witness 2<select id="f_w2"><option value="">— none —</option>${(cfg.wit||[]).map(w=>`<option${(c?c.w2:(cfg.wit.find(x=>x.def===2)||{}).name)===w.name?" selected":""}>${esc(w.name)}</option>`).join("")}</select></label>
+      <label>Bank representative<select id="f_rep">${repOptions(c?c.bank:"",c?c.rep:"")}</select></label>
+      <label>Witness 1<select id="f_w1"><option value="">— none —</option>${(cfg.wit||[]).map(w=>`<option${(c?c.w1:"")===w.name?" selected":""}>${esc(w.name)}</option>`).join("")}</select></label>
+      <label>Witness 2<select id="f_w2"><option value="">— none —</option>${(cfg.wit||[]).map(w=>`<option${(c?c.w2:"")===w.name?" selected":""}>${esc(w.name)}</option>`).join("")}</select></label>
       <label>Assigned staff<select id="f_assignee"><option value="">Unassigned</option>${staffNames.map(n=>`<option${(c?c.assignee:me)===n?" selected":""}>${esc(n)}</option>`).join("")}</select></label>
     </div>`;
   }else{
@@ -813,10 +818,13 @@ function paintInfo(){
   $("dbody").innerHTML=h;
   $("dfoot").innerHTML=edit?`${c&&isAdmin?`<button type="button" class="btn danger" id="delBtn">Delete case</button>`:""}<span class="sp"></span><button type="button" class="btn" id="cancelEdit">Cancel</button><button type="button" class="btn primary" id="saveBtn">${c?"Save changes":"Create case"}</button>`
     :`<span class="sp"></span><button type="button" class="btn" id="cancelEdit">Close</button>`;
-  if(edit)applyMasters(!c);
+  if(edit&&c)applyMasters(false);
   renderDocs(type);
   if($("f_type"))$("f_type").onchange=()=>renderDocs($("f_type").value);
-  ["f_bank","f_w1","f_w2"].forEach(id=>{if($(id))$(id).addEventListener("change",()=>{applyMasters(true);renderDocs($("f_type")?$("f_type").value:type)})});
+  if($("f_bank"))$("f_bank").addEventListener("change",()=>{const b=fv("f_bank"),reps=repsOf(b);$("f_rep").innerHTML=repOptions(b,reps.length===1?reps[0].name:"");if(reps.length===1)$("f_rep").value=reps[0].name;
+    [1,2].forEach(n=>{const d=witDefault(b,n);if(d)$("f_w"+n).value=d});applyMasters(true);renderDocs($("f_type")?$("f_type").value:type)});
+  ["f_rep","f_w1","f_w2"].forEach(id=>{if($(id))$(id).addEventListener("change",()=>{applyMasters(true);renderDocs($("f_type")?$("f_type").value:type)})});
+  if(edit&&!c){[1,2].forEach(n=>{const d=witDefault("",n);if(d&&$("f_w"+n))$("f_w"+n).value=d});applyMasters(true)}
   if($("editInfo"))$("editInfo").onclick=()=>{infoMode="edit";paintInfo()};
   $("cancelEdit").onclick=()=>{if(c&&edit){infoMode="view";draftDocs={...(c.docs||{})};paintInfo()}else closeDrawer()};
   if($("saveBtn"))$("saveBtn").onclick=saveCase;
@@ -824,7 +832,7 @@ function paintInfo(){
   if(c){renderTimeline(c);$("cmAdd").onclick=addComment;$("cmIn").addEventListener("keydown",e=>{if(e.key==="Enter"){e.preventDefault();addComment()}})}
 }
 function applyMasters(force){
-  const bank=fv("f_bank"),rep=(cfg.reps||{})[bank];
+  const bank=fv("f_bank"),rs=repsOf(bank),rp=rs.find(r=>r.name===fv("f_rep")),rep=rp?{kyc:rp.kyc,id:rp.idcard}:null;
   const put=(k,files,tag)=>{if(!files||!files.length)return;const cur=draftDocs[k]||[];if(force||!cur.length||cur.every(f=>f.from))draftDocs[k]=files.map(f=>({...f,from:tag}))};
   const clr=(k)=>{const cur=draftDocs[k]||[];if(cur.length&&cur.every(f=>f.from))delete draftDocs[k]};
   if(rep){put("rep_kyc",rep.kyc,"rep");put("rep_id",rep.id,"rep")}else{clr("rep_kyc");clr("rep_id")}
@@ -842,6 +850,7 @@ function renderDocs(type){
 const DOC_NAME={th_kyc:"Title Holder KYC",w1_kyc:"Witness 1 KYC",w2_kyc:"Witness 2 KYC",revenue:"Patta TSLR",photos:"Property Photo",ec:"EC",legal:"Legal Report",sanction:"Sanction Letter",deed:"Title Deed",modt:"MODT",noc:"NOC",letter:"SRO Letter",report:"Legal Report",tpcopy:"TP Copy",payshot:"Payment Screenshot",rep_kyc:"Bank Rep KYC",rep_id:"Bank Rep ID"};
 async function addDocs(d,files,type){
   if(!files.length)return;
+  if(d.k==="modt"&&isRD(type)&&!fv("f_bank")){const pf=files.find(f=>f.type==="application/pdf"||/\.pdf$/i.test(f.name));if(pf)autoBankFrom(pf)}
   const cust=(fv("f_applicant")||(editing&&editing.applicant)||"Customer").replace(/[\\/:*?"<>|]+/g," ").trim();
   const base=`${cust} - ${DOC_NAME[d.k]||d.l}`;
   const ext=f=>((f.name.match(/\.[a-z0-9]+$/i)||[""])[0]||(f.type==="application/pdf"?".pdf":"")).toLowerCase();
@@ -887,18 +896,21 @@ async function addComment(){const t=fv("cmIn");if(!t||!editing)return;const c=ed
 /* ================= Review panel (Drafting / TP Generate) ================= */
 let rv={c:null,gen:false};
 function openReview(c,gen){
-  rv={c,gen};const dor=isRD(c.type),data=dor?{...(c.tp||{})}:{...(c.draft||{})},sections=dor?DOR_FIELDS:MODT_FIELDS;
+  rv={c,gen};const dor=isRD(c.type),data=dor?dorFill(c,{...(c.tp||{})}):{...(c.draft||{})},sections=dor?DOR_PAGES:MODT_FIELDS;
   if(!dor){data["Company name"]=data["Company name"]||c.bank;data.Name=data.Name||c.applicant;data.Phone=data.Phone||c.phone;data["Loan amount"]=data["Loan amount"]||c.loanAmount;[1,2].forEach(i=>{const w=(cfg.wit||[]).find(x=>x.name===c["w"+i]);if(w){data[`Witness ${i} name`]=data[`Witness ${i} name`]||w.name;data[`Witness ${i} Aadhaar`]=data[`Witness ${i} Aadhaar`]||w.aadhaar||""}})}
   $("rvTitle").textContent=(gen?"TP Generate · ":"Drafting · ")+c.applicant;
-  let h=`<p class="sf-note">${dor?"Laid out like TNREGINET's Deed of Receipt screens. Fields come from the OCR of the MODT and NOC; correct anything wrong.":"Laid out like TNREGINET's MODT screens. Check and correct every field before generating the TP."}</p>`;
+  let h=`<p class="sf-note">${dor?"Pages 1–10 in the same order as TNREGINET's Deed of Receipt. Company, representative and witnesses come from the client profile; borrower and property from the MODT and NOC. Correct anything wrong, then save.":"Laid out like TNREGINET's MODT screens. Check and correct every field before generating the TP."}</p>`;
   if(c.tpNotes)h+=`<p class="banner">OCR check: ${esc(c.tpNotes)}</p>`;
-  sections.forEach(([sec,fields])=>{h+=`<div class="rvsec"><div class="sect">${esc(sec)}</div><div class="fgrid">`+fields.map(f=>{const id="rv_"+f.replace(/\W+/g,"_");
+  sections.forEach(([sec,fields])=>{h+=`<div class="rvsec"><div class="sect">${esc(sec)}</div><div class="fgrid">`+fields.map(ff=>{const [f,t,o]=Array.isArray(ff)?ff:[ff],id="rv_"+f.replace(/\W+/g,"_");
+      if(t==="s")return`<label>${esc(f)}${dor&&DOR_REQ.includes(f)?" *":""}<select id="${id}"><option value=""></option>${[...new Set([...o,data[f]].filter(Boolean))].map(x=>`<option${x===data[f]?" selected":""}>${esc(x)}</option>`).join("")}</select></label>`;
+      if(t==="ro")return`<label>${esc(f)}<input id="${id}" value="${esc(data[f]||"")}" readonly></label>`;
+      if(dor)return`<label class="${t==="w"?"full":""}">${esc(f)}${DOR_REQ.includes(f)?" *":""}<input id="${id}" value="${esc(data[f]||"")}"${/Tamil/.test(f)?' lang="ta"':""}></label>`;
       if(f==="Bank Sheet")return`<label>${f} *<select id="${id}"><option value="">— select —</option>${[...new Set([...BANK_SHEETS,data[f]].filter(Boolean))].map(x=>`<option${x===data[f]?" selected":""}>${esc(x)}</option>`).join("")}</select></label>`;
       return`<label class="${/Address|Boundary|Govt/.test(f)?"full":""}">${esc(f)}${dor&&DOR_NEED.includes(f)?" *":""}<input id="${id}" value="${esc(data[f]||"")}"></label>`}).join("")+`</div>`;
-    if(dor&&sec==="Mortgagee")h+=`<p class="sf-note">Company representative and the two witnesses come from the “${esc(data["Bank Sheet"]||"bank")}” sheet of RD _ TP Details - Common Data.xlsx on the Mac.</p>`;
+    if(dor&&/^2 /.test(sec)&&!profOf(c.bank))h+=`<p class="banner">No client profile for “${esc(c.bank)}” yet. Set it up in Clients &amp; Staff so the company, representative and witnesses fill in automatically.</p>`;
     h+=`</div>`});
   const docs=docsFor(c.type).filter(d=>(c.docs||{})[d.k]&&c.docs[d.k].length);
-  h+=`<div class="rvsec"><div class="sect">Documents to upload on TNREGINET</div>${docs.length?docs.map(d=>`<div class="kv"><span>${esc(d.l)}</span><b>${c.docs[d.k].map(f=>esc(f.name)).join(", ")}</b></div>`).join(""):`<p class="sf-note">No documents uploaded yet.</p>`}</div>`;
+  h+=`<div class="rvsec"><div class="sect">${dor?"10 · ":""}Documents to upload on TNREGINET</div>${docs.length?docs.map(d=>`<div class="kv"><span>${esc(d.l)}</span><b>${c.docs[d.k].map(f=>esc(f.name)).join(", ")}</b></div>`).join(""):`<p class="sf-note">No documents uploaded yet.</p>`}</div>`;
   if(gen)h+=`<div class="rvsec" id="rvLogin"></div>`;
   $("rvBody").innerHTML=h;
   $("rvFoot").innerHTML=`<span class="sp"></span><button type="button" class="btn" id="rvCancel">Close</button><button type="button" class="btn ${gen?"":"primary"}" id="rvSave">Save draft</button>`+
@@ -911,8 +923,8 @@ function openReview(c,gen){
 }
 function closeReview(){$("review").hidden=true;$("rvscrim").hidden=true;rv={c:null,gen:false}}
 $("rvscrim").onclick=closeReview;
-function readReview(){const c=rv.c,dor=isRD(c.type),sections=dor?DOR_FIELDS:MODT_FIELDS,out={...(dor?c.tp:c.draft)||{}};
-  sections.forEach(([,fields])=>fields.forEach(f=>{const el=$("rv_"+f.replace(/\W+/g,"_"));if(el)out[f]=el.value.trim()}));return out}
+function readReview(){const c=rv.c,dor=isRD(c.type),sections=dor?DOR_PAGES:MODT_FIELDS,out={...(dor?c.tp:c.draft)||{}};
+  sections.forEach(([,fields])=>fields.forEach(ff=>{const f=Array.isArray(ff)?ff[0]:ff,el=$("rv_"+f.replace(/\W+/g,"_"));if(el)out[f]=el.value.trim()}));return out}
 async function saveReview(done){
   const c=rv.c,dor=isRD(c.type),data=readReview(),ch=dor?{tp:data}:{draft:data};
   if(!dor&&data.SRO)ch.sro=data.SRO;if(dor&&data.SRO)ch.sro=data.SRO;
@@ -921,7 +933,8 @@ async function saveReview(done){
 }
 async function approveReview(){
   const c=rv.c,dor=isRD(c.type),data=readReview();
-  if(dor){const miss=DOR_NEED.filter(k=>!String(data[k]||"").trim());if(miss.length){toast("Fill these first: "+miss.join(", "));return}}
+  if(dor){const miss=DOR_REQ.filter(k=>!String(data[k]||"").trim());if(miss.length){toast("Fill these first: "+miss.join(", "));return}
+    const bad=["Rep Aadhaar","Witness 1 Aadhaar","Witness 2 Aadhaar","Mortgagor Aadhaar"].filter(k=>data[k]&&digits(data[k]).length!==12);if(bad.length){toast("Check: "+bad.join(", ")+" (12 digits)");return}}
   await patch(c,dor?{tp:data}:{draft:data},"Draft approved for TP");
   if(!dor){$("rvLogin").innerHTML=`<div class="sect">Generate TP</div><p class="banner">Automatic TP filling is ready for Deed of Receipt. For MODT it will be built and tested with your demo case. For now, create this TP in TNREGINET from the approved draft, then use “Enter TP No.”.</p>`;return}
   if(!H.ok){$("rvLogin").innerHTML=`<p class="banner">The TNREGINET helper answers only when this portal is open in the Claude app on your Mac.</p>`;return}
@@ -1083,37 +1096,12 @@ document.querySelectorAll(".addline[data-k]").forEach(f=>f.onsubmit=e=>{e.preven
   if(cfg.banks.some(x=>x.toLowerCase()===v.toLowerCase())){toast("Already in the list");return}saveCfg({...cfg,banks:[...cfg.banks,v]});inp.value=""});
 function fileLinks(fs){return(fs||[]).map(f=>`<a href="${esc(f.url)}" target="_blank" rel="noopener">${esc(f.name)}</a>`).join(" ")}
 function upBtn(id,label,ro,multi){return ro?"":`<label class="btn" for="${id}">${label}</label><input type="file" id="${id}" accept="image/*,application/pdf,.pdf" ${multi?"multiple":""} hidden>`}
-function renderMasters(ro){
-  const reps=cfg.reps||{};
-  $("repList").innerHTML=cfg.banks.length?cfg.banks.map((b,i)=>{const r=reps[b]||{};return`<div class="mrow"><b>${esc(b)}</b><span class="${r.kyc&&r.kyc.length&&r.id&&r.id.length?"ok":"no"}">${r.kyc&&r.kyc.length&&r.id&&r.id.length?"✓ ready":"incomplete"}</span>
-    <div class="mf"><input type="text" placeholder="Rep name" value="${esc(r.name||"")}" data-rn="${i}" ${ro?"disabled":""}>${upBtn("rk_"+i,r.kyc&&r.kyc.length?"Replace KYC":"Upload KYC",ro,1)}${upBtn("ri_"+i,r.id&&r.id.length?"Replace ID":"Upload ID",ro)}</div>
-    <div class="mf">${fileLinks(r.kyc)} ${fileLinks(r.id)}</div></div>`}).join(""):`<p class="sf-note">Add clients first.</p>`;
-  $("witList").innerHTML=(cfg.wit||[]).length?cfg.wit.map((w,i)=>`<div class="mrow"><b>${esc(w.name)}</b><span>${ro?(w.def?"W"+w.def:""):`<select data-wd="${i}" aria-label="Default slot"><option value="">—</option><option value="1"${w.def===1?" selected":""}>W1</option><option value="2"${w.def===2?" selected":""}>W2</option></select> <button class="btn danger" type="button" data-wx="${i}">×</button>`}</span>
-    <div class="mf"><input type="text" placeholder="Aadhaar no. (for TP)" value="${esc(w.aadhaar||"")}" data-wa="${i}" inputmode="numeric" ${ro?"disabled":""}>${upBtn("wk_"+i,w.kyc&&w.kyc.length?"Replace KYC":"Upload KYC",ro,1)}</div>
-    <div class="mf">${fileLinks(w.kyc)||'<span class="no">No KYC yet</span>'}</div></div>`).join(""):`<p class="sf-note">No witnesses yet.</p>`;
-  $("witAdd").hidden=ro;if(ro)return;
-  const mk=async(files,name)=>{const isPdf=f=>f.type==="application/pdf"||/\.pdf$/i.test(f.name);
-    if(files.length===1&&isPdf(files[0])){const r=await uploadFile(new File([files[0]],name+".pdf",{type:"application/pdf"}));return r?[r]:null}
-    toast("Making the KYC PDF from the photos…");const k=await kycFrom(files,name+".pdf");return k?[k]:null};
-  cfg.banks.forEach((b,i)=>{
-    const rk=$("rk_"+i),ri=$("ri_"+i);
-    if(rk)rk.onchange=async e=>{const fs=[...e.target.files];if(!fs.length)return;const r=await mk(fs,`${b} - Bank Rep KYC`);if(r)saveCfg({...cfg,reps:{...cfg.reps,[b]:{...(cfg.reps[b]||{}),kyc:r}}})};
-    if(ri)ri.onchange=async e=>{const f=e.target.files[0];if(!f)return;const ext=(f.name.match(/\.[a-z0-9]+$/i)||[".pdf"])[0];const r=await uploadFile(new File([f],`${b} - Bank Rep ID${ext}`,{type:f.type}));if(r)saveCfg({...cfg,reps:{...cfg.reps,[b]:{...(cfg.reps[b]||{}),id:[r]}}})};
-  });
-  document.querySelectorAll("[data-rn]").forEach(el=>el.onchange=()=>{const b=cfg.banks[+el.dataset.rn];saveCfg({...cfg,reps:{...cfg.reps,[b]:{...(cfg.reps[b]||{}),name:el.value.trim()}}})});
-  (cfg.wit||[]).forEach((w,i)=>{const k=$("wk_"+i);if(k)k.onchange=async e=>{const fs=[...e.target.files];if(!fs.length)return;const r=await mk(fs,`${w.name} - Witness KYC`);if(r)saveCfg({...cfg,wit:cfg.wit.map((x,j)=>j===i?{...x,kyc:r}:x)})}});
-  document.querySelectorAll("[data-wa]").forEach(el=>el.onchange=()=>{const i=+el.dataset.wa,v=el.value.replace(/\D/g,"");if(v&&v.length!==12){toast("Aadhaar should be 12 digits");return}saveCfg({...cfg,wit:cfg.wit.map((x,j)=>j===i?{...x,aadhaar:v}:x)})});
-  document.querySelectorAll("[data-wd]").forEach(el=>el.onchange=()=>{const i=+el.dataset.wd,d=+el.value||0;saveCfg({...cfg,wit:cfg.wit.map((x,j)=>j===i?{...x,def:d}:(d&&x.def===d?{...x,def:0}:x))})});
-  document.querySelectorAll("[data-wx]").forEach(el=>el.onclick=()=>{const i=+el.dataset.wx;ask("Remove this witness?",`<p class="sf-note">${esc(cfg.wit[i].name)} will no longer fill new cases. Past cases keep their files.</p>`,()=>saveCfg({...cfg,wit:cfg.wit.filter((_,j)=>j!==i)}),"Remove")});
-}
-$("witAdd").onsubmit=e=>{e.preventDefault();const inp=e.target.querySelector("input"),v=inp.value.trim();if(!v)return;if((cfg.wit||[]).some(w=>w.name.toLowerCase()===v.toLowerCase())){toast("Already in the list");return}
-  saveCfg({...cfg,wit:[...(cfg.wit||[]),{name:v,aadhaar:"",kyc:[],def:0}]});inp.value=""};
 function readStaff(){return[...$("staffTbl").querySelectorAll("tr[data-i]")].map(tr=>({name:tr.querySelector('[data-f="name"]').value.trim(),email:tr.querySelector('[data-f="email"]').value.trim().toLowerCase(),phone:tr.querySelector('[data-f="phone"]').value.trim(),tabs:[...tr.querySelectorAll(".st:checked")].map(x=>x.dataset.t)})).filter(s=>s.name)}
 $("staffAdd").onclick=()=>{const s=readStaff();s.push({name:"New staff",email:"",phone:"",tabs:["MODT"]});cfg={...cfg,staff:s};renderSettings()};
 $("staffSave").onclick=()=>saveCfg({...cfg,staff:readStaff()});
 $("paySave").onclick=()=>saveCfg({...cfg,pay:{account:$("pay_account").value.trim(),upi:fv("pay_upi"),link:fv("pay_link"),service:fv("pay_service")}});
 async function saveCfg(n){if(!db){toast("Sign in to save");return}cfg=n;fillStatic();render();
-  try{await db.doc("config/lists").set({banks:n.banks,staff:n.staff.map(staffObj),types:n.types,pay:n.pay||{},reps:n.reps||{},wit:n.wit||[]});toast("Saved")}catch(err){fail(err)}}
+  try{await db.doc("config/lists").set({banks:n.banks,staff:n.staff.map(staffObj),types:n.types,pay:n.pay||{},profiles:n.profiles||{},wit:n.wit||[]});toast("Saved")}catch(err){fail(err)}}
 function fillStatic(){
   opts($("fClient"),cfg.banks,"All Clients");
   const names=cfg.staff.map(s=>staffObj(s).name),mv=me;
@@ -1445,6 +1433,161 @@ function setMsg(t,kind=""){const m=$("msg");m.textContent=t;m.className="kmsg"+(
 drawPreview();
 }
 
+/* ================= client profiles, witnesses, Excel import (Deed of Receipt) ================= */
+const SAL=["Mr","Mrs","Ms","Dr"],REL=["Son of","Wife of","Daughter of","Husband of","Father of","Care of"],GEN=["Male","Female"];
+const PERSON_F=[["sal","Salutation","s",SAL],["name","Name"],["name_ta","Name in Tamil"],["rel_type","Relationship type","s",REL],["rel_name","Relationship name"],["rel_ta","Relationship name in Tamil"],["dob","Date of birth / Age"],["gender","Gender","s",GEN],["id_no","Aadhaar number"],["designation","Designation"],["state","State"],["district","District"],["addr","Address","w"],["addr_ta","Address in Tamil","w"],["pincode","Pincode"],["mobile","Mobile"]];
+const WIT_F=[["sal","Salutation","s",SAL],["name","Name"],["rel_type","Relationship type","s",REL],["rel_name","Relationship name"],["dob","Date of birth / Age"],["gender","Gender","s",GEN],["aadhaar","Aadhaar number"],["district","District"],["addr","Address","w"],["pincode","Pincode"],["mobile","Mobile"]];
+const CO_F=[["full_name","Company full name (as in TNREGINET)","w"],["state","State"],["district","District"],["addr_en","Address in English","w"],["addr_ta","Address in Tamil","w"],["pincode","Pincode"]];
+const profOf=b=>((cfg.profiles||{})[b])||null;
+const repsOf=b=>(profOf(b)&&profOf(b).reps)||[];
+function relNorm(v){v=String(v||"").trim();const m=v.toLowerCase().replace(/[^a-z]/g,"");if(!m)return"";return m.startsWith("w")?"Wife of":m.startsWith("d")?"Daughter of":m.startsWith("h")?"Husband of":m.startsWith("f")?"Father of":m.startsWith("c")?"Care of":"Son of"}
+function salNorm(v){const m=String(v||"").toLowerCase().replace(/[^a-z]/g,"");return!m?"":m.startsWith("mrs")?"Mrs":m.startsWith("ms")||m.startsWith("miss")?"Ms":m.startsWith("dr")?"Dr":"Mr"}
+function ageOf(v){v=String(v||"").trim();if(/^\d{1,3}(\.0)?$/.test(v))return String(parseInt(v));const m=v.match(/(\d{4})/);if(!m)return"";const y=+m[1];let a=new Date().getFullYear()-y;const dm=v.match(/^(\d{1,2})[-\/.](\d{1,2})[-\/.](\d{4})/);if(dm){const bd=new Date(+dm[3],+dm[2]-1,+dm[1]),t=new Date();if(t<new Date(t.getFullYear(),bd.getMonth(),bd.getDate()))a--}return a>0&&a<120?String(a):""}
+const digits=v=>String(v||"").replace(/\.0$/,"").replace(/\D/g,"");
+function personDone(p){return!!(p&&p.name&&digits(p.id_no||p.aadhaar).length===12)}
+
+/* ---- settings cards ---- */
+function renderMasters(ro){
+  const P=cfg.profiles||{};
+  $("repList").innerHTML=cfg.banks.length?cfg.banks.map((b,i)=>{const p=P[b]||{},reps=p.reps||[],kyc=reps.filter(r=>(r.kyc||[]).length&&(r.idcard||[]).length).length,co=!!(p.company&&p.company.addr_en);
+    const ok=co&&reps.length&&kyc===reps.length;
+    return`<div class="mrow"><b>${esc(b)}</b><span>${ro?"":`<button class="btn" type="button" data-pe="${i}">${co||reps.length?"Edit":"Set up"}</button>`}</span>
+      <div class="mf"><span class="${co?"ok":"no"}">${co?"✓":"○"} Company address</span> · <span class="${reps.length?"ok":"no"}">${reps.length} rep${reps.length===1?"":"s"}</span> · <span class="${reps.length&&kyc===reps.length?"ok":"no"}">KYC + ID ${kyc}/${reps.length}</span>${p.w1||p.w2?` · W: ${esc([p.w1,p.w2].filter(Boolean).join(", "))}`:""}${ok?` · <span class="ok">ready</span>`:""}</div></div>`}).join(""):`<p class="sf-note">Add clients first.</p>`;
+  $("witList").innerHTML=(cfg.wit||[]).length?cfg.wit.map((w,i)=>`<div class="mrow"><b>${esc(w.name)}</b><span>${ro?(w.def?"W"+w.def:""):`<select data-wd="${i}" aria-label="Default slot for ${esc(w.name)}"><option value="">—</option><option value="1"${w.def===1?" selected":""}>W1</option><option value="2"${w.def===2?" selected":""}>W2</option></select><button class="btn" type="button" data-we="${i}">Edit</button>`}</span>
+    <div class="mf"><span class="${digits(w.aadhaar).length===12?"ok":"no"}">${digits(w.aadhaar).length===12?"✓ Aadhaar":"○ Aadhaar"}</span> · ${(w.kyc||[]).length?fileLinks(w.kyc):'<span class="no">○ KYC</span>'}</div></div>`).join(""):`<p class="sf-note">No witnesses yet. Add one, or import your Excel.</p>`;
+  $("witAdd").hidden=ro;$("xlBox").hidden=ro;if(ro)return;
+  document.querySelectorAll("[data-pe]").forEach(el=>el.onclick=()=>openProfile(cfg.banks[+el.dataset.pe]));
+  document.querySelectorAll("[data-we]").forEach(el=>el.onclick=()=>openWitness(+el.dataset.we));
+  document.querySelectorAll("[data-wd]").forEach(el=>el.onchange=()=>{const i=+el.dataset.wd,d=+el.value||0;saveCfg({...cfg,wit:cfg.wit.map((x,j)=>j===i?{...x,def:d}:(d&&x.def===d?{...x,def:0}:x))})});
+}
+$("witAdd").onsubmit=e=>{e.preventDefault();const inp=e.target.querySelector("input"),v=inp.value.trim();if(!v)return;if((cfg.wit||[]).some(w=>w.name.toLowerCase()===v.toLowerCase())){toast("Already in the list");return}
+  const wit=[...(cfg.wit||[]),{name:v,sal:"Mr",kyc:[],def:0}];saveCfg({...cfg,wit});inp.value="";setTimeout(()=>openWitness(wit.length-1),300)};
+
+/* ---- editor drawer ---- */
+let pe=null;
+function fld(prefix,[k,l,t,o],v){const id=prefix+k;v=v==null?"":String(v);
+  if(t==="s")return`<label>${esc(l)}<select id="${id}"><option value=""></option>${[...new Set([...o,v].filter(Boolean))].map(x=>`<option${x===v?" selected":""}>${esc(x)}</option>`).join("")}</select></label>`;
+  return`<label class="${t==="w"?"full":""}">${esc(l)}<input id="${id}" value="${esc(v)}"${/Tamil/.test(l)?' lang="ta"':""}></label>`}
+function readF(prefix,F,base){const o={...base};F.forEach(([k])=>{const el=$(prefix+k);if(el)o[k]=el.value.trim()});return o}
+async function makeKyc(files,name){const isPdf=f=>f.type==="application/pdf"||/\.pdf$/i.test(f.name);
+  if(files.length===1&&isPdf(files[0])){const r=await uploadFile(new File([files[0]],name+".pdf",{type:"application/pdf"}));return r?[{...r,kyc:true}]:null}
+  toast("Making the KYC PDF from the photos…");const k=await kycFrom(files,name+".pdf");return k?[{...k,kyc:true}]:null}
+function openPE(title,html,onSave){$("peTitle").textContent=title;$("peBody").innerHTML=html;$("peSave").onclick=onSave;$("prof").hidden=false;$("pescrim").hidden=false}
+function closePE(){$("prof").hidden=true;$("pescrim").hidden=true;pe=null}
+$("peClose").onclick=closePE;$("pescrim").onclick=closePE;
+function openProfile(bank){
+  const p=JSON.parse(JSON.stringify(profOf(bank)||{company:{},reps:[]}));p.company=p.company||{};p.reps=p.reps||[];if(!p.reps.length)p.reps.push({sal:"Mr",state:"Tamil Nadu"});
+  pe={kind:"p",bank,p};paintProfile();
+}
+function paintProfile(){
+  const{bank,p}=pe,W=cfg.wit||[];
+  let h=`<div class="rvsec"><div class="sect">Mortgagee · company details</div><div class="fgrid">${CO_F.map(f=>fld("co_",f,p.company[f[0]])).join("")}</div></div>`;
+  p.reps.forEach((r,i)=>{h+=`<div class="rvsec"><div class="sect">Company representative ${i+1}${p.reps.length>1?` <button type="button" class="btn danger" data-rx="${i}" style="float:right">Remove</button>`:""}</div><div class="fgrid">${PERSON_F.map(f=>fld(`r${i}_`,f,r[f[0]])).join("")}</div>
+    <div class="mf" style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">${upBtn("rk_"+i,(r.kyc||[]).length?"Replace KYC":"Upload Aadhaar KYC",false,1)}${upBtn("ri_"+i,(r.idcard||[]).length?"Replace ID":"Upload bank ID card")}${fileLinks(r.kyc)} ${fileLinks(r.idcard)}</div></div>`});
+  h+=`<button type="button" class="btn" id="repAdd">+ Add another representative</button>`;
+  h+=`<div class="rvsec" style="margin-top:14px"><div class="sect">Default witnesses for ${esc(bank)}</div><div class="fgrid">${[1,2].map(n=>`<label>Witness ${n}<select id="pw${n}"><option value="">Use the office default</option>${W.map(w=>`<option${p["w"+n]===w.name?" selected":""}>${esc(w.name)}</option>`).join("")}</select></label>`).join("")}</div></div>`;
+  openPE(bank,h,saveProfile);
+  const keep=()=>{pe.p=collectProfile()};
+  p.reps.forEach((r,i)=>{
+    $("rk_"+i).onchange=async e=>{const fs=[...e.target.files];if(!fs.length)return;keep();const k=await makeKyc(fs,`${bank} - ${pe.p.reps[i].name||"Rep"} - Bank Rep KYC`);if(k){pe.p.reps[i].kyc=k;paintProfile()}};
+    $("ri_"+i).onchange=async e=>{const f=e.target.files[0];if(!f)return;keep();const ext=(f.name.match(/\.[a-z0-9]+$/i)||[".pdf"])[0];const r2=await uploadFile(new File([f],`${bank} - ${pe.p.reps[i].name||"Rep"} - Bank Rep ID${ext}`,{type:f.type}));if(r2){pe.p.reps[i].idcard=[r2];paintProfile()}};
+  });
+  document.querySelectorAll("[data-rx]").forEach(el=>el.onclick=()=>{keep();pe.p.reps.splice(+el.dataset.rx,1);paintProfile()});
+  $("repAdd").onclick=()=>{keep();pe.p.reps.push({sal:"Mr",state:"Tamil Nadu"});paintProfile()};
+}
+function collectProfile(){const p=pe.p;return{...p,company:readF("co_",CO_F,p.company),reps:p.reps.map((r,i)=>readF(`r${i}_`,PERSON_F,r)),w1:$("pw1")?$("pw1").value:p.w1,w2:$("pw2")?$("pw2").value:p.w2}}
+function saveProfile(){const p=collectProfile();p.reps=p.reps.filter(r=>r.name||(r.kyc||[]).length);
+  const bad=p.reps.find(r=>r.id_no&&digits(r.id_no).length!==12);if(bad){toast(`Aadhaar for ${bad.name||"the rep"} should be 12 digits`);return}
+  saveCfg({...cfg,profiles:{...(cfg.profiles||{}),[pe.bank]:p}});closePE()}
+function openWitness(i){const w={...cfg.wit[i]};pe={kind:"w",i,w};paintWitness()}
+function paintWitness(){const{w,i}=pe;
+  const h=`<div class="rvsec"><div class="fgrid">${WIT_F.map(f=>fld("w_",f,w[f[0]])).join("")}</div>
+    <div class="mf" style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">${upBtn("wkx",(w.kyc||[]).length?"Replace KYC":"Upload Aadhaar KYC",false,1)}${fileLinks(w.kyc)}</div></div>
+    <button type="button" class="btn danger" id="wDel">Remove this witness</button>`;
+  openPE("Witness · "+(w.name||""),h,()=>{const o=readF("w_",WIT_F,pe.w);if(!o.name){toast("Enter the name");return}if(o.aadhaar&&digits(o.aadhaar).length!==12){toast("Aadhaar should be 12 digits");return}
+    saveCfg({...cfg,wit:cfg.wit.map((x,j)=>j===i?o:x)});closePE()});
+  $("wkx").onchange=async e=>{const fs=[...e.target.files];if(!fs.length)return;pe.w=readF("w_",WIT_F,pe.w);const k=await makeKyc(fs,`${pe.w.name||"Witness"} - Witness KYC`);if(k){pe.w.kyc=k;paintWitness()}};
+  $("wDel").onclick=()=>ask("Remove this witness?",`<p class="sf-note">${esc(w.name)} will no longer fill new cases. Past cases keep their files.</p>`,()=>{saveCfg({...cfg,wit:cfg.wit.filter((_,j)=>j!==i)});closePE()},"Remove");
+}
+
+/* ---- Excel import (runs in the browser; the file is not uploaded) ---- */
+function loadXlsx(){if(window.XLSX)return Promise.resolve();return new Promise((ok,no)=>{const s=document.createElement("script");s.src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js";s.onload=ok;s.onerror=()=>no(new Error("Excel reader did not load"));document.head.appendChild(s)})}
+function xVal(v){if(v==null)return"";if(typeof v==="number")return Number.isInteger(v)?String(v):String(v);if(v instanceof Date)return`${String(v.getDate()).padStart(2,"0")}-${String(v.getMonth()+1).padStart(2,"0")}-${v.getFullYear()}`;return String(v).trim()}
+function blocks(ws){const rows=XLSX.utils.sheet_to_json(ws,{header:1,raw:true,cellDates:true,blankrows:false});const out=[];let cur=null;
+  rows.forEach(r=>{const a=xVal(r[0]),b=xVal(r[1]),c=xVal(r[2]);if(a){cur={sec:a.replace(/\s+/g," "),d:{}};out.push(cur)}if(cur&&b)cur.d[b.toLowerCase()]=c});return out}
+const gk=(d,...ks)=>{for(const k of ks){const hit=Object.keys(d).find(x=>x.startsWith(k));if(hit&&d[hit])return d[hit]}return""};
+function toPerson(d){return{sal:salNorm(gk(d,"salutation")),name:gk(d,"name in english","name"),name_ta:gk(d,"name in tamil"),rel_type:relNorm(gk(d,"relationship type")),rel_name:gk(d,"relationship name"),rel_ta:gk(d,"relationship tamil"),
+  dob:gk(d,"date of birth"),gender:/^f/i.test(gk(d,"gender"))?"Female":gk(d,"gender")?"Male":"",id_no:digits(gk(d,"id number","aadhaar")),designation:gk(d,"designation"),state:gk(d,"state"),district:gk(d,"district"),
+  addr:gk(d,"address in english","address"),addr_ta:gk(d,"address in tamil"),pincode:digits(gk(d,"pincode","state pincode")),mobile:digits(gk(d,"mobile"))}}
+function toWit(d){const p=toPerson(d);return{sal:p.sal,name:p.name,rel_type:p.rel_type,rel_name:p.rel_name,dob:p.dob,gender:p.gender||(p.sal==="Mr"?"Male":p.sal?"Female":""),aadhaar:p.id_no,district:p.district,addr:p.addr,pincode:p.pincode,mobile:p.mobile,kyc:[],def:0}}
+function guessClient(sheet){const w=sheet.toLowerCase().replace(/[-_ ]?rep$/,"").split(/[^a-z]+/).filter(x=>x.length>2);
+  let best="",sc=0;cfg.banks.forEach(b=>{const n=b.toLowerCase();const s=w.filter(x=>n.includes(x)).length;if(s>sc){sc=s;best=b}});return best}
+$("xlIn").onchange=async e=>{const f=e.target.files[0];e.target.value="";if(!f)return;
+  try{await loadXlsx();const wb=XLSX.read(await f.arrayBuffer(),{type:"array",cellDates:true});
+    const sheets=[],wits=[];
+    wb.SheetNames.forEach(n=>{const bl=blocks(wb.Sheets[n]);
+      if(/witness/i.test(n)){bl.filter(b=>/witness/i.test(b.sec)).forEach(b=>{const w=toWit(b.d);if(w.name)wits.push(w)});return}
+      const co=bl.find(b=>/company details/i.test(b.sec)),reps=bl.filter(b=>/representative/i.test(b.sec)).map(b=>toPerson(b.d)).filter(r=>r.name);
+      const sw=bl.filter(b=>/^witness/i.test(b.sec)).map(b=>toWit(b.d)).filter(w=>w.name);sw.forEach(w=>wits.push(w));
+      if(!co&&!reps.length)return;
+      const d=co?co.d:{};sheets.push({sheet:n,company:{full_name:"",state:gk(d,"state"),district:gk(d,"district"),addr_en:gk(d,"address in english"),addr_ta:gk(d,"address in tamil"),pincode:digits(gk(d,"state pincode","pincode"))},reps,w1:(sw[0]||{}).name||"",w2:(sw[1]||{}).name||""})});
+    const seen=new Set(),uniq=wits.filter(w=>{const k=(w.name+"|"+w.aadhaar).toLowerCase();if(seen.has(k))return false;seen.add(k);return true});
+    if(!sheets.length&&!uniq.length){toast("No bank sheets or witnesses found in this file");return}
+    openPE("Import from Excel",`<p class="sf-note">Found ${sheets.length} bank sheet${sheets.length===1?"":"s"} and ${uniq.length} witness${uniq.length===1?"":"es"} in “${esc(f.name)}”. Choose which client each sheet belongs to. Nothing is saved until you press Save. KYC and ID files are uploaded separately.</p>
+      <div class="rvsec">${sheets.map((s,i)=>`<div class="mrow"><b>${esc(s.sheet)}</b><span></span><div class="mf"><select id="xs_${i}" style="flex:1"><option value="">Skip this sheet</option><option value="__new">Add as new client “${esc(s.sheet.replace(/[-_ ]?rep$/i,""))}”</option>${cfg.banks.map(b=>`<option${guessClient(s.sheet)===b?" selected":""}>${esc(b)}</option>`).join("")}</select></div>
+        <div class="mf">${s.reps.length} rep${s.reps.length===1?"":"s"}${s.company.addr_en?" · company address":""}${s.w1||s.w2?" · witnesses "+esc([s.w1,s.w2].filter(Boolean).join(", ")):""}</div></div>`).join("")}</div>
+      <label style="display:flex;gap:8px;align-items:center;font-size:14px"><input type="checkbox" id="xlW" checked> Add the ${uniq.length} witnesses to the witness list (same name + Aadhaar is skipped)</label>`,()=>{
+        const profiles={...(cfg.profiles||{})};let banks=[...cfg.banks];
+        sheets.forEach((s,i)=>{let to=$("xs_"+i).value;if(!to)return;if(to==="__new"){to=s.sheet.replace(/[-_ ]?rep$/i,"").trim();if(!banks.includes(to))banks.push(to)}
+          const old=profiles[to]||{};const keepFiles=(r)=>{const o=(old.reps||[]).find(x=>x.name&&x.name.toLowerCase()===r.name.toLowerCase());return o?{...r,kyc:o.kyc||[],idcard:o.idcard||[]}:r};
+          profiles[to]={...old,company:{...(old.company||{}),...Object.fromEntries(Object.entries(s.company).filter(([,v])=>v))},reps:s.reps.map(keepFiles),w1:s.w1||old.w1||"",w2:s.w2||old.w2||""}});
+        let wit=[...(cfg.wit||[])];if($("xlW").checked)uniq.forEach(w=>{if(!wit.some(x=>x.name.toLowerCase()===w.name.toLowerCase()&&digits(x.aadhaar)===digits(w.aadhaar)))wit.push(w)});
+        saveCfg({...cfg,banks,profiles,wit});closePE()});
+  }catch(err){console.error(err);toast("Could not read the Excel: "+err.message)}};
+
+/* ---- case form: rep + witness pick ---- */
+function repOptions(bank,cur){const reps=repsOf(bank);return`<option value="">${reps.length?"— select —":"No rep saved for this client"}</option>`+reps.map(r=>`<option${r.name===cur?" selected":""}>${esc(r.name)}</option>`).join("")}
+function witDefault(bank,n){const p=profOf(bank);if(p&&p["w"+n]&&(cfg.wit||[]).some(w=>w.name===p["w"+n]))return p["w"+n];return((cfg.wit||[]).find(x=>x.def===n)||{}).name||""}
+
+/* ---- bank auto-pick from the MODT copy ---- */
+const GENERIC=new Set(["limited","ltd","private","pvt","finance","financial","services","company","bank","housing","home","small","the","of","and","fincorp","capital","india","first"]);
+function matchBank(text){const t=" "+text.toLowerCase().replace(/[^a-z0-9]+/g," ")+" ";let best="",sc=0;
+  cfg.banks.forEach(b=>{const n=b.toLowerCase().replace(/\s+-\s+.*$/,"").replace(/[^a-z0-9]+/g," ").trim();let s=0;
+    if(t.includes(" "+n.replace(/ (limited|ltd)$/,"")+" "))s+=10;
+    const key=n.split(" ").filter(w=>w.length>2&&!GENERIC.has(w));key.forEach(w=>{if(t.includes(" "+w+" "))s+=3});
+    if(!key.length){const all=n.split(" ").filter(w=>w.length>2&&!["limited","ltd"].includes(w));if(all.length&&all.every(w=>t.includes(" "+w+" ")))s+=4}
+    if(s>sc){sc=s;best=b}});return sc>=3?best:""}
+async function textOfPdf(file){await ensureKycEngine();if(!window.pdfjsLib)return"";const doc=await pdfjsLib.getDocument({data:await file.arrayBuffer()}).promise;let out="";
+  for(let i=1;i<=Math.min(doc.numPages,4);i++){const pg=await doc.getPage(i);const tc=await pg.getTextContent();out+=" "+tc.items.map(x=>x.str).join(" ")}
+  if(out.replace(/\s/g,"").length>200)return out;
+  try{if(!window.Tesseract)await new Promise((ok,no)=>{const s=document.createElement("script");s.src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js";s.onload=ok;s.onerror=no;document.head.appendChild(s)});
+    const w=await Tesseract.createWorker("eng");for(let i=1;i<=Math.min(doc.numPages,2);i++){const pg=await doc.getPage(i),vp=pg.getViewport({scale:2}),c=document.createElement("canvas");c.width=vp.width;c.height=vp.height;
+      await pg.render({canvasContext:c.getContext("2d"),viewport:vp}).promise;const r=await w.recognize(c);out+=" "+r.data.text}await w.terminate()}catch(e){console.warn("OCR",e)}
+  return out}
+async function autoBankFrom(file){if(!$("f_bank")||$("f_bank").value)return;try{toast("Reading the MODT to find the company…");const t=await textOfPdf(file);const b=matchBank(t);
+  if(b&&$("f_bank")&&!$("f_bank").value){$("f_bank").value=b;$("f_bank").dispatchEvent(new Event("change"));toast("Company picked from the MODT: "+b)}else if(!b)toast("Company not found in the MODT. Please select it.")}catch(e){console.warn(e)}}
+
+/* ---- DoR review: every TNREGINET page ---- */
+const WPF=n=>[[`Witness ${n} salutation`,"s",SAL],[`Witness ${n} name`],[`Witness ${n} relation`,"s",REL],[`Witness ${n} relative name`],[`Witness ${n} age`],[`Witness ${n} gender`,"s",GEN],[`Witness ${n} Aadhaar`],[`Witness ${n} district`],[`Witness ${n} address`,"w"],[`Witness ${n} pincode`]];
+const DOR_PAGES=[
+  ["1 · Create document · link the MODT",[["Deed type","ro"],["SRO"],["Book","s",["1","3","4"]],["Doc No"],["Year"],["Document type","s",["Regular Document"]]]],
+  ["2 · Mortgagee · company",[["Company name","w"],["Company state"],["Company district"],["Company address","w"],["Company address (Tamil)","w"],["Company pincode"]]],
+  ["3 · Mortgagor · borrower",[["Mortgagor salutation","s",SAL],["Mortgagor"],["Mortgagor name (Tamil)"],["Mortgagor relation","s",REL],["Mortgagor relative name"],["Mortgagor Age"],["Mortgagor gender","s",GEN],["Mortgagor marital status","s",["Married","Unmarried","Widow","Divorced"]],["Mortgagor Aadhaar"],["Mortgagor profession"],["Mortgagor district"],["Mortgagor taluk"],["Mortgagor village"],["Mortgagor address","w"],["Mortgagor pincode"],["Mortgagor mobile"]]],
+  ["4 · Company representative",[["Rep salutation","s",SAL],["Rep name"],["Rep name (Tamil)"],["Rep relation","s",REL],["Rep relative name"],["Rep relative name (Tamil)"],["Rep age"],["Rep gender","s",GEN],["Rep Aadhaar"],["Rep designation"],["Rep state"],["Rep district"],["Rep address","w"],["Rep address (Tamil)","w"],["Rep pincode"],["Rep mobile"]]],
+  ["5 · Witness 1",WPF(1)],["6 · Witness 2",WPF(2)],
+  ["7 · Presenter",[["Presenter","s",["Company representative","Mortgagor"]]]],
+  ["8 · Property",[["Property district"],["Property SRO"],["Village"],["Survey number"],["Extent"],["Boundary North","w"],["Boundary East","w"],["Boundary West","w"],["Boundary South","w"]]],
+  ["9 · Loan repayment",[["Loan Amount"],["Loan closure date"]]]];
+const DOR_REQ=["SRO","Doc No","Year","Company name","Mortgagor","Mortgagor Age","Rep name","Rep Aadhaar","Witness 1 name","Witness 1 Aadhaar","Witness 2 name","Witness 2 Aadhaar","Loan Amount"];
+function dorFill(c,d){const set=(k,v)=>{if(v!=null&&String(v).trim()!==""&&!String(d[k]||"").trim())d[k]=String(v)};
+  set("Deed type","Deed Of Receipt");set("Book","1");set("Document type","Regular Document");set("Presenter","Company representative");
+  set("Loan Amount",c.loanAmount);set("Mortgagor",c.applicant);set("Mortgagor mobile",c.phone);
+  const p=profOf(c.bank)||{},co=p.company||{};set("Company name",co.full_name||c.bank);set("Company state",co.state);set("Company district",co.district);set("Company address",co.addr_en);set("Company address (Tamil)",co.addr_ta);set("Company pincode",co.pincode);
+  const r=(p.reps||[]).find(x=>x.name===c.rep)||(p.reps||[])[0];if(r){set("Rep salutation",r.sal);set("Rep name",r.name);set("Rep name (Tamil)",r.name_ta);set("Rep relation",r.rel_type);set("Rep relative name",r.rel_name);set("Rep relative name (Tamil)",r.rel_ta);set("Rep age",ageOf(r.dob));set("Rep gender",r.gender);set("Rep Aadhaar",digits(r.id_no));set("Rep designation",r.designation);set("Rep state",r.state);set("Rep district",r.district);set("Rep address",r.addr);set("Rep address (Tamil)",r.addr_ta);set("Rep pincode",r.pincode);set("Rep mobile",r.mobile)}
+  [1,2].forEach(n=>{const w=(cfg.wit||[]).find(x=>x.name===c["w"+n]);if(w){set(`Witness ${n} salutation`,w.sal);set(`Witness ${n} name`,w.name);set(`Witness ${n} relation`,w.rel_type);set(`Witness ${n} relative name`,w.rel_name);set(`Witness ${n} age`,ageOf(w.dob));set(`Witness ${n} gender`,w.gender);set(`Witness ${n} Aadhaar`,digits(w.aadhaar));set(`Witness ${n} district`,w.district);set(`Witness ${n} address`,w.addr);set(`Witness ${n} pincode`,w.pincode)}});
+  set("Mortgagor gender",/^(mrs|ms)/i.test(d["Mortgagor salutation"]||"")?"Female":"");
+  return d}
+
 /* ---------- boot ---------- */
 function ensureKycEngine(){if(window.kycHeadless)return Promise.resolve();kycOpen();return new Promise((ok,no)=>{const t0=Date.now();const iv=setInterval(()=>{if(window.kycHeadless){clearInterval(iv);ok()}else if(Date.now()-t0>60000){clearInterval(iv);no(new Error("KYC tools did not load"))}},300)})}
 let SELF_EMAIL="";
@@ -1461,7 +1604,7 @@ setInterval(()=>{if(!$("v-list").hidden||!$("v-dash").hidden)render()},60000);
     if(isMD){$("mdBadge").hidden=false;if(!me){me=MD_NAME;lsSet("vgr.me",me)}}}
   const timer=setTimeout(()=>{if(!cases.length)$("empty").innerHTML="<h2>Can't reach the case list yet</h2>Check your internet connection. It will load on its own once connected."},10000);
   db.doc("config/lists").onSnapshot(s=>{const d=s.exists?s.data():{};
-    cfg={banks:d.banks||[],staff:(d.staff||[]).map(staffObj),types:(d.types&&d.types.length)?d.types:DEFAULT_TYPES.slice(),pay:d.pay||{},reps:d.reps||{},wit:d.wit||[]};
+    cfg={banks:d.banks||[],staff:(d.staff||[]).map(staffObj),types:(d.types&&d.types.length)?d.types:DEFAULT_TYPES.slice(),pay:d.pay||{},profiles:d.profiles||{},wit:d.wit||[]};
     myStaff=!isMD&&SELF_EMAIL?cfg.staff.find(x=>x.email&&x.email.toLowerCase()===SELF_EMAIL)||null:null;if(myStaff)me=myStaff.name;
     if(!["dash","__all","__set","__sro"].includes(tab)&&!cfg.types.includes(tab))tab="dash";fillStatic();render()},()=>{});
   db.collection("cases").onSnapshot(s=>{if(!s.metadata.fromCache)clearTimeout(timer);cases=s.docs.map(d=>({...d.data(),_doc:d.id}));
