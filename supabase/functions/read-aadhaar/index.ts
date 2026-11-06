@@ -30,9 +30,13 @@ Deno.serve(async (req) => {
     if (!role) return json({ error: "Not allowed" }, 403);
     const key = Deno.env.get("ANTHROPIC_API_KEY");
     if (!key) return json({ error: "ANTHROPIC_API_KEY is not set" }, 500);
-    const { images, kind = "aadhaar" } = await req.json();
-    const PROMPT = PROMPTS[kind];
+    const { images, kind = "aadhaar", hints = [] } = await req.json();
+    let PROMPT = PROMPTS[kind];
     if (!PROMPT) return json({ error: "Unknown kind" }, 400);
+    if (Array.isArray(hints) && hints.length) {
+      const h = hints.slice(0, 40).map((x: unknown) => String(x).slice(0, 200)).join("\n");
+      PROMPT += `\n\nOur staff corrected these readings before (field: "what was read" → "correct value"). They show the spellings and formats this office uses (SRO names, villages, company names). When you see the same text, use the corrected form; do not copy these values into other fields:\n${h}`;
+    }
     if (!Array.isArray(images) || !images.length || images.length > 6) return json({ error: "Send 1-6 images" }, 400);
     const content: unknown[] = images.map((d: string) => {
       const m = /^data:(image\/(?:jpeg|png|webp));base64,(.+)$/.exec(d);
