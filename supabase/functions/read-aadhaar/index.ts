@@ -1,4 +1,4 @@
-// VGR Legal portal: read an Aadhaar card image with Claude and return the fields as JSON.
+// VGR Legal portal: read an Aadhaar card or a registered MODT copy with Claude and return the fields as JSON.
 // Needs the secret ANTHROPIC_API_KEY. Only signed-in MD / staff can call it.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 
@@ -9,9 +9,17 @@ const cors = {
 };
 const json = (b: unknown, s = 200) => new Response(JSON.stringify(b), { status: s, headers: { ...cors, "Content-Type": "application/json" } });
 
-const PROMPT = `You are reading an Indian Aadhaar card (front/back photo, or the e-Aadhaar letter). Return ONLY a JSON object with these keys (use "" when not printed):
+const PROMPTS: Record<string, string> = {
+  aadhaar: `You are reading an Indian Aadhaar card (front/back photo, or the e-Aadhaar letter). Return ONLY a JSON object with these keys (use "" when not printed):
 {"name":"English name exactly as printed","name_ta":"Tamil name exactly as printed in Tamil script","rel_type":"S/O, W/O, D/O or C/O as printed in the address","rel_name":"relative's name in English","rel_name_ta":"relative's name in Tamil script","dob":"DD-MM-YYYY, or YYYY if only year of birth","gender":"Male or Female","aadhaar":"12-digit Aadhaar number, digits only (NOT the 16-digit VID, NOT the enrolment number)","address_en":"full English address after the relation part, as one line, ending with the pincode","address_ta":"full Tamil address after the relation part, as one line","district":"district from the English address","state":"state from the English address","pincode":"6-digit pincode","mobile":"10-digit mobile if printed"}
-Copy text exactly; do not translate or guess. If Tamil is not printed, leave the Tamil keys empty.`;
+Copy text exactly; do not translate or guess. If Tamil is not printed, leave the Tamil keys empty.`,
+  modt: `These are pages of a registered Tamil Nadu MODT (Memorandum of Deposit of Title Deeds) copy: usually an SRO registration receipt/endorsement page (Tamil + English) and the deed pages. Return ONLY a JSON object with these keys (use "" when not found):
+{"sro":"Sub Registrar Office name in English (e.g. Rasipuram)","sro_ta":"SRO name in Tamil","book":"book number (usually 1)","doc_no":"registered document number","year":"registration year (4 digits)","reg_date":"registration date DD-MM-YYYY",
+"mortgagor_sal":"Mr, Mrs or Ms","mortgagor":"mortgagor/borrower full name in English","mortgagor_ta":"mortgagor name in Tamil if printed","age":"age stated in the deed (number only)","rel_type":"S/O, W/O, D/O or C/O","rel_name":"relative's name in English","aadhaar":"mortgagor's 12-digit Aadhaar, digits only","address":"mortgagor address in English as one line","pincode":"6-digit pincode of that address","mobile":"mortgagor mobile if printed",
+"bank":"mortgagee bank / finance company full name","bank_branch":"lender branch","loan_amount":"loan amount in rupees, digits only","loan_account":"loan account number if printed",
+"property_district":"district of the property","property_sro":"SRO of the property in English","village":"village of the property in English","survey_no":"survey number(s) with subdivision","extent":"extent with unit as printed","north":"north boundary","east":"east boundary","west":"west boundary","south":"south boundary"}
+Copy text exactly as printed; do not guess. If there are several mortgagors, give the first one in mortgagor fields.`,
+};
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
@@ -22,8 +30,10 @@ Deno.serve(async (req) => {
     if (!role) return json({ error: "Not allowed" }, 403);
     const key = Deno.env.get("ANTHROPIC_API_KEY");
     if (!key) return json({ error: "ANTHROPIC_API_KEY is not set" }, 500);
-    const { images } = await req.json();
-    if (!Array.isArray(images) || !images.length || images.length > 4) return json({ error: "Send 1-4 images" }, 400);
+    const { images, kind = "aadhaar" } = await req.json();
+    const PROMPT = PROMPTS[kind];
+    if (!PROMPT) return json({ error: "Unknown kind" }, 400);
+    if (!Array.isArray(images) || !images.length || images.length > 6) return json({ error: "Send 1-6 images" }, 400);
     const content: unknown[] = images.map((d: string) => {
       const m = /^data:(image\/(?:jpeg|png|webp));base64,(.+)$/.exec(d);
       if (!m) throw new Error("Bad image");
@@ -33,7 +43,7 @@ Deno.serve(async (req) => {
     const r = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: { "x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json" },
-      body: JSON.stringify({ model: Deno.env.get("AADHAAR_MODEL") ?? "claude-sonnet-5-5", max_tokens: 1200, messages: [{ role: "user", content }] }),
+      body: JSON.stringify({ model: Deno.env.get("AADHAAR_MODEL") ?? "claude-sonnet-5-5", max_tokens: 2000, messages: [{ role: "user", content }] }),
     });
     const out = await r.json();
     if (!r.ok) return json({ error: out?.error?.message ?? "Claude error" }, 502);

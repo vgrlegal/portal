@@ -1567,11 +1567,11 @@ function parseAadhaar(raw){
   return o}
 let lastOcrText="",tessWorker=null;
 async function loadTess(){if(window.Tesseract)return;await new Promise((ok,no)=>{const s=document.createElement("script");s.src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js";s.onload=ok;s.onerror=()=>no(new Error("OCR did not load"));document.head.appendChild(s)})}
-async function canvasesOf(files,say){const out=[];let text="";
+async function canvasesOf(files,say,maxPages=3){const out=[];let text="";
   for(const f of files){
     if(f.type==="application/pdf"||/\.pdf$/i.test(f.name)){await ensureKycEngine();const buf=await f.arrayBuffer();let doc;
       try{doc=await pdfjsLib.getDocument({data:buf.slice(0)}).promise}catch(e){if(e&&e.name==="PasswordException"){const pw=prompt("This e-Aadhaar PDF has a password.\nIt is the first 4 letters of the name in CAPITALS + year of birth (e.g. RAMA1985).");if(!pw)throw new Error("Password needed");doc=await pdfjsLib.getDocument({data:buf.slice(0),password:pw}).promise}else throw e}
-      for(let i=1;i<=Math.min(doc.numPages,3);i++){const pg=await doc.getPage(i);try{const tc=await pg.getTextContent();text+="\n"+tc.items.map(x=>x.str+(x.hasEOL?"\n":" ")).join("")}catch(e){}
+      for(let i=1;i<=Math.min(doc.numPages,maxPages);i++){const pg=await doc.getPage(i);try{const tc=await pg.getTextContent();text+="\n"+tc.items.map(x=>x.str+(x.hasEOL?"\n":" ")).join("")}catch(e){}
         const vp=pg.getViewport({scale:2.5}),c=document.createElement("canvas");c.width=vp.width;c.height=vp.height;await pg.render({canvasContext:c.getContext("2d"),viewport:vp}).promise;out.push(c)}}
     else{const bm=await createImageBitmap(f),k=Math.min(1,2600/Math.max(bm.width,bm.height)),c=document.createElement("canvas");c.width=bm.width*k;c.height=bm.height*k;c.getContext("2d").drawImage(bm,0,0,c.width,c.height);out.push(c)}}
   return{canvases:out,text}}
@@ -1706,7 +1706,23 @@ function parseModt(raw){const t=String(raw||"").replace(/[ \t]+/g," "),f=(re,g=1
   if(/^(mrs|ms)/i.test(d["Mortgagor salutation"]||""))d["Mortgagor gender"]="Female";else if(d["Mortgagor salutation"]==="Mr")d["Mortgagor gender"]="Male";
   if(/wife/i.test(d["Mortgagor relation"]||""))d["Mortgagor marital status"]="Married";
   return d}
-async function autoBankFrom(file){if(!$("f_bank"))return;try{toast("Reading the MODT…");const t=await textOfPdf(file);modtAuto=parseModt(t);
+async function claudeModt(file){if(!window.__sb)return null;const{canvases}=await canvasesOf([file],()=>{},5);if(!canvases.length)return null;
+  const{data,error}=await window.__sb.functions.invoke("read-aadhaar",{body:{kind:"modt",images:canvases.slice(0,5).map(jpegOf)}});
+  if(error||!data||!data.fields){console.warn("Claude MODT",error||data);return null}
+  const f=data.fields,d={},put=(k,v)=>{v=String(v??"").trim();if(v)d[k]=v};
+  put("SRO",f.sro);put("Book",f.book);put("Doc No",f.doc_no);put("Year",f.year);
+  if(f.mortgagor_sal)put("Mortgagor salutation",salNorm(f.mortgagor_sal));put("Mortgagor",String(f.mortgagor||"").toUpperCase());put("Mortgagor name (Tamil)",f.mortgagor_ta);
+  if(f.age){const y=+f.year||new Date().getFullYear();put("Mortgagor Age",String(+String(f.age).replace(/\D/g,"")+(new Date().getFullYear()-y)))}
+  if(f.rel_type)put("Mortgagor relation",relNorm(f.rel_type));put("Mortgagor relative name",String(f.rel_name||"").toUpperCase());
+  put("Mortgagor Aadhaar",String(f.aadhaar||"").replace(/\D/g,"").length===12?String(f.aadhaar).replace(/\D/g,""):"");put("Mortgagor address",f.address);put("Mortgagor pincode",f.pincode);put("Mortgagor mobile",f.mobile);
+  put("Loan Amount",String(f.loan_amount||"").replace(/[^\d]/g,""));put("Property district",f.property_district);put("Property SRO",f.property_sro);put("Village",f.village);put("Survey number",f.survey_no);put("Extent",f.extent);
+  put("Boundary North",f.north);put("Boundary East",f.east);put("Boundary West",f.west);put("Boundary South",f.south);
+  if(/^(mrs|ms)/i.test(d["Mortgagor salutation"]||""))d["Mortgagor gender"]="Female";else if(d["Mortgagor salutation"]==="Mr")d["Mortgagor gender"]="Male";
+  if(/wife/i.test(d["Mortgagor relation"]||""))d["Mortgagor marital status"]="Married";
+  return{d,bankText:[f.bank,f.bank_branch].filter(Boolean).join(" ")}}
+async function autoBankFrom(file){if(!$("f_bank"))return;try{toast("Reading the MODT with Claude… about 10 seconds.");let t="";
+  let c=null;try{c=await claudeModt(file)}catch(e){console.warn(e)}
+  if(c&&Object.keys(c.d).length){modtAuto=c.d;t=c.bankText}else{toast("Reading the MODT…");t=await textOfPdf(file);modtAuto=parseModt(t)}
   if(modtAuto.Mortgagor&&$("f_applicant")&&!$("f_applicant").value)$("f_applicant").value=modtAuto.Mortgagor;
   if(modtAuto["Loan Amount"]&&$("f_loanAmount")&&!$("f_loanAmount").value)$("f_loanAmount").value=modtAuto["Loan Amount"];
   const got=Object.keys(modtAuto).length;if(got)toast(`Read ${got} TNREGINET fields from the MODT. Check them in Drafting.`);
