@@ -161,6 +161,7 @@ tr.hf input,tr.hf select{font-size:12.5px;padding:5px 7px;margin:2px 0}
 .capt input{width:160px;font-size:16px;letter-spacing:.08em}
 .drawer.review{width:min(760px,100%);z-index:23}
 .drawer.review.split{width:50vw}
+.lg{display:inline-block;width:max-content;align-self:flex-start;justify-self:start;font-size:10.5px;font-weight:600;padding:1px 6px;border-radius:999px;vertical-align:1px;margin-left:4px}.lg.ta{background:#fff1d6;color:#8a5300}.lg.en{background:#e6eefc;color:#1f3b63}
 #rvDocPane{position:fixed;left:0;top:0;bottom:0;width:50vw;z-index:23;background:var(--surface,#fff);border-right:1px solid var(--line);display:flex;flex-direction:column}
 #rvDocPane[hidden]{display:none}
 #rvDocPane .dph{display:flex;gap:6px;align-items:center;padding:8px 10px;border-bottom:1px solid var(--line);flex-wrap:wrap}
@@ -939,6 +940,7 @@ async function addComment(){const t=fv("cmIn");if(!t||!editing)return;const c=ed
 /* ================= Review panel (Drafting / TP Generate) ================= */
 let rv={c:null,gen:false};
 function openReview(c,gen){
+  if(isRD(c.type)&&!SF.G){(SF.loading||(SF.loading=sfLoad())).then(()=>openReview(c,gen)).catch(()=>{SF.G={sro:{},dro:{},vil:[]};openReview(c,gen)});return}
   rv={c,gen};const dor=isRD(c.type),data=dor?dorFill(c,{...(c.tp||{})}):{...(c.draft||{})},sections=dor?DOR_PAGES:MODT_FIELDS;
   if(!dor){data["Company name"]=data["Company name"]||c.bank;data.Name=data.Name||c.applicant;data.Phone=data.Phone||c.phone;data["Loan amount"]=data["Loan amount"]||c.loanAmount;[1,2].forEach(i=>{const w=(cfg.wit||[]).find(x=>x.name===c["w"+i]);if(w){data[`Witness ${i} name`]=data[`Witness ${i} name`]||w.name;data[`Witness ${i} Aadhaar`]=data[`Witness ${i} Aadhaar`]||w.aadhaar||""}})}
   $("rvTitle").textContent=(gen?"TP Generate · ":"Drafting · ")+c.applicant;
@@ -947,9 +949,15 @@ function openReview(c,gen){
   sections.forEach(([sec,fields])=>{h+=`<div class="rvsec"><div class="sect">${esc(sec)}</div><div class="fgrid">`+fields.map(ff=>{const [f,t,o]=Array.isArray(ff)?ff:[ff],id="rv_"+f.replace(/\W+/g,"_");
       if(t==="s")return`<label>${esc(f)}${dor&&DOR_REQ.includes(f)?" *":""}<select id="${id}"><option value=""></option>${[...new Set([...o,data[f]].filter(Boolean))].map(x=>`<option${x===data[f]?" selected":""}>${esc(x)}</option>`).join("")}</select></label>`;
       if(t==="ro")return`<label>${esc(f)}<input id="${id}" value="${esc(data[f]||"")}" readonly></label>`;
-      if(dor)return`<label class="${t==="w"?"full":""}">${esc(f)}${DOR_REQ.includes(f)?" *":""}<input id="${id}" value="${esc(data[f]||"")}"${/Tamil/.test(f)?' lang="ta"':""}></label>`;
+      const req=dor&&DOR_REQ.includes(f)?" *":"";
+      if(t==="sro"){const L=sroNames(),m=bestOf(L,data[f]);const bad=data[f]&&!m;return`<label>${esc(f)}${req} <span class="lg en">EN</span><select id="${id}" data-sro="1"><option value="">— select SRO —</option>${bad?`<option selected value="${esc(data[f])}">⚠ ${esc(data[f])} (not in list, pick the right one)</option>`:""}${L.map(x=>`<option${x===m?" selected":""}>${esc(x)}</option>`).join("")}</select></label>`}
+      if(t==="year"){const y=new Date().getFullYear(),Y=[];for(let i=y;i>=1975;i--)Y.push(String(i));return`<label>${esc(f)}${req}<select id="${id}"><option value=""></option>${Y.map(x=>`<option${x===String(data[f]||"").trim()?" selected":""}>${x}</option>`).join("")}</select></label>`}
+      if(t==="vil")return`<label class="full">${esc(f)} <span class="lg en">EN</span><select id="${id}" data-vil="1" data-raw="${esc(data[f]||"")}"></select></label>`;
+      if(t==="wsel"){const n=f.slice(-1),cur=c["w"+n]||data[`Witness ${n} name`]||((cfg.wit||[]).find(x=>x.def===+n)||{}).name||"";return`<label class="full">${esc(f)} name<select id="${id}" data-wsel="${n}"><option value="">— select —</option>${(cfg.wit||[]).map(w=>`<option${w.name===cur?" selected":""}>${esc(w.name)}</option>`).join("")}</select><span class="sub">Aadhaar, address and KYC come from KYC Master.</span></label>`}
+      if(dor){const ta=/Tamil/.test(f),txt=!/Age|age|Aadhaar|pincode|Pincode|mobile|Doc No|Loan|date|Extent|Survey/.test(f);return`<label class="${t==="w"?"full":""}">${esc(f)}${req}${txt?` <span class="lg ${ta?"ta":"en"}">${ta?"தமிழ்":"EN"}</span>`:""}<input id="${id}" value="${esc(data[f]||"")}"${ta?' lang="ta"':""}></label>`}
       if(f==="Bank Sheet")return`<label>${f} *<select id="${id}"><option value="">— select —</option>${[...new Set([...BANK_SHEETS,data[f]].filter(Boolean))].map(x=>`<option${x===data[f]?" selected":""}>${esc(x)}</option>`).join("")}</select></label>`;
       return`<label class="${/Address|Boundary|Govt/.test(f)?"full":""}">${esc(f)}${dor&&DOR_NEED.includes(f)?" *":""}<input id="${id}" value="${esc(data[f]||"")}"></label>`}).join("")+`</div>`;
+    if(dor&&/^3 /.test(sec)&&data.Mortgagor&&!sameName(c.applicant,data.Mortgagor))h+=`<p class="banner">⚠ Name check: the MODT says “${esc(data.Mortgagor)}” but the case name is “${esc(c.applicant)}”. Check which is right.</p>`;
     if(dor&&/^2 /.test(sec)&&!profOf(c.bank))h+=`<p class="banner">No client profile for “${esc(c.bank)}” yet. Set it up in Clients &amp; Staff so the company, representative and witnesses fill in automatically.</p>`;
     h+=`</div>`});
   const docs=docsFor(c.type).filter(d=>(c.docs||{})[d.k]&&c.docs[d.k].length);
@@ -964,6 +972,9 @@ function openReview(c,gen){
   if($("rvDone"))$("rvDone").onclick=()=>saveReview(true);
   if($("rvApprove"))$("rvApprove").onclick=approveReview;
   $("review").hidden=false;$("rvscrim").hidden=false;
+  const fillVil=()=>{const v=document.querySelector('[data-vil]');if(!v)return;const sroSel=$("rv_Property_SRO")&&$("rv_Property_SRO").value?$("rv_Property_SRO"):$("rv_SRO");const L=villagesOf(sroSel&&sroSel.value),raw=v.dataset.raw,m=bestOf(L,raw),cur=v.value||m||"";
+    v.innerHTML=`<option value="">${L.length?"— select village —":"Pick the SRO first"}</option>${raw&&!m?`<option value="${esc(raw)}"${!cur||cur===raw?" selected":""}>⚠ ${esc(raw)} (not in list, pick the right one)</option>`:""}${L.map(x=>`<option${x===cur?" selected":""}>${esc(x)}</option>`).join("")}`};
+  fillVil();document.querySelectorAll("[data-sro]").forEach(x=>x.addEventListener("change",fillVil));
   $("rvSplit").onclick=()=>$("rvDocPane").hidden?openDocPane(c):closeDocPane();
   if($("rvReread")){$("rvReread").onclick=()=>rereadModt(c,false);$("rvRereadAll").onclick=()=>ask("Replace all fields?",`<p class="sf-note">Every field the MODT has will replace what is in Drafting now, including your corrections.</p>`,()=>rereadModt(c,true),"Replace")}
   if(window.innerWidth>1000&&caseFiles(c).length)openDocPane(c);else closeDocPane();
@@ -983,7 +994,11 @@ function closeDocPane(){$("rvDocPane").hidden=true;$("rvDocView").innerHTML="";$
 function closeReview(){closeDocPane();$("review").hidden=true;$("rvscrim").hidden=true;rv={c:null,gen:false}}
 $("rvscrim").onclick=closeReview;
 function readReview(){const c=rv.c,dor=isRD(c.type),sections=dor?DOR_PAGES:MODT_FIELDS,out={...(dor?c.tp:c.draft)||{}};
-  sections.forEach(([,fields])=>fields.forEach(ff=>{const f=Array.isArray(ff)?ff[0]:ff,el=$("rv_"+f.replace(/\W+/g,"_"));if(el)out[f]=el.value.trim()}));return out}
+  sections.forEach(([,fields])=>fields.forEach(ff=>{const f=Array.isArray(ff)?ff[0]:ff,el=$("rv_"+f.replace(/\W+/g,"_"));if(el)out[f]=el.value.trim()}));
+  if(dor)[1,2].forEach(n=>{const el=$("rv_Witness_"+n);if(!el)return;const w=(cfg.wit||[]).find(x=>x.name===el.value);delete out["Witness "+n];
+    WPF(n).forEach(([k])=>delete out[k]);if(w){const set=(k,v)=>{if(v!=null&&String(v).trim()!=="")out[k]=String(v)};set(`Witness ${n} salutation`,w.sal);set(`Witness ${n} name`,w.name);set(`Witness ${n} relation`,w.rel_type);set(`Witness ${n} relative name`,w.rel_name);set(`Witness ${n} age`,ageOf(w.dob));set(`Witness ${n} gender`,w.gender);set(`Witness ${n} Aadhaar`,digits(w.aadhaar));set(`Witness ${n} district`,w.district);set(`Witness ${n} address`,w.addr);set(`Witness ${n} pincode`,w.pincode)}});
+  return out}
+function witPicks(){const o={};[1,2].forEach(n=>{const el=$("rv_Witness_"+n);if(el)o["w"+n]=el.value});return o}
 /* ---- learning from corrections: what OCR read vs what staff saved ---- */
 function fixesOf(c,data){const a=c.tpAuto||{},out=[...(c.fixes||[])];
   Object.keys(a).forEach(k=>{const r=String(a[k]||"").trim(),f=String(data[k]||"").trim();if(!r||!f||r===f)return;
@@ -993,7 +1008,7 @@ function learned(){const m=new Map();cases.forEach(c=>(c.fixes||[]).forEach(x=>{
   return[...m.values()].sort((a,b)=>a.at<b.at?1:-1)}
 function applyLearned(d){const L=learned();let n=0;Object.keys(d).forEach(k=>{const x=L.find(y=>y.field===k&&y.read===String(d[k]).trim());if(x){d[k]=x.fixed;n++}});return n}
 async function saveReview(done){
-  const c=rv.c,dor=isRD(c.type),data=readReview(),ch=dor?{tp:data}:{draft:data};
+  const c=rv.c,dor=isRD(c.type),data=readReview(),ch=dor?{tp:data,...witPicks()}:{draft:data};
   if(dor&&c.tpAuto){const fx=fixesOf(c,data);if(fx.length!==(c.fixes||[]).length||JSON.stringify(fx)!==JSON.stringify(c.fixes||[]))ch.fixes=fx}
   if(!dor&&data.SRO)ch.sro=data.SRO;if(dor&&data.SRO)ch.sro=data.SRO;
   if(done)ch.stage="TP Creation";
@@ -1003,7 +1018,7 @@ async function approveReview(){
   const c=rv.c,dor=isRD(c.type),data=readReview();
   if(dor){const miss=DOR_REQ.filter(k=>!String(data[k]||"").trim());if(miss.length){toast("Fill these first: "+miss.join(", "));return}
     const bad=["Rep Aadhaar","Witness 1 Aadhaar","Witness 2 Aadhaar","Mortgagor Aadhaar"].filter(k=>data[k]&&digits(data[k]).length!==12);if(bad.length){toast("Check: "+bad.join(", ")+" (12 digits)");return}}
-  await patch(c,dor?{tp:data}:{draft:data},"Draft approved for TP");
+  await patch(c,dor?{tp:data,...witPicks()}:{draft:data},"Draft approved for TP");
   if(!dor){$("rvLogin").innerHTML=`<div class="sect">Generate TP</div><p class="banner">Automatic TP filling is ready for Deed of Receipt. For MODT it will be built and tested with your demo case. For now, create this TP in TNREGINET from the approved draft, then use “Enter TP No.”.</p>`;return}
   cloudTp(c);
 }
@@ -1660,7 +1675,7 @@ async function canvasesOf(files,say,maxPages=3){const out=[];let text="";
 function sharpen(c){const g=c.getContext("2d"),im=g.getImageData(0,0,c.width,c.height),d=im.data;let lo=255,hi=0;
   for(let i=0;i<d.length;i+=4){const y=(d[i]*299+d[i+1]*587+d[i+2]*114)/1000;d[i]=y;if(y<lo)lo=y;if(y>hi)hi=y}
   const k=255/Math.max(1,hi-lo-20);for(let i=0;i<d.length;i+=4){let y=(d[i]-lo)*k;y=y>200?255:y<60?0:y;d[i]=d[i+1]=d[i+2]=y}g.putImageData(im,0,0);return c}
-function jpegOf(c){const k=Math.min(1,1800/Math.max(c.width,c.height)),d=document.createElement("canvas");d.width=Math.round(c.width*k);d.height=Math.round(c.height*k);d.getContext("2d").drawImage(c,0,0,d.width,d.height);return d.toDataURL("image/jpeg",0.88)}
+function jpegOf(c,max=1800){const k=Math.min(1,max/Math.max(c.width,c.height)),d=document.createElement("canvas");d.width=Math.round(c.width*k);d.height=Math.round(c.height*k);d.getContext("2d").drawImage(c,0,0,d.width,d.height);return d.toDataURL("image/jpeg",0.88)}
 async function claudeRead(canvases){if(!window.__sb)return null;
   const{data,error}=await window.__sb.functions.invoke("read-aadhaar",{body:{images:canvases.slice(0,4).map(jpegOf)}});
   if(error||!data||!data.fields){console.warn("Claude read",error||data);return null}
@@ -1686,7 +1701,7 @@ function addTamilButtons(){document.querySelectorAll('#peBody input[lang="ta"]')
   const pre=id.slice(0,id.length-pair[0].length),src=TA_PAIRS.filter(([t])=>t===pair[0]).map(([,e])=>$(pre+e)).find(Boolean);if(!src)return;
   const b=document.createElement("button");b.type="button";b.className="btn";b.textContent="தமிழ் ← English";b.style.cssText="margin-top:4px;font-size:12px;padding:3px 8px";
   b.onclick=async()=>{b.disabled=true;b.textContent="…";el.value=await toTamil(src.value);b.disabled=false;b.textContent="தமிழ் ← English"};el.after(b);
-  if(!el.value&&src.value)b.click()})}
+})}
 function showRead(){if(!lastOcrText.trim())return;const d=document.createElement("details");d.className="rvsec";d.innerHTML=`<summary style="cursor:pointer;font-size:13px">Text read from the Aadhaar (copy from here if a field is empty)</summary><textarea readonly style="width:100%;min-height:180px;margin-top:6px;font-size:12.5px">${esc(lastOcrText.trim())}</textarea>`;$("peBody").prepend(d)}
 function renderPeople(){
   const banks=cfg.banks;$("pp_bank").innerHTML=banks.map(b=>`<option>${esc(b)}</option>`).join("");
@@ -1788,9 +1803,9 @@ function parseModt(raw){const t=String(raw||"").replace(/[ \t]+/g," "),f=(re,g=1
   if(/^(mrs|ms)/i.test(d["Mortgagor salutation"]||""))d["Mortgagor gender"]="Female";else if(d["Mortgagor salutation"]==="Mr")d["Mortgagor gender"]="Male";
   if(/wife/i.test(d["Mortgagor relation"]||""))d["Mortgagor marital status"]="Married";
   return d}
-async function claudeModt(file){if(!window.__sb)return null;const{canvases}=await canvasesOf([file],()=>{},5);if(!canvases.length)return null;
+async function claudeModt(file){if(!window.__sb)return null;const{canvases}=await canvasesOf([file],()=>{},10);if(!canvases.length)return null;
   const hints=learned().slice(0,40).map(x=>`${x.field}: "${x.read}" → "${x.fixed}"`);
-  const{data,error}=await window.__sb.functions.invoke("read-aadhaar",{body:{kind:"modt",images:canvases.slice(0,5).map(jpegOf),hints}});
+  const{data,error}=await window.__sb.functions.invoke("read-aadhaar",{body:{kind:"modt",images:canvases.slice(0,10).map(c=>jpegOf(c,1500)),hints}});
   if(error||!data||!data.fields){console.warn("Claude MODT",error||data);return null}
   const f=data.fields,d={},put=(k,v)=>{v=String(v??"").trim();if(v)d[k]=v};
   put("SRO",f.sro);put("Book",f.book);put("Doc No",f.doc_no);put("Year",f.year);
@@ -1824,14 +1839,22 @@ async function autoBankFrom(file){if(!$("f_bank"))return;try{toast("Reading the 
 
 /* ---- DoR review: every TNREGINET page ---- */
 const WPF=n=>[[`Witness ${n} salutation`,"s",SAL],[`Witness ${n} name`],[`Witness ${n} name (Tamil)`],[`Witness ${n} relation`,"s",REL],[`Witness ${n} relative name`],[`Witness ${n} relative name (Tamil)`],[`Witness ${n} age`],[`Witness ${n} gender`,"s",GEN],[`Witness ${n} Aadhaar`],[`Witness ${n} district`],[`Witness ${n} address`,"w"],[`Witness ${n} pincode`]];
+/* matching against our Tamil Nadu SRO / village data */
+const nrm=s=>String(s||"").toLowerCase().replace(/[^a-z0-9]/g,"");
+function lev(a,b){if(a===b)return 0;const m=a.length,n=b.length;if(!m||!n)return m||n;let p=[...Array(n+1).keys()];for(let i=1;i<=m;i++){const q=[i];for(let j=1;j<=n;j++)q[j]=Math.min(p[j]+1,q[j-1]+1,p[j-1]+(a[i-1]===b[j-1]?0:1));p=q}return p[n]}
+function bestOf(list,v){const t=nrm(String(v||"").replace(/\b(sro|sub ?registrar|office|joint|no\.?)\b/gi,""));if(!t)return null;let best=null,sc=0;
+  for(const x of list){const n=nrm(x);if(!n)continue;let s2=n===t?1:(n.startsWith(t)||t.startsWith(n))?0.9:1-lev(n,t)/Math.max(n.length,t.length);if(s2>sc){sc=s2;best=x}}return sc>=0.72?best:null}
+function sroNames(){return SF.G?[...new Set(Object.values(SF.G.sro).map(x=>x.sn))].sort():[]}
+function villagesOf(sroName){if(!SF.G)return[];const x=Object.values(SF.G.sro).find(y=>y.sn===sroName);return x?[...new Set(x.vil.map(r=>r[0]))].sort():[]}
+function sameName(a,b){const t=x=>String(x||"").toLowerCase().replace(/[^a-z ]/g," ").split(/\s+/).filter(w=>w.length>1).sort().join(" ");return!a||!b||t(a)===t(b)||t(a).includes(t(b))||t(b).includes(t(a))}
 const DOR_PAGES=[
-  ["1 · Create document · link the MODT",[["Deed type","ro"],["SRO"],["Book","s",["1","3","4"]],["Doc No"],["Year"],["Document type","s",["Regular Document"]]]],
+  ["1 · Create document · link the MODT",[["Deed type","ro"],["SRO","sro"],["Book","s",["1","3","4"]],["Doc No"],["Year","year"],["Document type","s",["Regular Document"]]]],
   ["2 · Mortgagee · company",[["Company name","w"],["Company state"],["Company district"],["Company address","w"],["Company address (Tamil)","w"],["Company pincode"]]],
   ["3 · Mortgagor · borrower",[["Mortgagor salutation","s",SAL],["Mortgagor"],["Mortgagor name (Tamil)"],["Mortgagor relation","s",REL],["Mortgagor relative name"],["Mortgagor relative name (Tamil)"],["Mortgagor Age"],["Mortgagor gender","s",GEN],["Mortgagor marital status","s",["Married","Unmarried","Widow","Divorced"]],["Mortgagor Aadhaar"],["Mortgagor profession"],["Mortgagor district"],["Mortgagor taluk"],["Mortgagor village"],["Mortgagor address","w"],["Mortgagor pincode"],["Mortgagor mobile"]]],
   ["4 · Company representative",[["Rep salutation","s",SAL],["Rep name"],["Rep name (Tamil)"],["Rep relation","s",REL],["Rep relative name"],["Rep relative name (Tamil)"],["Rep age"],["Rep gender","s",GEN],["Rep Aadhaar"],["Rep designation"],["Rep state"],["Rep district"],["Rep address","w"],["Rep address (Tamil)","w"],["Rep pincode"],["Rep mobile"]]],
-  ["5 · Witness 1",WPF(1)],["6 · Witness 2",WPF(2)],
+  ["5 · Witness 1",[["Witness 1","wsel"]]],["6 · Witness 2",[["Witness 2","wsel"]]],
   ["7 · Presenter",[["Presenter","s",["Company representative","Mortgagor"]]]],
-  ["8 · Property",[["Property district"],["Property SRO"],["Village"],["Survey number"],["Extent"],["Boundary North","w"],["Boundary East","w"],["Boundary West","w"],["Boundary South","w"]]],
+  ["8 · Property",[["Property district"],["Property SRO","sro"],["Village","vil"],["Survey number"],["Extent"],["Boundary North","w"],["Boundary East","w"],["Boundary West","w"],["Boundary South","w"]]],
   ["9 · Loan repayment",[["Loan Amount"],["Loan closure date"]]]];
 const DOR_REQ=["SRO","Doc No","Year","Company name","Mortgagor","Mortgagor Age","Rep name","Rep Aadhaar","Witness 1 name","Witness 1 Aadhaar","Witness 2 name","Witness 2 Aadhaar","Loan Amount"];
 function dorFill(c,d){const set=(k,v)=>{if(v!=null&&String(v).trim()!==""&&!String(d[k]||"").trim())d[k]=String(v)};

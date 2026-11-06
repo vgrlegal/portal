@@ -18,7 +18,7 @@ Copy text exactly; do not translate or guess. If Tamil is not printed, leave the
 "mortgagor_sal":"Mr, Mrs or Ms","mortgagor":"mortgagor/borrower full name in English","mortgagor_ta":"mortgagor name in Tamil if printed","age":"age stated in the deed (number only)","rel_type":"S/O, W/O, D/O or C/O","rel_name":"relative's name in English","aadhaar":"mortgagor's 12-digit Aadhaar, digits only","address":"mortgagor address in English as one line","pincode":"6-digit pincode of that address","mobile":"mortgagor mobile if printed",
 "bank":"mortgagee bank / finance company full name","bank_branch":"lender branch","loan_amount":"loan amount in rupees, digits only","loan_account":"loan account number if printed",
 "property_district":"district of the property","property_sro":"SRO of the property in English","village":"village of the property in English","survey_no":"survey number(s) with subdivision","extent":"extent with unit as printed","north":"north boundary","east":"east boundary","west":"west boundary","south":"south boundary"}
-Copy text exactly as printed; do not guess. If there are several mortgagors, give the first one in mortgagor fields.`,
+Copy text exactly as printed; do not guess. If there are several mortgagors, give the first one in mortgagor fields. mortgagor_ta must be the Tamil spelling exactly as printed in the document (never transliterate it yourself; leave it empty if no Tamil name is printed). The four boundaries are in the property schedule (often near the end, sometimes in Tamil: வடக்கு north, கிழக்கு east, மேற்கு west, தெற்கு south) - give each boundary text as printed (English if English is printed, otherwise the Tamil text). For property_sro and village give the English name as printed.`,
 };
 
 Deno.serve(async (req) => {
@@ -37,7 +37,7 @@ Deno.serve(async (req) => {
       const h = hints.slice(0, 40).map((x: unknown) => String(x).slice(0, 200)).join("\n");
       PROMPT += `\n\nOur staff corrected these readings before (field: "what was read" → "correct value"). They show the spellings and formats this office uses (SRO names, villages, company names). When you see the same text, use the corrected form; do not copy these values into other fields:\n${h}`;
     }
-    if (!Array.isArray(images) || !images.length || images.length > 6) return json({ error: "Send 1-6 images" }, 400);
+    if (!Array.isArray(images) || !images.length || images.length > 10) return json({ error: "Send 1-10 images" }, 400);
     const content: unknown[] = images.map((d: string) => {
       const m = /^data:(image\/(?:jpeg|png|webp));base64,(.+)$/.exec(d);
       if (!m) throw new Error("Bad image");
