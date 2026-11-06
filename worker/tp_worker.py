@@ -22,13 +22,15 @@ for line in open(ENV) if os.path.exists(ENV) else []:
         os.environ.setdefault(k, v)
 SB = os.environ["SUPABASE_URL"].rstrip("/")
 KEY = os.environ["SUPABASE_SERVICE_KEY"]
-H = {"apikey": KEY, "Authorization": f"Bearer {KEY}", "Content-Type": "application/json"}
+# New Supabase secret keys (sb_secret_...) go in the apikey header only; old service_role JWTs also as Bearer.
+AUTH = {"apikey": KEY} if KEY.startswith("sb_") else {"apikey": KEY, "Authorization": f"Bearer {KEY}"}
+H = dict(AUTH, **{"Content-Type": "application/json"})
 URL = "https://tnreginet.gov.in/portal/"
 CAPTCHA_WAIT = 600  # seconds
 
 
 def now():
-    return datetime.datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    return datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def log(*a):
@@ -71,7 +73,7 @@ def download(url, dest):
     """Portal stores files as 'sb:<path>' in the private 'docs' bucket."""
     if not url.startswith("sb:"):
         return None
-    r = requests.get(f"{SB}/storage/v1/object/docs/{url[3:]}", headers={"apikey": KEY, "Authorization": f"Bearer {KEY}"}, timeout=60)
+    r = requests.get(f"{SB}/storage/v1/object/docs/{url[3:]}", headers=AUTH, timeout=60)
     r.raise_for_status()
     open(dest, "wb").write(r.content)
     return dest
@@ -426,7 +428,7 @@ def self_update():
 
 
 def main():
-    log("TP worker started")
+    log("TP worker started", "key type:", "secret" if KEY.startswith("sb_secret_") else "jwt" if KEY.startswith("eyJ") else ("EMPTY" if not KEY else "unknown"))
     with sync_playwright() as pw:
         last_beat, last_upd = 0, time.time()
         while True:
