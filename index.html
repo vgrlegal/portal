@@ -1532,32 +1532,40 @@ function paintWitness(){const{w,i}=pe;
 
 /* ================= KYC Master: read Aadhaar by OCR ================= */
 function parseAadhaar(raw){
-  const t=String(raw||"").replace(/\r/g,"").replace(/[ \t]+/g," ").replace(/[‌‍]/g,"");
+  const t=String(raw||"").replace(/\r/g,"").replace(/[ \t]+/g," ").replace(/[‌‍|]/g,"");
   const lines=t.split("\n").map(l=>l.trim()).filter(Boolean),o={};
-  const ta=s=>/[஀-௿]/.test(s),en=s=>/^[A-Za-z][A-Za-z .']{2,}$/.test(s);
-  const BAD=/government|india|authority|unique|identification|aadhaar|male|female|dob|birth|address|enrol|download|issue|vid|help|www|signature|digitally/i;
-  const nums=[...t.matchAll(/(?<![\d ])(\d{4}) (\d{4}) (\d{4})(?! ?\d)/g)].map(m=>m[1]+m[2]+m[3]);if(nums.length)o.aadhaar=nums[0];
-  let di=lines.findIndex(l=>/(DOB|Date of Birth|Year of Birth|YOB|பிறந்த)/i.test(l));
-  const dm=t.match(/(?:DOB|Date of Birth|பிறந்த\s*தேதி)[^0-9]{0,20}(\d{2})[\/\-.](\d{2})[\/\-.](\d{4})/i);
+  const ta=s=>/[஀-௿]{2}/.test(s);
+  const BAD=/government|india|authority|unique|identification|aadhaar|aadhar|male|female|dob|d0b|birth|address|enrol|download|issue|vid|help|www|signature|digital|valid|mobile|details|information|proof|citizen|uidai|year/i;
+  const isName=s=>{s=s.replace(/^(To|பெறுநர்)\s*[:,]?\s*/i,"").trim();return/^[A-Za-z][A-Za-z.' ]{2,40}$/.test(s)&&s.split(/\s+/).length<=5&&!BAD.test(s)&&!/^[SWDC]\s*\/\s*O/i.test(s)};
+  const clean=s=>s.replace(/^(To|பெறுநர்)\s*[:,]?\s*/i,"").replace(/\s+/g," ").trim();
+  let nums=[...t.matchAll(/(?<![\d ])(\d{4}) ?(\d{4}) ?(\d{4})(?! ?\d)/g)].map(m=>m[1]+m[2]+m[3]);if(nums.length)o.aadhaar=nums[0];
+  const dm=t.match(/(?:D[O0]B|Date of Birth|பிறந்த\s*(?:தேதி|நாள்))[^0-9]{0,20}(\d{2})[\/\-.](\d{2})[\/\-.](\d{4})/i)||t.match(/\b(\d{2})\/(\d{2})\/(19\d{2}|20[0-2]\d)\b/);
   if(dm)o.dob=`${dm[1]}-${dm[2]}-${dm[3]}`;else{const y=t.match(/(?:Year of Birth|YOB|பிறந்த\s*ஆண்டு)[^0-9]{0,12}(\d{4})/i);if(y)o.dob=y[1]}
   if(/\bFEMALE\b|பெண்/i.test(t))o.gender="Female";else if(/\bMALE\b|ஆண்/i.test(t))o.gender="Male";
-  if(di>0){for(let i=di-1;i>=0&&i>=di-4;i--){const l=lines[i].replace(/^(To|பெறுநர்)\s*/i,"");if(!o.name&&en(l)&&!BAD.test(l)){o.name=l.replace(/\s+/g," ").trim();continue}
-    if(o.name&&!o.name_ta&&ta(l)&&!/இந்திய|அரசு|ஆதார்/.test(l)){o.name_ta=l.replace(/[^஀-௿ .]/g,"").replace(/\s+/g," ").trim();break}}}
-  const rel=t.match(/\b([SWDC])\s*\/\s*O\s*[:\-]?\s*([A-Za-z .']+?)\s*,/i);
+  const at=(re)=>lines.findIndex(l=>re.test(l));
+  const pick=(i,dir)=>{for(let k=1;k<=3;k++){const l=lines[i+dir*k];if(l&&isName(l))return i+dir*k}return -1};
+  let ni=-1;const di=at(/(D[O0]B|Date of Birth|Year of Birth|YOB|பிறந்த)/i);if(di>0)ni=pick(di,-1);
+  if(ni<0){const ti=at(/^(To|பெறுநர்)\b/i);if(ti>=0)ni=isName(lines[ti])?ti:pick(ti,1)}
+  if(ni<0){const ri=at(/^[SWDC]\s*\/\s*O\b/i);if(ri>0)ni=pick(ri,-1)}
+  if(ni<0)ni=lines.findIndex(isName);
+  if(ni>=0){o.name=clean(lines[ni]);for(let k=1;k<=3;k++){const l=lines[ni-k];if(l&&ta(l)&&!/இந்திய|அரசு|ஆதார்|பெறுநர்/.test(l)){o.name_ta=l.replace(/[^஀-௿ .]/g,"").replace(/\s+/g," ").trim();break}}
+    if(!o.name_ta){const l=lines[ni+1];if(l&&ta(l)&&!/இந்திய|அரசு|ஆதார்/.test(l))o.name_ta=l.replace(/[^஀-௿ .]/g,"").replace(/\s+/g," ").trim()}}
+  const rel=t.match(/\b([SWDC])\s*\/\s*O\s*[:\-]?\s*([A-Za-z .']+?)\s*[,\n]/i);
   if(rel){o.rel_type={S:"Son of",W:"Wife of",D:"Daughter of",C:"Care of"}[rel[1].toUpperCase()];o.rel_name=rel[2].trim()}
-  const relta=t.match(/(?:த\s*\/\s*பெ|க\s*\/\s*பெ|ம\s*\/\s*பெ|C\/O|S\/O|W\/O|D\/O)\s*[:\-]?\s*([஀-௿ .]+?)\s*,/);if(relta)o.rel_ta=relta[1].trim();
-  const ad=t.match(/Address\s*:?\s*([\s\S]{8,300}?\b\d{6}\b)/i);
-  if(ad){let a=ad[1].replace(/\s*\n\s*/g," ").replace(/\s+/g," ").trim();a=a.replace(/^[SWDC]\s*\/\s*O\s*[:\-]?\s*[A-Za-z .']+?,\s*/i,"");o.addr=a;
+  const relta=t.match(/(?:த\s*\/\s*பெ|க\s*\/\s*பெ|ம\s*\/\s*பெ)\s*[:\-]?\s*([஀-௿ .]+?)\s*[,\n]/);if(relta)o.rel_ta=relta[1].trim();
+  let ad=t.match(/Address\s*:?\s*([\s\S]{8,300}?\b\d{6}\b)/i);
+  if(!ad&&rel){const i=t.indexOf(rel[0]);const m=t.slice(i).match(/^([\s\S]{8,300}?\b\d{6}\b)/);if(m)ad=[0,m[1]]}
+  if(ad){let a=ad[1].replace(/\s*\n\s*/g,", ").replace(/,\s*,/g,",").replace(/\s+/g," ").trim();a=a.replace(/^[SWDC]\s*\/\s*O\s*[:\-]?\s*[A-Za-z .']+?,\s*/i,"");o.addr=a;
     const pin=a.match(/(\d{6})\s*$/);if(pin)o.pincode=pin[1];
-    const parts=a.replace(/[-–]\s*\d{6}\s*$/,"").split(",").map(x=>x.trim()).filter(Boolean);
+    const parts=a.replace(/[-–]?\s*\d{6}\s*$/,"").split(",").map(x=>x.trim()).filter(Boolean);
     const si=parts.findIndex(p=>/tamil\s*nadu|kerala|karnataka|andhra|puducherry|pondicherry|telangana/i.test(p));
-    if(si>0){o.state=parts[si].replace(/[^A-Za-z ]/g,"").trim().replace(/\b\w/g,c=>c.toUpperCase());o.district=parts[si-1].replace(/^(dist|district)\.?\s*/i,"")}}
+    if(si>0){o.state=parts[si].replace(/[^A-Za-z ]/g,"").trim().replace(/\b\w/g,c=>c.toUpperCase());o.district=parts[si-1].replace(/^(dist|district)\.?\s*:?\s*/i,"")}}
   else{const pin=t.match(/\b(6\d{5})\b/);if(pin)o.pincode=pin[1]}
-  const adt=t.match(/முகவரி\s*:?\s*([\s\S]{8,300}?\b\d{6}\b)/);if(adt)o.addr_ta=adt[1].replace(/\s*\n\s*/g," ").replace(/\s+/g," ").trim().replace(/^(?:த\s*\/\s*பெ|க\s*\/\s*பெ|ம\s*\/\s*பெ|[SWDC]\/O)\s*[:\-]?\s*[^,]+,\s*/,"");
+  const adt=t.match(/முகவரி\s*:?\s*([\s\S]{8,300}?\b\d{6}\b)/);if(adt)o.addr_ta=adt[1].replace(/\s*\n\s*/g,", ").replace(/,\s*,/g,",").replace(/\s+/g," ").trim().replace(/^(?:த\s*\/\s*பெ|க\s*\/\s*பெ|ம\s*\/\s*பெ|[SWDC]\/O)\s*[:\-]?\s*[^,]+,\s*/,"");
   const mob=t.match(/(?:Mobile|மொபைல்)[^0-9]{0,8}(\d{10})/i);if(mob)o.mobile=mob[1];
   if(o.gender)o.sal=o.gender==="Female"?(o.rel_type==="Wife of"?"Mrs":"Ms"):"Mr";
   return o}
-
+let lastOcrText="",tessWorker=null;
 async function loadTess(){if(window.Tesseract)return;await new Promise((ok,no)=>{const s=document.createElement("script");s.src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js";s.onload=ok;s.onerror=()=>no(new Error("OCR did not load"));document.head.appendChild(s)})}
 async function canvasesOf(files,say){const out=[];let text="";
   for(const f of files){
@@ -1569,12 +1577,14 @@ async function canvasesOf(files,say){const out=[];let text="";
   return{canvases:out,text}}
 async function readAadhaar(files,say){const{canvases,text}=await canvasesOf(files,say);let all=text;
   say("Reading the Aadhaar (English + Tamil)… this takes 20–40 seconds the first time.");await loadTess();
-  const w=await Tesseract.createWorker("eng+tam");try{for(const[i,c]of canvases.entries()){say(`Reading page ${i+1} of ${canvases.length}…`);const r=await w.recognize(c);all+="\n"+r.data.text}}finally{await w.terminate()}
-  const o=parseAadhaar(all),fromLayer=parseAadhaar(text);["name","aadhaar","dob","addr","pincode","rel_name"].forEach(k=>{if(fromLayer[k])o[k]=fromLayer[k]});return o}
+  if(!tessWorker)tessWorker=Tesseract.createWorker("eng+tam");const w=await tessWorker;for(const[i,c]of canvases.entries()){say(`Reading page ${i+1} of ${canvases.length}…`);const r=await w.recognize(c);all+="\n"+r.data.text}
+  lastOcrText=all;const o=parseAadhaar(all),fromLayer=parseAadhaar(text);["name","aadhaar","dob","addr","pincode","rel_name"].forEach(k=>{if(fromLayer[k])o[k]=fromLayer[k]});return o}
+function showRead(){if(!lastOcrText.trim())return;const d=document.createElement("details");d.className="rvsec";d.innerHTML=`<summary style="cursor:pointer;font-size:13px">Text read from the Aadhaar (copy from here if a field is empty)</summary><textarea readonly style="width:100%;min-height:180px;margin-top:6px;font-size:12.5px">${esc(lastOcrText.trim())}</textarea>`;$("peBody").prepend(d)}
 function renderPeople(){
   const banks=cfg.banks;$("pp_bank").innerHTML=banks.map(b=>`<option>${esc(b)}</option>`).join("");
   const sync=()=>{$("pp_bankL").hidden=$("pp_role").value!=="rep"};$("pp_role").onchange=sync;sync();
   $("pp_btn").onclick=()=>$("pp_file").click();
+  if(!tessWorker)loadTess().then(()=>{if(!tessWorker)tessWorker=Tesseract.createWorker("eng+tam")}).catch(()=>{});
   const age=p=>ageOf(p.dob)||"";const tail=n=>{const d=digits(n);return d.length===12?"XXXX XXXX "+d.slice(8):"○ Aadhaar"};
   const card=(p,editAttr)=>`<div class="mrow"><b>${esc(p.name||"(no name)")}${p.name_ta?` <span style="font-weight:400">· ${esc(p.name_ta)}</span>`:""}</b><span><button class="btn" type="button" ${editAttr}>Edit</button></span>
     <div class="mf">${age(p)?`Age ${esc(age(p))} · `:""}${esc(tail(p.id_no||p.aadhaar))} · <span class="${(p.kyc||[]).length?"ok":"no"}">${(p.kyc||[]).length?"✓ KYC":"○ KYC"}</span>${p.idcard!==undefined||editAttr.includes("pr")?` · <span class="${(p.idcard||[]).length?"ok":"no"}">${(p.idcard||[]).length?"✓ ID card":"○ ID card"}</span>`:""}${p.addr?` · ${esc(p.addr.slice(0,60))}${p.addr.length>60?"…":""}`:""}</div></div>`;
@@ -1592,11 +1602,11 @@ function renderPeople(){
       if(role==="rep"){const p=JSON.parse(JSON.stringify(profOf(bank)||{company:{},reps:[]}));p.company=p.company||{};p.reps=p.reps||[];
         const rep={sal:o.sal||"Mr",name:o.name||"",name_ta:o.name_ta||"",rel_type:o.rel_type||"",rel_name:o.rel_name||"",rel_ta:o.rel_ta||"",dob:o.dob||"",gender:o.gender||"",id_no:o.aadhaar||"",designation:"",state:o.state||"Tamil Nadu",district:o.district||"",addr:o.addr||"",addr_ta:o.addr_ta||"",pincode:o.pincode||"",mobile:o.mobile||"",kyc:kyc||[]};
         const ix=p.reps.findIndex(r=>(digits(r.id_no)&&digits(r.id_no)===digits(rep.id_no))||(!r.name&&!(r.kyc||[]).length));if(ix>=0)p.reps[ix]={...p.reps[ix],...Object.fromEntries(Object.entries(rep).filter(([,v])=>v&&(!Array.isArray(v)||v.length)))};else p.reps.push(rep);
-        pe={kind:"p",bank,p};paintProfile();toast("Add the bank ID card and designation, then Save")}
+        pe={kind:"p",bank,p};paintProfile();showRead();toast("Add the bank ID card and designation, then Save")}
       else{const w={sal:o.sal||"Mr",name:o.name||"",name_ta:o.name_ta||"",rel_type:o.rel_type||"",rel_name:o.rel_name||"",rel_ta:o.rel_ta||"",dob:o.dob||"",gender:o.gender||"",aadhaar:o.aadhaar||"",district:o.district||"",addr:o.addr||"",pincode:o.pincode||"",mobile:o.mobile||"",kyc:kyc||[],def:0};
         let i=(cfg.wit||[]).findIndex(x=>digits(x.aadhaar)&&digits(x.aadhaar)===digits(w.aadhaar));
         if(i<0){cfg={...cfg,wit:[...(cfg.wit||[]),w]};i=cfg.wit.length-1}else cfg={...cfg,wit:cfg.wit.map((x,j)=>j===i?{...x,...Object.fromEntries(Object.entries(w).filter(([k,v])=>k!=="def"&&v&&(!Array.isArray(v)||v.length)))}:x)};
-        pe={kind:"w",i,w:{...cfg.wit[i]}};paintWitness();toast("Check the details, then Save")}}
+        pe={kind:"w",i,w:{...cfg.wit[i]}};paintWitness();showRead();toast("Check the details, then Save")}}
     catch(err){console.warn(err);say("Could not read this file: "+(err&&err.message||"try again"))}
     finally{$("pp_btn").classList.remove("disabled")}};
 }
