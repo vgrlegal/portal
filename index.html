@@ -490,7 +490,7 @@ ready.then(()=>{const hdr=document.body;const d=document.createElement("div");d.
 const HOST="host:vgr_tnreg";
 const MD_NAME="V. Vinoth (MD)";
 const DEFAULT_TYPES=["MODT","Deed of Receipt","Legal Report"];
-const TAB_KEYS=[["MODT","MODT"],["Deed of Receipt","Deed of Receipt"],["Legal Report","Legal Report"],["__sro","Village Finder"],["__kyc","Drafting"]];
+const TAB_KEYS=[["MODT","MODT"],["Deed of Receipt","Deed of Receipt"],["Legal Report","Legal Report"],["__sro","Village Finder"]];
 const isRD=t=>/receipt/i.test(t||"");
 const flowOf=t=>/legal|report|opinion/i.test(t||"")?"legal":"reg";
 const FLOWS={
@@ -555,7 +555,7 @@ function renderTabs(){
     types.map(t=>`<button role="tab" data-t="${esc(t)}" aria-selected="${tab===t}">${esc(t)}<span class="n">${open(t)}</span></button>`).join("")+
     `<button role="tab" data-t="__all" aria-selected="${tab==="__all"}">All Cases</button>`+
     (allowedTab("__sro")?`<button role="tab" data-t="__sro" aria-selected="${tab==="__sro"}">Village Finder</button>`:"")+
-    (allowedTab("__kyc")?`<button role="tab" data-t="__kyc" aria-selected="${tab==="__kyc"}">Drafting</button>`:"")+
+    (false&&allowedTab("__kyc")?`<button role="tab" data-t="__kyc" aria-selected="${tab==="__kyc"}">Drafting</button>`:"")+
     (isMD||isAdmin?`<button role="tab" data-t="__set" aria-selected="${tab==="__set"}">Clients &amp; Staff</button>`:"");
 }
 $("tabs").onclick=e=>{const b=e.target.closest("button");if(!b)return;tab=b.dataset.t;page=0;lsSet("vgr.tab",tab);render()};
@@ -1398,7 +1398,7 @@ drawPreview();
 /* ---------- boot ---------- */
 function ensureKycEngine(){if(window.kycHeadless)return Promise.resolve();kycOpen();return new Promise((ok,no)=>{const t0=Date.now();const iv=setInterval(()=>{if(window.kycHeadless){clearInterval(iv);ok()}else if(Date.now()-t0>60000){clearInterval(iv);no(new Error("KYC tools did not load"))}},300)})}
 let SELF_EMAIL="";
-me=lsGet("vgr.me")||"";const st=lsGet("vgr.tab");if(st)tab=st;
+me=lsGet("vgr.me")||"";const st=lsGet("vgr.tab");if(st&&st!=="__kyc")tab=st;
 fillStatic();render();
 setInterval(()=>{if(!$("v-list").hidden||!$("v-dash").hidden)render()},60000);
 (async()=>{
@@ -1413,7 +1413,7 @@ setInterval(()=>{if(!$("v-list").hidden||!$("v-dash").hidden)render()},60000);
   db.doc("config/lists").onSnapshot(s=>{const d=s.exists?s.data():{};
     cfg={banks:d.banks||[],staff:(d.staff||[]).map(staffObj),types:(d.types&&d.types.length)?d.types:DEFAULT_TYPES.slice(),pay:d.pay||{}};
     myStaff=!isMD&&SELF_EMAIL?cfg.staff.find(x=>x.email&&x.email.toLowerCase()===SELF_EMAIL)||null:null;if(myStaff)me=myStaff.name;
-    if(!["dash","__all","__set","__sro","__kyc"].includes(tab)&&!cfg.types.includes(tab))tab="dash";fillStatic();render()},()=>{});
+    if(!["dash","__all","__set","__sro"].includes(tab)&&!cfg.types.includes(tab))tab="dash";fillStatic();render()},()=>{});
   db.collection("cases").onSnapshot(s=>{if(!s.metadata.fromCache)clearTimeout(timer);cases=s.docs.map(d=>({...d.data(),_doc:d.id}));
     if(editing){const fresh=cases.find(c=>c._doc===editing._doc);if(fresh){editing=fresh;if($("timeline"))renderTimeline(fresh)}}
     if(rv.c){const f=cases.find(c=>c._doc===rv.c._doc);if(f)rv.c=f}
