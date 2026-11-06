@@ -347,6 +347,18 @@ tr.hf input,tr.hf select{font-size:12.5px;padding:5px 7px;margin:2px 0}
     </div>
   </section>
 
+  <section id="v-ppl" hidden>
+    <div class="card"><h2>KYC Master</h2><p>Upload a bank representative's or a witness's Aadhaar (e-Aadhaar PDF or front/back photos). The portal reads the name in English and Tamil, date of birth, age, relation, address and Aadhaar number, and keeps the KYC PDF. Check, correct and save. Deed of Receipt cases then fill all of it automatically.</p>
+      <div class="fgrid" style="margin-top:10px;align-items:end">
+        <label>This person is<select id="pp_role"><option value="rep">Bank representative</option><option value="wit">Witness</option></select></label>
+        <label id="pp_bankL">Client<select id="pp_bank"></select></label>
+        <label class="full"><span class="btn primary" style="display:inline-block;text-align:center" id="pp_btn">Upload Aadhaar &amp; read it</span><input type="file" id="pp_file" accept="image/*,application/pdf,.pdf" multiple hidden></label>
+      </div><p class="sf-note" id="pp_msg"></p></div>
+    <div class="grid2" style="margin-top:16px">
+      <div class="card"><h2>Bank representatives</h2><div id="pp_reps"></div></div>
+      <div class="card"><h2>Witnesses</h2><div id="pp_wits"></div></div>
+    </div>
+  </section>
   <section id="v-set" hidden>
     <p class="banner" id="setNote" hidden>Only the MD can change clients, staff and payment details.</p>
     <div class="grid2">
@@ -572,6 +584,7 @@ function renderTabs(){
     `<button role="tab" data-t="__all" aria-selected="${tab==="__all"}">All Cases</button>`+
     (allowedTab("__sro")?`<button role="tab" data-t="__sro" aria-selected="${tab==="__sro"}">Village Finder</button>`:"")+
     (false&&allowedTab("__kyc")?`<button role="tab" data-t="__kyc" aria-selected="${tab==="__kyc"}">Drafting</button>`:"")+
+    (isMD||isAdmin?`<button role="tab" data-t="__ppl" aria-selected="${tab==="__ppl"}">KYC Master</button>`:"")+
     (isMD||isAdmin?`<button role="tab" data-t="__set" aria-selected="${tab==="__set"}">Clients &amp; Staff</button>`:"");
 }
 $("tabs").onclick=e=>{const b=e.target.closest("button");if(!b)return;tab=b.dataset.t;page=0;lsSet("vgr.tab",tab);render()};
@@ -670,10 +683,11 @@ function actionsFor(c){
 function render(){
   renderTabs();
   if(!allowedTab(tab))tab="dash";
-  ["v-dash","v-list","v-set","v-sro","v-kyc"].forEach(id=>$(id).hidden=true);
-  const tool=tab==="__set"||tab==="__sro"||tab==="__kyc";
+  ["v-dash","v-list","v-set","v-sro","v-kyc","v-ppl"].forEach(id=>$(id).hidden=true);
+  const tool=tab==="__set"||tab==="__sro"||tab==="__kyc"||tab==="__ppl";
   $("ranges").style.visibility=tool?"hidden":"visible";$("customRow").hidden=tool||range!=="cus";
   if(tab==="__set"){$("v-set").hidden=false;renderSettings();return}
+  if(tab==="__ppl"){$("v-ppl").hidden=false;renderPeople();return}
   if(tab==="__sro"){$("v-sro").hidden=false;sfOpen();return}
   if(tab==="__kyc"){$("v-kyc").hidden=false;kycOpen();return}
   if(tab==="dash"){$("v-dash").hidden=false;renderDash();return}
@@ -1516,6 +1530,77 @@ function paintWitness(){const{w,i}=pe;
   $("wDel").onclick=()=>ask("Remove this witness?",`<p class="sf-note">${esc(w.name)} will no longer fill new cases. Past cases keep their files.</p>`,()=>{saveCfg({...cfg,wit:cfg.wit.filter((_,j)=>j!==i)});closePE()},"Remove");
 }
 
+/* ================= KYC Master: read Aadhaar by OCR ================= */
+function parseAadhaar(raw){
+  const t=String(raw||"").replace(/\r/g,"").replace(/[ \t]+/g," ").replace(/[‌‍]/g,"");
+  const lines=t.split("\n").map(l=>l.trim()).filter(Boolean),o={};
+  const ta=s=>/[஀-௿]/.test(s),en=s=>/^[A-Za-z][A-Za-z .']{2,}$/.test(s);
+  const BAD=/government|india|authority|unique|identification|aadhaar|male|female|dob|birth|address|enrol|download|issue|vid|help|www|signature|digitally/i;
+  const nums=[...t.matchAll(/(?<![\d ])(\d{4}) (\d{4}) (\d{4})(?! ?\d)/g)].map(m=>m[1]+m[2]+m[3]);if(nums.length)o.aadhaar=nums[0];
+  let di=lines.findIndex(l=>/(DOB|Date of Birth|Year of Birth|YOB|பிறந்த)/i.test(l));
+  const dm=t.match(/(?:DOB|Date of Birth|பிறந்த\s*தேதி)[^0-9]{0,20}(\d{2})[\/\-.](\d{2})[\/\-.](\d{4})/i);
+  if(dm)o.dob=`${dm[1]}-${dm[2]}-${dm[3]}`;else{const y=t.match(/(?:Year of Birth|YOB|பிறந்த\s*ஆண்டு)[^0-9]{0,12}(\d{4})/i);if(y)o.dob=y[1]}
+  if(/\bFEMALE\b|பெண்/i.test(t))o.gender="Female";else if(/\bMALE\b|ஆண்/i.test(t))o.gender="Male";
+  if(di>0){for(let i=di-1;i>=0&&i>=di-4;i--){const l=lines[i].replace(/^(To|பெறுநர்)\s*/i,"");if(!o.name&&en(l)&&!BAD.test(l)){o.name=l.replace(/\s+/g," ").trim();continue}
+    if(o.name&&!o.name_ta&&ta(l)&&!/இந்திய|அரசு|ஆதார்/.test(l)){o.name_ta=l.replace(/[^஀-௿ .]/g,"").replace(/\s+/g," ").trim();break}}}
+  const rel=t.match(/\b([SWDC])\s*\/\s*O\s*[:\-]?\s*([A-Za-z .']+?)\s*,/i);
+  if(rel){o.rel_type={S:"Son of",W:"Wife of",D:"Daughter of",C:"Care of"}[rel[1].toUpperCase()];o.rel_name=rel[2].trim()}
+  const relta=t.match(/(?:த\s*\/\s*பெ|க\s*\/\s*பெ|ம\s*\/\s*பெ|C\/O|S\/O|W\/O|D\/O)\s*[:\-]?\s*([஀-௿ .]+?)\s*,/);if(relta)o.rel_ta=relta[1].trim();
+  const ad=t.match(/Address\s*:?\s*([\s\S]{8,300}?\b\d{6}\b)/i);
+  if(ad){let a=ad[1].replace(/\s*\n\s*/g," ").replace(/\s+/g," ").trim();a=a.replace(/^[SWDC]\s*\/\s*O\s*[:\-]?\s*[A-Za-z .']+?,\s*/i,"");o.addr=a;
+    const pin=a.match(/(\d{6})\s*$/);if(pin)o.pincode=pin[1];
+    const parts=a.replace(/[-–]\s*\d{6}\s*$/,"").split(",").map(x=>x.trim()).filter(Boolean);
+    const si=parts.findIndex(p=>/tamil\s*nadu|kerala|karnataka|andhra|puducherry|pondicherry|telangana/i.test(p));
+    if(si>0){o.state=parts[si].replace(/[^A-Za-z ]/g,"").trim().replace(/\b\w/g,c=>c.toUpperCase());o.district=parts[si-1].replace(/^(dist|district)\.?\s*/i,"")}}
+  else{const pin=t.match(/\b(6\d{5})\b/);if(pin)o.pincode=pin[1]}
+  const adt=t.match(/முகவரி\s*:?\s*([\s\S]{8,300}?\b\d{6}\b)/);if(adt)o.addr_ta=adt[1].replace(/\s*\n\s*/g," ").replace(/\s+/g," ").trim().replace(/^(?:த\s*\/\s*பெ|க\s*\/\s*பெ|ம\s*\/\s*பெ|[SWDC]\/O)\s*[:\-]?\s*[^,]+,\s*/,"");
+  const mob=t.match(/(?:Mobile|மொபைல்)[^0-9]{0,8}(\d{10})/i);if(mob)o.mobile=mob[1];
+  if(o.gender)o.sal=o.gender==="Female"?(o.rel_type==="Wife of"?"Mrs":"Ms"):"Mr";
+  return o}
+
+async function loadTess(){if(window.Tesseract)return;await new Promise((ok,no)=>{const s=document.createElement("script");s.src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js";s.onload=ok;s.onerror=()=>no(new Error("OCR did not load"));document.head.appendChild(s)})}
+async function canvasesOf(files,say){const out=[];let text="";
+  for(const f of files){
+    if(f.type==="application/pdf"||/\.pdf$/i.test(f.name)){await ensureKycEngine();const buf=await f.arrayBuffer();let doc;
+      try{doc=await pdfjsLib.getDocument({data:buf.slice(0)}).promise}catch(e){if(e&&e.name==="PasswordException"){const pw=prompt("This e-Aadhaar PDF has a password.\nIt is the first 4 letters of the name in CAPITALS + year of birth (e.g. RAMA1985).");if(!pw)throw new Error("Password needed");doc=await pdfjsLib.getDocument({data:buf.slice(0),password:pw}).promise}else throw e}
+      for(let i=1;i<=Math.min(doc.numPages,3);i++){const pg=await doc.getPage(i);try{const tc=await pg.getTextContent();text+="\n"+tc.items.map(x=>x.str+(x.hasEOL?"\n":" ")).join("")}catch(e){}
+        const vp=pg.getViewport({scale:2.5}),c=document.createElement("canvas");c.width=vp.width;c.height=vp.height;await pg.render({canvasContext:c.getContext("2d"),viewport:vp}).promise;out.push(c)}}
+    else{const bm=await createImageBitmap(f),k=Math.min(1,2600/Math.max(bm.width,bm.height)),c=document.createElement("canvas");c.width=bm.width*k;c.height=bm.height*k;c.getContext("2d").drawImage(bm,0,0,c.width,c.height);out.push(c)}}
+  return{canvases:out,text}}
+async function readAadhaar(files,say){const{canvases,text}=await canvasesOf(files,say);let all=text;
+  say("Reading the Aadhaar (English + Tamil)… this takes 20–40 seconds the first time.");await loadTess();
+  const w=await Tesseract.createWorker("eng+tam");try{for(const[i,c]of canvases.entries()){say(`Reading page ${i+1} of ${canvases.length}…`);const r=await w.recognize(c);all+="\n"+r.data.text}}finally{await w.terminate()}
+  const o=parseAadhaar(all),fromLayer=parseAadhaar(text);["name","aadhaar","dob","addr","pincode","rel_name"].forEach(k=>{if(fromLayer[k])o[k]=fromLayer[k]});return o}
+function renderPeople(){
+  const banks=cfg.banks;$("pp_bank").innerHTML=banks.map(b=>`<option>${esc(b)}</option>`).join("");
+  const sync=()=>{$("pp_bankL").hidden=$("pp_role").value!=="rep"};$("pp_role").onchange=sync;sync();
+  $("pp_btn").onclick=()=>$("pp_file").click();
+  const age=p=>ageOf(p.dob)||"";const tail=n=>{const d=digits(n);return d.length===12?"XXXX XXXX "+d.slice(8):"○ Aadhaar"};
+  const card=(p,editAttr)=>`<div class="mrow"><b>${esc(p.name||"(no name)")}${p.name_ta?` <span style="font-weight:400">· ${esc(p.name_ta)}</span>`:""}</b><span><button class="btn" type="button" ${editAttr}>Edit</button></span>
+    <div class="mf">${age(p)?`Age ${esc(age(p))} · `:""}${esc(tail(p.id_no||p.aadhaar))} · <span class="${(p.kyc||[]).length?"ok":"no"}">${(p.kyc||[]).length?"✓ KYC":"○ KYC"}</span>${p.idcard!==undefined||editAttr.includes("pr")?` · <span class="${(p.idcard||[]).length?"ok":"no"}">${(p.idcard||[]).length?"✓ ID card":"○ ID card"}</span>`:""}${p.addr?` · ${esc(p.addr.slice(0,60))}${p.addr.length>60?"…":""}`:""}</div></div>`;
+  const P=cfg.profiles||{};let rh="";banks.forEach((b,bi)=>{const reps=(P[b]&&P[b].reps)||[];if(reps.length)rh+=`<div class="sect" style="margin-top:8px">${esc(b)}</div>`+reps.map((r,ri)=>card(r,`data-pr="${bi}"`)).join("")});
+  $("pp_reps").innerHTML=rh||`<p class="sf-note">No representatives yet. Choose “Bank representative”, pick the client, and upload their Aadhaar.</p>`;
+  $("pp_wits").innerHTML=(cfg.wit||[]).length?cfg.wit.map((w,i)=>card(w,`data-pw="${i}"`)).join(""):`<p class="sf-note">No witnesses yet. Choose “Witness” and upload their Aadhaar.</p>`;
+  document.querySelectorAll("[data-pr]").forEach(el=>el.onclick=()=>openProfile(banks[+el.dataset.pr]));
+  document.querySelectorAll("[data-pw]").forEach(el=>el.onclick=()=>openWitness(+el.dataset.pw));
+  $("pp_file").onchange=async e=>{const fs=[...e.target.files];e.target.value="";if(!fs.length)return;const role=$("pp_role").value,bank=$("pp_bank").value,say=m=>$("pp_msg").textContent=m;
+    if(role==="rep"&&!bank){toast("Add the client in Clients & Staff first");return}
+    $("pp_btn").classList.add("disabled");
+    try{const o=await readAadhaar(fs,say);say("Saving the KYC PDF…");
+      const kyc=await makeKyc(fs,`${o.name||"Person"} - ${role==="rep"?"Bank Rep":"Witness"} KYC`);
+      const got=["name","name_ta","dob","aadhaar","addr"].filter(k=>o[k]).length;say(got?`Read ${got} of 5 main details. Check them and save.`:"Could not read the Aadhaar clearly. Please type the details.");
+      if(role==="rep"){const p=JSON.parse(JSON.stringify(profOf(bank)||{company:{},reps:[]}));p.company=p.company||{};p.reps=p.reps||[];
+        const rep={sal:o.sal||"Mr",name:o.name||"",name_ta:o.name_ta||"",rel_type:o.rel_type||"",rel_name:o.rel_name||"",rel_ta:o.rel_ta||"",dob:o.dob||"",gender:o.gender||"",id_no:o.aadhaar||"",designation:"",state:o.state||"Tamil Nadu",district:o.district||"",addr:o.addr||"",addr_ta:o.addr_ta||"",pincode:o.pincode||"",mobile:o.mobile||"",kyc:kyc||[]};
+        const ix=p.reps.findIndex(r=>(digits(r.id_no)&&digits(r.id_no)===digits(rep.id_no))||(!r.name&&!(r.kyc||[]).length));if(ix>=0)p.reps[ix]={...p.reps[ix],...Object.fromEntries(Object.entries(rep).filter(([,v])=>v&&(!Array.isArray(v)||v.length)))};else p.reps.push(rep);
+        pe={kind:"p",bank,p};paintProfile();toast("Add the bank ID card and designation, then Save")}
+      else{const w={sal:o.sal||"Mr",name:o.name||"",name_ta:o.name_ta||"",rel_type:o.rel_type||"",rel_name:o.rel_name||"",rel_ta:o.rel_ta||"",dob:o.dob||"",gender:o.gender||"",aadhaar:o.aadhaar||"",district:o.district||"",addr:o.addr||"",pincode:o.pincode||"",mobile:o.mobile||"",kyc:kyc||[],def:0};
+        let i=(cfg.wit||[]).findIndex(x=>digits(x.aadhaar)&&digits(x.aadhaar)===digits(w.aadhaar));
+        if(i<0){cfg={...cfg,wit:[...(cfg.wit||[]),w]};i=cfg.wit.length-1}else cfg={...cfg,wit:cfg.wit.map((x,j)=>j===i?{...x,...Object.fromEntries(Object.entries(w).filter(([k,v])=>k!=="def"&&v&&(!Array.isArray(v)||v.length)))}:x)};
+        pe={kind:"w",i,w:{...cfg.wit[i]}};paintWitness();toast("Check the details, then Save")}}
+    catch(err){console.warn(err);say("Could not read this file: "+(err&&err.message||"try again"))}
+    finally{$("pp_btn").classList.remove("disabled")}};
+}
+
 /* ---- Excel import (runs in the browser; the file is not uploaded) ---- */
 function loadXlsx(){if(window.XLSX)return Promise.resolve();return new Promise((ok,no)=>{const s=document.createElement("script");s.src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js";s.onload=ok;s.onerror=()=>no(new Error("Excel reader did not load"));document.head.appendChild(s)})}
 function xVal(v){if(v==null)return"";if(typeof v==="number")return Number.isInteger(v)?String(v):String(v);if(v instanceof Date)return`${String(v.getDate()).padStart(2,"0")}-${String(v.getMonth()+1).padStart(2,"0")}-${v.getFullYear()}`;return String(v).trim()}
@@ -1631,7 +1716,7 @@ setInterval(()=>{if(!$("v-list").hidden||!$("v-dash").hidden)render()},60000);
   db.doc("config/lists").onSnapshot(s=>{const d=s.exists?s.data():{};
     cfg={banks:d.banks||[],staff:(d.staff||[]).map(staffObj),types:(d.types&&d.types.length)?d.types:DEFAULT_TYPES.slice(),pay:d.pay||{},profiles:d.profiles||{},wit:d.wit||[]};
     myStaff=!isMD&&SELF_EMAIL?cfg.staff.find(x=>x.email&&x.email.toLowerCase()===SELF_EMAIL)||null:null;if(myStaff)me=myStaff.name;
-    if(!["dash","__all","__set","__sro"].includes(tab)&&!cfg.types.includes(tab))tab="dash";fillStatic();render()},()=>{});
+    if(!["dash","__all","__set","__sro","__ppl"].includes(tab)&&!cfg.types.includes(tab))tab="dash";fillStatic();render()},()=>{});
   db.collection("cases").onSnapshot(s=>{if(!s.metadata.fromCache)clearTimeout(timer);cases=s.docs.map(d=>({...d.data(),_doc:d.id}));
     if(editing){const fresh=cases.find(c=>c._doc===editing._doc);if(fresh){editing=fresh;if($("timeline"))renderTimeline(fresh)}}
     if(rv.c){const f=cases.find(c=>c._doc===rv.c._doc);if(f)rv.c=f}
