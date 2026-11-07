@@ -156,17 +156,17 @@ class Portal:
             raise Stop("Stopped from the portal")
 
     def popup_ok(self):
-        txt = self.p.evaluate("""()=>[...document.querySelectorAll('.modal.show,.modal.in,.swal2-popup,.jconfirm-box,.bootbox')]
-            .filter(e=>e.offsetParent).map(e=>e.innerText.trim()).join(' | ')""")
-        if txt:
-            for sel in ["button:has-text('OK')", "button:has-text('Ok')", "input[value='OK']", ".swal2-confirm"]:
-                b = self.p.locator(sel)
-                if b.count():
-                    try:
-                        b.first.click(timeout=2000)
-                        break
-                    except Exception:
-                        pass
+        """Read and accept TNREGINET pop-ups (OK / Yes - e.g. 'Is the Mortgagor also going to execute ... Proceed?')."""
+        txt = ""
+        for _ in range(3):
+            r = self.p.evaluate(r"""()=>{const btns=[...document.querySelectorAll('button,input[type=button],a.btn')].filter(b=>b.offsetParent&&/^\s*(OK|Ok|Yes|YES|சரி|ஆம்)\s*$/.test(b.value||b.innerText||''));
+                const b=btns.find(b=>b.closest('.modal,.swal2-popup,.jconfirm-box,.bootbox,.ui-dialog,[role=dialog],.popup,.alert'))||btns.find(b=>{let e=b;while(e&&e!==document.body){const st=getComputedStyle(e);if(st.position==='fixed'||+st.zIndex>100)return true;e=e.parentElement}return false});
+                if(!b) return null; const box=b.closest('.modal,.swal2-popup,.jconfirm-box,.bootbox,.ui-dialog,[role=dialog],.popup,.alert')||b.parentElement.parentElement;
+                const t=(box.innerText||'').replace(/\s+/g,' ').trim().slice(0,300); b.click(); return t}""")
+            if not r:
+                break
+            txt += (" | " if txt else "") + r
+            time.sleep(1.2)
         return txt
 
     def set(self, fid, val):
@@ -666,8 +666,11 @@ def rep_witness_presenter(P, job, page, t):
     address(P, g(t, "Rep state") or "Tamil Nadu", g(t, "Rep district"), addr=g(t, "Rep address"),
             addr_ta=g(t, "Rep address (Tamil)"), pin=g(t, "Rep pincode"), mobile=g(t, "Rep mobile"))
     msg = P.click("addReperstativeDtls", 3)
-    if msg and not re.search(r"success|added", msg, re.I):
-        raise Stop(f"Representative: TNREGINET said '{msg[:160]}'")
+    P.wait(1.5); msg += " " + P.popup_ok()
+    if not wait_for(P, "()=>{const t=document.getElementById('tableForRepresentativeDtls');return !!(t&&t.rows.length>1)}", 10):
+        job.step("Representative not added", page)
+        raise Stop(f"Representative was not added. TNREGINET said '{msg.strip()[:200]}'")
+    job.step("4 · Representative added", page)
     open_subtab(P, "Witness Details", "chkWitnessType0")
     for n in (1, 2):
         if not g(t, f"Witness {n} name"):
