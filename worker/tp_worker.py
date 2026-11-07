@@ -699,6 +699,11 @@ ACTIVE_TAB_JS = """()=>{const clean=x=>(x.textContent||'').replace(/["\\s]+/g,' 
   if(act) return clean(act);
   const heads=[...document.querySelectorAll('h1,h2,h3,h4,h5,h6,b,strong,.title,legend')].filter(h=>h.offsetParent).map(clean);
   const hit=tabs.map(clean).find(n=>heads.includes(n)); return hit||''}"""
+FIELDS_JS = """()=>[...document.querySelectorAll('input,select,textarea,button')].filter(e=>e.offsetParent&&e.type!=='hidden').map(e=>{
+  let l=e.labels&&e.labels[0]?e.labels[0].innerText.trim():'';if(!l){let p=e.parentElement;for(let i=0;i<3&&p&&!l;i++){const x=p.querySelector('label');if(x)l=x.innerText.trim();p=p.parentElement}}
+  const v=e.tagName==='SELECT'?((e.selectedOptions[0]||{}).text||'')+' {'+[...e.options].slice(0,10).map(o=>o.text.trim()).join('|')+'}':(e.type==='password'?'':(e.type==='checkbox'||e.type==='radio'?String(e.checked):(e.value||e.innerText||'')));
+  return (e.id||e.name)+' | '+(e.type||e.tagName)+' | '+l.slice(0,50)+' | '+String(v).slice(0,140)}).slice(0,150)"""
+ACTIVE_STEP_JS = """()=>{const h=[...document.querySelectorAll('a,li,h4,h5,b,strong')].filter(e=>e.offsetParent&&/^(Loan Repayment|Supporting Doc|Document Preview|Document Val|Property Details)/i.test((e.textContent||'').trim())&&/active|current/i.test(e.className+' '+(e.parentElement||{}).className));return h.length?h[0].textContent.trim().slice(0,40):''}"""
 ROWS_JS = """()=>{const t=[...document.querySelectorAll('table')].filter(x=>x.offsetParent&&x.rows.length>1);let n=0;
     t.forEach(x=>[...x.rows].slice(1).forEach(r=>{if([...r.querySelectorAll('a,button,i,img,span')].some(e=>/edit|pencil|modify/i.test((e.className||'')+' '+(e.title||'')+' '+(e.getAttribute('onclick')||'')+' '+(e.getAttribute('src')||''))))n++}));return n}"""
 EDIT_ROW_JS = """(i)=>{const rows=[];[...document.querySelectorAll('table')].filter(x=>x.offsetParent&&x.rows.length>1).forEach(x=>[...x.rows].slice(1).forEach(r=>{
@@ -785,11 +790,18 @@ def property_step(P, job, page, t):
     if vil and re.sub(r"[^a-z]", "", vil.lower())[:6] not in re.sub(r"[^a-z]", "", low):
         comments.append(f"Village: MODT '{vil}' not on TNREGINET")
     P.click("btnMainSaveAsDraft", 4)
-    fields = page.evaluate("""()=>[...document.querySelectorAll('input,select,textarea,button')].filter(e=>e.offsetParent&&e.type!=='hidden')
-        .map(e=>{const l=e.labels&&e.labels[0]?e.labels[0].innerText.trim():'';const v=e.tagName==='SELECT'?((e.selectedOptions[0]||{}).text||''):(e.type==='password'?'':(e.value||''));return (e.id||e.name)+' | '+l.slice(0,40)+' | '+String(v).slice(0,40)}).slice(0,120)""")
+    # Look at the next page (Loan Repayment) so it can be automated: Save and Continue, read its fields, stop.
+    nxt = ""
+    if page.evaluate("()=>{const b=document.getElementById('btnMainNext');return !!(b&&b.offsetParent)}"):
+        msg = P.click("btnMainNext", 6)
+        P.wait(3)
+        nxt = page.evaluate(ACTIVE_STEP_JS) or ""
+        if msg:
+            comments.append(f"On Save and Continue TNREGINET said '{msg[:120]}'")
+    fields = page.evaluate(FIELDS_JS)
     tp = page.evaluate("()=>(document.body.innerText.match(/TP\\/\\d+\\/\\d{4}/)||document.body.innerText.match(/Draft\\/[^\\n]+?\\/\\d+\\/\\d{4}/)||[''])[0]")
-    job.step("Stopped after Property details for your check (draft saved)", page)
-    note = f"Party details filled; property tabs checked ({', '.join(seen)}); {len(done_all)} fields turned into English. "
+    job.step(f"Stopped at {nxt or 'the next page'} after Property (draft saved)", page)
+    note = f"Party details filled; property tabs checked ({', '.join(seen)}); {len(done_all)} fields turned into English. Now at: {nxt or '?'}. "
     if comments:
         note += "CHECK: " + " · ".join(comments) + ". "
     if P.warn:
