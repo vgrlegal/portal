@@ -858,15 +858,16 @@ def tp_on_page(page):
     return m.group(0) if m else ""
 
 
+UPNAME = {"rep_kyc": "REP_KYC", "rep_id": "REP_ID", "w1_kyc": "WITNESS1_KYC", "w2_kyc": "WITNESS2_KYC", "modt": "MODT", "noc": "NOC"}
+
+
 def get_file(case, key, folder):
     d = ((case.get("docs") or {}).get(key) or [])
     if not d:
         return None
     f = d[0]
-    name = re.sub(r"[^\w.\- ]+", "_", f.get("name") or key)
-    if not re.search(r"\.(pdf|jpe?g|png)$", name, re.I):
-        name += ".pdf"
-    return download(f.get("url", ""), os.path.join(folder, f"{key}_{name}"))
+    ext = (re.search(r"\.(pdf|jpe?g|png)$", f.get("name") or "", re.I) or [".pdf"])[0].lower()
+    return download(f.get("url", ""), os.path.join(folder, UPNAME.get(key, key.upper()) + ext))
 
 
 def ensure_pdf_tools():
@@ -1000,7 +1001,20 @@ UPLOAD_DIAG_JS = """()=>({files:[...document.querySelectorAll('input[type=file]'
   text:document.body.innerText.replace(/\\s+/g,' ').slice(0,1500)})"""
 
 
+UP_ROWS_JS = """()=>{const t=[...document.querySelectorAll('table')].find(x=>x.offsetParent&&/Uploaded Document/i.test(x.innerText));if(!t)return [];
+  return [...t.rows].slice(1).filter(r=>r.cells.length>=4).map((r,i)=>({i,name:r.cells[1].innerText.trim(),type:r.cells[2].innerText.trim(),file:r.cells[3].innerText.trim()}))}"""
+DEL_ROW_JS = """(i)=>{const t=[...document.querySelectorAll('table')].find(x=>x.offsetParent&&/Uploaded Document/i.test(x.innerText));if(!t)return '';const r=[...t.rows].slice(1)[i];if(!r)return '';
+  const e=[...r.querySelectorAll('a,button,i,img,span')].find(e=>/delete|trash|remove|del/i.test((e.className||'')+' '+(e.title||'')+' '+(e.getAttribute('onclick')||'')+' '+(e.getAttribute('src')||'')))||r.cells[r.cells.length-1].querySelector('a,button,i,img');
+  if(!e)return '';(e.closest('a,button')||e).click();return r.innerText.replace(/\\s+/g,' ').slice(0,80)}"""
+
+
+def nz(x):
+    return re.sub(r"[^a-z0-9]", "", str(x).lower())
+
+
 def upload_docs(P, job, page, t, case, comments):
+    """Upload Documents screen: Upload Document type (docFor) → Document Name → Choose File → Add, one by one.
+    Rows already there are kept if right, removed if wrong/duplicate; Save only when exactly the 5 right rows are present."""
     tp = job.d.get("tpNo")
     job.step("13 · Upload documents", page)
     folder = os.path.join(os.path.dirname(os.path.abspath(__file__)), "files", job.id[:8])
@@ -1009,81 +1023,101 @@ def upload_docs(P, job, page, t, case, comments):
     rep_pdf = None
     if rep_k or rep_i:
         try:
-            rep_pdf = to_pdf([rep_k, rep_i], os.path.join(folder, "Rep_KYC_and_ID.pdf"))
+            rep_pdf = to_pdf([rep_k, rep_i], os.path.join(folder, "REP_KYC_ID.pdf"))
         except Exception as e:
             P.warn.append(f"Rep KYC+ID join failed ({e}); uploading the KYC only")
             rep_pdf = rep_k or rep_i
-    first = lambda n: (n or "").split()[0] if n else ""
-    plan = [
-        ("Identification", g(t, "Rep name"), rep_pdf, "Bank rep KYC + ID"),
-        ("Identification", g(t, "Witness 1 name"), get_file(case, "w1_kyc", folder), "Witness 1 KYC"),
-        ("Identification", g(t, "Witness 2 name"), get_file(case, "w2_kyc", folder), "Witness 2 KYC"),
-        ("Reference", "Reference Original", get_file(case, "modt", folder), "MODT"),
-        ("Reference", "Reference Bank Cert|Bank Cert", get_file(case, "noc", folder), "NOC"),
+    plan = [  # (type option, document name (as TNREGINET lists it), file, label, file tag)
+        ("Identification", g(t, "Rep name"), rep_pdf, "Bank rep KYC + ID", "REP_KYC"),
+        ("Identification", g(t, "Witness 1 name"), get_file(case, "w1_kyc", folder), "Witness 1 KYC", "WITNESS1"),
+        ("Identification", g(t, "Witness 2 name"), get_file(case, "w2_kyc", folder), "Witness 2 KYC", "WITNESS2"),
+        ("Reference", "Reference Original Document", get_file(case, "modt", folder), "MODT", "MODT"),
+        ("Reference", "Reference Bank Certificate", get_file(case, "noc", folder), "NOC", "NOC"),
     ]
     open_my_docs_row(P, job, page, tp)
-    if not click_first(page, ["button:has-text('Upload Documents'):visible", "input[value='Upload Documents']:visible", "a:has-text('Upload Documents'):visible"]):
+    if not click_first(page, ["#upload_All_Documents:visible", "button:has-text('Upload Documents'):visible", "input[value='Upload Documents']:visible"]):
         job.step("Upload Documents button not found", page)
         raise Stop("TP created, but the Upload Documents button was not found. Upload by hand.")
-    wait_loader(page); P.wait(2)
-    job.upd(uploadDiag=page.evaluate(UPLOAD_DIAG_JS))
+    wait_loader(page)
+    wait_for(P, "()=>{const s=document.getElementById('docFor');return !!(s&&s.offsetParent)}", 20)
+    P.wait(2)
+
+    def right_file(row, tag, name):
+        f = row["file"].upper()
+        old_style = {"REP_KYC": "REP_KYC", "WITNESS1": "W1_KYC", "WITNESS2": "W2_KYC", "MODT": "MODT", "NOC": "NOC"}[tag]
+        return tag in f or old_style in f
+
+    # 1. clean up rows from earlier tries: keep one right row per document, remove wrong / duplicate rows
+    for _ in range(12):
+        rows = page.evaluate(UP_ROWS_JS)
+        bad = None
+        seen = set()
+        for r in rows:
+            item = next((x for x in plan if x[1] and (nz(x[1]) == nz(r["name"]) or (x[0] == "Identification" and nz(x[1])[:6] and nz(x[1])[:6] in nz(r["name"])))), None)
+            if not item or not right_file(r, item[4], item[1]) or item[3] in seen:
+                bad = r
+                break
+            seen.add(item[3])
+        if not bad:
+            break
+        job.step(f"13 · Removing wrong/duplicate row: {bad['name']} · {bad['file']}", page)
+        page.evaluate(DEL_ROW_JS, bad["i"])
+        wait_loader(page); P.wait(2); P.popup_ok(); P.wait(1.5)
+
+    # 2. add the documents that are still missing
     done = []
-    for typ, who, f, what in plan:
+    for typ, who, f, what, tag in plan:
+        rows = page.evaluate(UP_ROWS_JS)
+        if any(nz(who) and (nz(who) == nz(r["name"]) or (typ == "Identification" and nz(who)[:6] in nz(r["name"]))) and right_file(r, tag, who) for r in rows):
+            done.append(what)
+            continue
         if not f:
             comments.append(f"{what}: file missing in the case - not uploaded")
             continue
         job.step(f"13 · Uploading {what}", page)
-        r = P.js(f"(()=>{{const s=[...document.querySelectorAll('select')].find(x=>x.offsetParent&&[...x.options].some(o=>/Identification/i.test(o.text))&&[...x.options].some(o=>/Reference/i.test(o.text)));if(!s)return 'NOSEL';window.__ut=s.id;return selre(s.id,{typ!r})}})()")
-        wait_loader(page); P.wait(1.5)
-        pat = re.escape(first(who)) if typ == "Identification" else who
-        r2 = P.js(f"(()=>{{const s=[...document.querySelectorAll('select')].find(x=>x.offsetParent&&x.id!==window.__ut&&x.options.length>1);if(!s)return 'NOSEL';return selre(s.id,{pat!r})}})()")
-        if not str(r2).startswith("ok"):
-            comments.append(f"{what}: document name '{who}' not in TNREGINET list ({r2})")
+        P.js(f"selre('docFor',{typ!r})")
+        wait_loader(page)
+        ok = wait_for(P, "()=>[...document.querySelectorAll('select')].some(x=>x.offsetParent&&x.id!=='docFor'&&x.options.length>1)", 15)
+        P.wait(1)
+        pick = page.evaluate("""([who,typ])=>{const nz=x=>String(x).toLowerCase().replace(/[^a-z0-9]/g,'');const s=[...document.querySelectorAll('select')].find(x=>x.offsetParent&&x.id!=='docFor'&&x.options.length>1);
+            if(!s)return 'NOSEL';const w=nz(who);let o=[...s.options].find(o=>nz(o.text)===w)||[...s.options].find(o=>w&&nz(o.text)&&(nz(o.text).includes(w)||w.includes(nz(o.text))&&nz(o.text).length>3));
+            if(!o&&typ==='Identification'){const tk=String(who).toLowerCase().split(/[^a-z]+/).filter(x=>x.length>2);o=[...s.options].find(o=>tk.length&&tk.every(k=>o.text.toLowerCase().includes(k)))}
+            if(!o)return 'NOOPT: '+[...s.options].map(o=>o.text.trim()).join('|');
+            if(window.jQuery)jQuery(s).val(o.value).trigger('change').trigger('chosen:updated');else{s.value=o.value;s.dispatchEvent(new Event('change',{bubbles:true}))}return 'ok '+o.text}""", [who, typ])
+        if not str(pick).startswith("ok"):
+            comments.append(f"{what}: '{who}' not in Document Name list ({str(pick)[:150]})")
             continue
-        # attach the file to the real <input type=file> (it is often hidden behind a 'Choose File' button)
-        fid = page.evaluate("""()=>{const all=[...document.querySelectorAll('input[type=file]')];
-            const c=document.getElementById('chooseFile');if(c&&c.type==='file')return '#chooseFile';
-            const v=all.find(e=>e.offsetParent)||all.find(e=>{const s=e.closest('div,form,td');return s&&s.offsetParent})||all[0];
-            if(!v)return '';if(!v.id)v.id='__vgrFile';return '#'+v.id}""")
+        P.wait(1)
         try:
-            if not fid:
-                raise RuntimeError("no file input")
-            page.locator(fid).set_input_files(f)
-            page.evaluate("(sel)=>{const e=document.querySelector(sel);e.dispatchEvent(new Event('change',{bubbles:true}))}", fid)
+            page.locator("#importFilesupport, input[type=file]").first.set_input_files(f)
         except Exception:
             try:
                 with page.expect_file_chooser(timeout=8000) as fc:
-                    click_first(page, ["#chooseFile:visible", "button:has-text('Choose File'):visible", "label:has-text('Choose File'):visible", "text=Choose File"])
+                    page.locator("#chooseFile").click()
                 fc.value.set_files(f)
             except Exception as e:
                 comments.append(f"{what}: could not attach the file ({e})")
-                job.upd(uploadDiag=page.evaluate(UPLOAD_DIAG_JS))
                 continue
-        P.wait(1.5)
-        up = page.evaluate("""()=>{const b=[...document.querySelectorAll('button,input[type=button],input[type=submit],a.btn')].find(x=>x.offsetParent&&/^\\s*upload(\\s*document)?\\s*$/i.test(x.value||x.innerText||''));if(!b)return '';b.click();return b.id||b.value||b.innerText}""")
-        wait_loader(page); P.wait(3); m1 = P.popup_ok()
-        if not up:
-            comments.append(f"{what}: Upload Document button not found")
-            job.upd(uploadDiag=page.evaluate(UPLOAD_DIAG_JS))
-            continue
-        job.step(f"13 · {what} uploaded, pressing Add", page)
-        before = page.evaluate("()=>[...document.querySelectorAll('table')].filter(x=>x.offsetParent).reduce((n,x)=>n+x.rows.length,0)")
-        add = page.evaluate("""()=>{const b=document.getElementById('btnAdd')||[...document.querySelectorAll('button,input[type=button]')].find(x=>x.offsetParent&&/^\\s*add\\s*$/i.test(x.value||x.innerText||''));if(!b||!b.offsetParent)return '';b.click();return b.id||'add'}""")
-        wait_loader(page); P.wait(2.5); m2 = P.popup_ok()
-        after = page.evaluate("()=>[...document.querySelectorAll('table')].filter(x=>x.offsetParent).reduce((n,x)=>n+x.rows.length,0)")
-        if not done and after <= before:
-            job.upd(uploadDiag=page.evaluate(UPLOAD_DIAG_JS))
-        if after > before:
+        P.wait(2); P.popup_ok()
+        page.evaluate("()=>{const b=document.getElementById('btnAdd');if(b)b.click()}")
+        wait_loader(page)
+        fname = os.path.basename(f).upper()
+        got = wait_for(P, f"()=>[...document.querySelectorAll('table')].some(x=>x.offsetParent&&x.innerText.toUpperCase().includes({fname!r}))", 15)
+        m = P.popup_ok()
+        if got:
             done.append(what)
+            job.step(f"13 · {what} added", page)
         else:
-            comments.append(f"{what}: not added ({(m1 + ' ' + m2).strip()[:100]})")
-    job.step(f"13 · Uploaded {len(done)} of {len(plan)}", page)
-    if len(done) == len(plan):
-        click_first(page, ["#submitUploadApp:visible", "button:text-is('Save'):visible", "input[value='Save']:visible"])
-        wait_loader(page); P.wait(2); P.popup_ok()
-        job.step("13 · Upload saved", page)
+            comments.append(f"{what}: not added ({m[:100]})")
+            job.upd(uploadDiag=page.evaluate(UPLOAD_DIAG_JS))
+    rows = page.evaluate(UP_ROWS_JS)
+    job.step(f"13 · {len(done)} of {len(plan)} documents in the list", page)
+    if len(done) == len(plan) and len(rows) == len(plan):
+        page.evaluate("()=>{const b=document.getElementById('submitUploadApp');if(b)b.click()}")
+        wait_loader(page); P.wait(3); m = P.popup_ok()
+        job.step(f"13 · Upload saved {m[:60]}", page)
     else:
-        comments.append("Uploads NOT saved - only " + ", ".join(done) + " added. Finish uploads by hand and press Save.")
+        comments.append(f"Uploads NOT saved: {len(rows)} rows in the list, {len(done)} right. Check the list and press Save by hand.")
     return done
 
 
@@ -1091,30 +1125,42 @@ def save_print(P, job, page, case_id, tp):
     """My Documents → TP → Print Preview → save the PDF into the case."""
     job.step("14 · Print preview", page)
     open_my_docs_row(P, job, page, tp)
-    btn = page.locator("button:has-text('Print Preview'):visible, input[value='Print Preview']:visible, a:has-text('Print Preview'):visible")
+    btn = page.locator("#print_my_doc:visible, button:has-text('Print Preview'):visible, input[value='Print Preview']:visible")
     if not btn.count():
         job.upd(printDiag=page.evaluate(UPLOAD_DIAG_JS))
         return "Print Preview button not found"
     folder = os.path.join(os.path.dirname(os.path.abspath(__file__)), "files", job.id[:8])
     os.makedirs(folder, exist_ok=True)
     out = os.path.join(folder, tp.replace("/", "_") + ".pdf")
+    ctx = page.context
+    n0 = len(ctx.pages)
+    got = {}
+    page.on("download", lambda d: got.setdefault("dl", d))
+    btn.first.click()
+    for _ in range(40):  # up to ~40 s: a download, a new tab, or a print dialog on the same page
+        time.sleep(1)
+        if got.get("dl") or len(ctx.pages) > n0:
+            break
     try:
-        with page.expect_download(timeout=40000) as dl:
-            btn.first.click()
-        dl.value.save_as(out)
-    except Exception:
-        # some versions open the PDF in a new tab
-        try:
-            pages = page.context.pages
-            pv = pages[-1] if len(pages) > 1 else None
-            if not pv:
-                return "Print preview did not download"
-            pv.wait_for_load_state(timeout=30000)
-            resp = page.context.request.get(pv.url)
-            open(out, "wb").write(resp.body())
+        if got.get("dl"):
+            got["dl"].save_as(out)
+        elif len(ctx.pages) > n0:
+            pv = ctx.pages[-1]
+            pv.wait_for_load_state("networkidle", timeout=45000)
+            r = ctx.request.get(pv.url) if pv.url.startswith("http") else None
+            if r is not None and "pdf" in (r.headers.get("content-type") or "").lower():
+                open(out, "wb").write(r.body())
+            else:
+                pv.pdf(path=out, format="Legal", print_background=True)  # the print preview page itself, as PDF
             pv.close()
-        except Exception as e:
-            return f"Print preview not saved ({e})"
+        else:
+            P.wait(3); wait_loader(page)
+            if re.search(r"Print|Preview", page.inner_text("body")[:4000], re.I):
+                page.pdf(path=out, format="Legal", print_background=True)
+            else:
+                return "Print preview did not open"
+    except Exception as e:
+        return f"Print preview not saved ({str(e)[:120]})"
     path = f"tp/{time.strftime('%Y-%m')}/{tp.replace('/', '_')}_{job.id[:6]}.pdf"
     url = sb_upload(out, path)
     c = kv_get("cases", case_id) or {}
