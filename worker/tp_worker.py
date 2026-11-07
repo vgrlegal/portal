@@ -760,7 +760,7 @@ def property_step(P, job, page, t):
         miss = [n for n in nums(v) if n not in page_nums]
         if v and miss:
             comments.append(f"{key}: MODT '{v}' – {', '.join(miss)} not on TNREGINET")
-    for key in ("Property SRO", "SRO"):
+    for key in ("Property SRO",):
         v = g(t, key)
         if v and re.sub(r"[^a-z]", "", v.lower())[:5] not in re.sub(r"[^a-z]", "", low):
             comments.append(f"SRO: MODT '{v}' not on TNREGINET property")
