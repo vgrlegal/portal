@@ -400,15 +400,43 @@ def add_and_next(P, what):
     P.click("btnChildNext", 4)
 
 
+def click_text(page, pattern):
+    """Click the smallest visible element whose text matches (Tamil or English)."""
+    return page.evaluate("""(pat)=>{const re=new RegExp(pat,'i');
+        const els=[...document.querySelectorAll('a,button,div,span,li,p,h1,h2,h3,h4,h5,h6,label')].filter(e=>e.offsetParent&&re.test(e.textContent||''));
+        els.sort((a,b)=>(a.textContent||'').length-(b.textContent||'').length);
+        const e=els[0]; if(!e) return ''; (e.closest('a,button,[onclick],.card,.tile')||e).click(); return (e.textContent||'').trim().slice(0,60)}""", pattern)
+
+
+def open_presenceless(page, job):
+    """From the signed-in home page, open Presence-less registration (Tamil or English menu)."""
+    if page.locator("#deedType").count():
+        return
+    for attempt in range(3):
+        if attempt or "error" in page.url.lower() or page.evaluate("()=>/தவறு ஏற்பட்டுள்ளது|error occurred/i.test(document.body.innerText)"):
+            page.goto(URL, wait_until="domcontentloaded", timeout=90000)
+            page.wait_for_timeout(3000)
+        hit = click_text(page, "நேரடி வருகை இல்லா|presence ?less")
+        page.wait_for_timeout(4000)
+        if page.locator("#deedType").count():
+            return
+        # some versions show a second choice / proceed step
+        click_text(page, "ஆவணம் உருவாக்க|create document|புதிய ஆவணம்|new document|proceed|தொடர")
+        page.wait_for_timeout(3500)
+        if page.locator("#deedType").count():
+            return
+        job.step(f"Looking for Presence-less registration (clicked: {hit or 'nothing'})", page)
+
+
 def run_dor(page, job, case):
     t = case.get("tp") or {}
     P = Portal(page, job)
     # 1. create & link previous document
     job.step("1 · Create document & link the MODT")
-    page.goto(URL + "web?requestType=ApplicationRH&actionVal=presencelessReg", wait_until="domcontentloaded", timeout=60000)
-    P.wait(3)
+    open_presenceless(page, job)
     if not page.locator("#deedType").count():
-        raise Stop("The Create Document page did not open")
+        job.step("Create Document page not found", page)
+        raise Stop("The Create Document page did not open. Send the screen to Claude.")
     P.sel("deedType", "^Deed Of Receipt")
     P.js("tick('isPrevDocReg')"); P.wait(1.5)
     P.js("tick('linkPrevDoc')"); P.wait(2)
