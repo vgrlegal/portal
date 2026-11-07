@@ -199,7 +199,7 @@ class Portal:
             return
         try:
             loc = self.p.locator(f"[id='{fid}']:visible").first
-            loc.click()
+            loc.click(timeout=5000)
             self.p.keyboard.press("F8")
             loc.fill("")
             loc.type(english_text + " ", delay=40)
@@ -411,10 +411,29 @@ def add_and_next(P, what):
     P.click("btnChildNext", 4)
 
 
-def open_subtab(P, name):
-    P.js(f"(()=>{{const a=[...document.querySelectorAll('a')].find(x=>x.offsetParent&&x.textContent.trim()==={name!r});if(a)a.click()}})()")
-    P.wait(2.5)
-    P.popup_ok()
+def wait_for(P, js_cond, secs=25):
+    """Poll until a JS condition is true (TNREGINET loads sub-tabs and lists by ajax)."""
+    for _ in range(int(secs * 2)):
+        try:
+            if P.p.evaluate(js_cond):
+                return True
+        except Exception:
+            pass
+        time.sleep(0.5)
+    return False
+
+
+def open_subtab(P, name, marker):
+    """Open a Party Details sub-tab and wait until its form has loaded."""
+    for attempt in range(3):
+        P.js(f"(()=>{{const a=[...document.querySelectorAll('a')].find(x=>x.offsetParent&&x.textContent.replace(/[\"\\s]+/g,' ').trim()==={name!r});if(a)a.click()}})()")
+        P.wait(1.5)
+        P.popup_ok()
+        if wait_for(P, f"()=>{{const e=document.getElementById({marker!r});return !!(e&&e.offsetParent)}}", 20):
+            P.wait(1)
+            return True
+    P.job.step(f"{name} tab did not open", P.p)
+    raise Stop(f"The {name} tab did not open on TNREGINET. Send the screen to Claude.")
 
 
 def click_text(page, pattern):
@@ -501,18 +520,21 @@ def run_dor(page, job, case):
             g(t, "Mortgagor address"), "", g(t, "Mortgagor pincode"), g(t, "Mortgagor mobile"))
     add_and_next(P, "Mortgagor")
     job.step("4 · Company representative", page)
-    open_subtab(P, "Representative Details")
-    P.sel("representedParty", "^Mortgagee", 3)
-    P.js("[...document.querySelectorAll('[id^=representedPartyNames_]')].forEach(c=>{if(c.offsetParent&&!c.checked)c.click()})")
+    open_subtab(P, "Representative Details", "representedParty")
+    P.sel("representedParty", "^Mortgagee", 1)
+    wait_for(P, "()=>!!document.querySelector('[id^=representedPartyNames_]')", 15)
+    P.js("[...document.querySelectorAll('[id^=representedPartyNames_]')].forEach(c=>{if(!c.checked)c.click()})")
     P.wait(2)
-    P.sel("representationBy", "Company Representative", 2)
+    wait_for(P, "()=>document.getElementById('representationBy').options.length>1", 15)
+    P.sel("representationBy", "Company Representative", 1)
+    wait_for(P, "()=>{const e=document.getElementById('designation');return !!(e&&e.offsetParent)}", 15)
     person(P, t, "Rep")
     address(P, g(t, "Rep state") or "Tamil Nadu", g(t, "Rep district"), addr=g(t, "Rep address"),
             addr_ta=g(t, "Rep address (Tamil)"), pin=g(t, "Rep pincode"), mobile=g(t, "Rep mobile"))
     msg = P.click("addReperstativeDtls", 3)
     if msg and not re.search(r"success|added", msg, re.I):
         raise Stop(f"Representative: TNREGINET said '{msg[:160]}'")
-    open_subtab(P, "Witness Details")
+    open_subtab(P, "Witness Details", "chkWitnessType0")
     for n in (1, 2):
         if not g(t, f"Witness {n} name"):
             continue
@@ -523,8 +545,9 @@ def run_dor(page, job, case):
         msg = P.click("addExecutantDetailsInGrid", 3)
         if msg and not re.search(r"success|added", msg, re.I):
             raise Stop(f"Witness {n}: TNREGINET said '{msg[:160]}'")
-    open_subtab(P, "Presenter Details")
+    open_subtab(P, "Presenter Details", "cmb_presenter")
     job.step("7 · Presenter", page)
+    wait_for(P, "()=>document.getElementById('cmb_presenter').options.length>1", 15)
     P.fuzzy("cmb_presenter", g(t, "Rep name"), 1)
     P.click("btnMainSaveAsDraft", 4)
     # Next screens (presenter, property, loan, uploads): record what TNREGINET asks for, then stop for the MD.
