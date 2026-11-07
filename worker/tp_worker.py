@@ -206,8 +206,12 @@ class Portal:
 
 
 def logged_in(page):
+    """Signed in = a Logout / வெளியேறு item exists (often inside the user-name menu) and no visible login box."""
     try:
-        return bool(page.evaluate("()=>/log ?out|sign ?out/i.test(document.body.innerText)"))
+        return bool(page.evaluate("""()=>{const t=document.body.textContent||'';
+            const out=/log ?out|sign ?out|வெளியேறு/i.test(t)||!!document.querySelector('a[href*="ogout"],[onclick*="ogout"]');
+            const box=[...document.querySelectorAll('[id="username"]')].some(e=>e.offsetParent);
+            return out&&!box}"""))
     except Exception:
         return False
 
@@ -282,6 +286,9 @@ def do_login(page, job, acc):
     page.goto(URL, wait_until="domcontentloaded", timeout=90000)
     page.wait_for_timeout(3000)
     for attempt in range(5):
+        if logged_in(page):
+            job.upd(status="filling", captchaImg="", message="", step="Signed in as " + acc["username"], at=now())
+            return
         if attempt:
             # a wrong captcha: load the page again so TNREGINET gives a brand-new captcha
             job.upd(captchaImg="", step="Getting a new captcha", at=now())
