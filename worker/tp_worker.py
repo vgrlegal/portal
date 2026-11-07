@@ -165,6 +165,9 @@ class Portal:
                 const t=(box.innerText||'').replace(/\s+/g,' ').trim().slice(0,300); b.click(); return t}""")
             if not r:
                 break
+            if re.search(r"payment|pay now|e-?pay", r, re.I):
+                txt += (" | " if txt else "") + "[payment pop-up left for the MD] " + r
+                break
             txt += (" | " if txt else "") + r
             time.sleep(1.2)
         return txt
@@ -587,7 +590,8 @@ def run_dor(page, job, case):
         mortgagee_new(P, job, page, t)
     mortgagor(P, job, page, t)
     rep_witness_presenter(P, job, page, t)
-    return property_step(P, job, page, t)
+    comments, _seen, _done = property_step(P, job, page, t)
+    return finish_dor(P, job, page, t, case, comments)
 
 
 def mortgagee_edit(P, job, page, t):
@@ -790,23 +794,309 @@ def property_step(P, job, page, t):
     if vil and re.sub(r"[^a-z]", "", vil.lower())[:6] not in re.sub(r"[^a-z]", "", low):
         comments.append(f"Village: MODT '{vil}' not on TNREGINET")
     P.click("btnMainSaveAsDraft", 4)
-    # Look at the next page (Loan Repayment) so it can be automated: Save and Continue, read its fields, stop.
-    nxt = ""
+    job.upd(comments=comments, propTabs=seen)
+    return comments, seen, done_all
+
+
+# ---------------- Loan → Place of execution → Preview → Create Document → Uploads → Print ----------------
+def label_fill(page, label_re, value):
+    """Fill the visible textbox whose label matches (TNREGINET labels are long: 'Loan Amount as per Regist .. *')."""
+    if value in ("", None):
+        return False
+    return page.evaluate("""([pat,v])=>{const re=new RegExp(pat,'i');
+        const box=[...document.querySelectorAll('input[type=text],input:not([type]),textarea')].find(e=>{if(!e.offsetParent)return false;
+          let l=e.labels&&e.labels[0]?e.labels[0].innerText:'';if(!l){let p=e.parentElement;for(let i=0;i<3&&p&&!l;i++){const x=p.querySelector('label');if(x)l=x.innerText;p=p.parentElement}}
+          return re.test(l)||re.test(e.placeholder||'')||re.test(e.id||'')});
+        if(!box)return false;box.value=v;['input','change','blur'].forEach(t=>box.dispatchEvent(new Event(t,{bubbles:true})));return box.id||true}""", [label_re, str(value)])
+
+
+def click_first(page, sels, timeout=5000):
+    """Click the first selector (in this order) that has a visible match."""
+    for sel in sels:
+        loc = page.locator(sel)
+        if loc.count():
+            try:
+                loc.first.click(timeout=timeout)
+                return sel
+            except Exception:
+                continue
+    return ""
+
+
+def wait_loader(page):
+    try:
+        page.locator("img[src*='Loader'], img[src*='loader']").first.wait_for(state="hidden", timeout=20000)
+    except Exception:
+        pass
+
+
+def main_next(P, page, wait=4):
+    msg = P.click("btnMainNext", wait)
+    wait_loader(page)
+    P.wait(1.5)
+    return msg or ""
+
+
+def tp_on_page(page):
+    m = re.search(r"TP/\d+/\d{4}", page.inner_text("body"))
+    return m.group(0) if m else ""
+
+
+def get_file(case, key, folder):
+    d = ((case.get("docs") or {}).get(key) or [])
+    if not d:
+        return None
+    f = d[0]
+    name = re.sub(r"[^\w.\- ]+", "_", f.get("name") or key)
+    if not re.search(r"\.(pdf|jpe?g|png)$", name, re.I):
+        name += ".pdf"
+    return download(f.get("url", ""), os.path.join(folder, f"{key}_{name}"))
+
+
+def ensure_pdf_tools():
+    try:
+        import pypdf, PIL  # noqa: F401
+    except ImportError:
+        import subprocess
+        subprocess.run([sys.executable, "-m", "pip", "install", "-q", "pypdf", "pillow"], timeout=300)
+
+
+def to_pdf(paths, out):
+    """Join PDFs / images into one PDF (rep Aadhaar KYC + bank ID card)."""
+    ensure_pdf_tools()
+    from pypdf import PdfWriter, PdfReader
+    from PIL import Image
+    w = PdfWriter()
+    for pth in paths:
+        if not pth:
+            continue
+        if pth.lower().endswith(".pdf"):
+            for pg in PdfReader(pth).pages:
+                w.add_page(pg)
+        else:
+            tmp = pth + ".pdf"
+            Image.open(pth).convert("RGB").save(tmp, "PDF", resolution=150)
+            for pg in PdfReader(tmp).pages:
+                w.add_page(pg)
+    with open(out, "wb") as fh:
+        w.write(fh)
+    return out
+
+
+def sb_upload(local, path, ctype="application/pdf"):
+    with open(local, "rb") as fh:
+        r = requests.post(f"{SB}/storage/v1/object/docs/{path}", headers={**AUTH, "Content-Type": ctype, "x-upsert": "true"}, data=fh.read(), timeout=120)
+    r.raise_for_status()
+    return "sb:" + path
+
+
+def loan_to_create(P, job, page, t, case, comments):
+    # 9. Loan repayment: loan amount exactly as in the MODT
+    job.step("9 · Loan repayment", page)
+    main_next(P, page, 6)
+    wait_for(P, "()=>/Loan Amount/i.test(document.body.innerText)", 20)
+    amt = re.sub(r"[^\d.]", "", g(t, "Loan Amount", "Loan amount"))
+    if not label_fill(page, r"Loan Amount", amt):
+        comments.append("Loan amount box not found")
+    elif not amt:
+        comments.append("Loan amount missing in Drafting")
+    P.wait(1)
+    job.step(f"9 · Loan amount {amt}", page)
+    msg = main_next(P, page, 5)
+    if msg and re.search(r"mandatory|enter|invalid|required", msg, re.I):
+        raise Stop(f"Loan page: TNREGINET said '{msg[:160]}'")
+    # 10. Supporting documents: change nothing; only Place of execution (SRO) in English and Tamil
+    job.step("10 · Supporting details · place of execution", page)
+    wait_for(P, "()=>/Place of Execution|place of exec/i.test(document.body.innerText)", 20)
+    sro = g(t, "Execution SRO", "SRO")
+    sro_ta = g(t, "SRO Tamil", "SRO (Tamil)")
+    if not label_fill(page, r"State of execution|Place of\s*Execution(?!.*Tam)", sro):
+        comments.append("Place of execution (English) box not found")
+    if sro_ta:
+        if not label_fill(page, r"Place of Execution in Tam", sro_ta):
+            comments.append("Place of execution (Tamil) box not found")
+    else:
+        comments.append("SRO Tamil name missing in Drafting - Place of execution (Tamil) left empty")
+    P.wait(1)
+    job.step("10 · Place of execution filled", page)
+    msg = main_next(P, page, 5)
+    if msg and re.search(r"mandatory|enter|invalid|required", msg, re.I):
+        raise Stop(f"Place of execution: TNREGINET said '{msg[:160]}'")
+    # 11. Print preview: look, then Next (Continue only once)
+    job.step("11 · Document preview", page)
+    P.wait(3)
     if page.evaluate("()=>{const b=document.getElementById('btnMainNext');return !!(b&&b.offsetParent)}"):
-        msg = P.click("btnMainNext", 6)
+        main_next(P, page, 5)
+    # 12. Create Document - pressed ONE time only, never again (no duplicate TP)
+    tp = tp_on_page(page)
+    if not tp:
+        if job.fresh().get("createClicked"):
+            raise Stop("Create Document was already pressed once for this job. Check My Documents before trying again.")
+        btn = page.locator("#btnCreateDocument:visible, input[value='Create Document']:visible, button:has-text('Create Document'):visible")
+        wait_for(P, "()=>[...document.querySelectorAll('#btnCreateDocument,input[value=\"Create Document\"],button')].some(b=>b.offsetParent&&/Create Document/i.test(b.value||b.innerText||''))", 20)
+        if not btn.count():
+            job.step("Create Document button not found", page)
+            raise Stop("The Create Document button did not appear. The draft is saved - send the screen to Claude.")
+        job.upd(createClicked=now())
+        job.step("12 · Create Document (pressed once)", page)
+        btn.first.click()
+        wait_loader(page)
+        for _ in range(20):
+            P.wait(1.5)
+            P.popup_ok()  # 'Continue' / OK confirmations - each dialog answered once
+            tp = tp_on_page(page)
+            if tp:
+                break
+            c2 = page.locator("button:has-text('Continue'):visible, input[value='Continue']:visible")
+            if c2.count() and not job.d.get("continueClicked"):
+                job.upd(continueClicked=now())
+                c2.first.click()
+        if not tp:
+            job.step("TP number not seen", page)
+            raise Stop("Create Document was pressed but no TP number appeared. Check My Documents (do NOT press Create again).")
+    job.upd(tpNo=tp)
+    kv_merge("cases", job.d.get("case", ""), {"tpNo": tp})
+    job.step(f"12 · TP created: {tp}", page)
+    try:
+        page.locator("button:has-text('Close'):visible").first.click(timeout=3000)
+    except Exception:
+        pass
+    return tp
+
+
+def open_my_docs_row(P, job, page, tp):
+    page.evaluate("""()=>{const a=[...document.querySelectorAll('a,[title]')].find(e=>/^My Documents?$/i.test((e.title||e.textContent||'').trim()));if(a)a.click()}""")
+    wait_loader(page); P.wait(3)
+    no = tp.split("/")[1] if "/" in tp else tp
+    for _ in range(3):
+        ok = page.evaluate("""(no)=>{const tr=[...document.querySelectorAll('tr')].find(r=>r.offsetParent&&r.innerText.includes(no));
+            if(!tr)return false;const i=tr.querySelector('input[type=checkbox],input[type=radio]');if(!i)return false;if(!i.checked)i.click();return true}""", no)
+        if ok:
+            return True
         P.wait(3)
-        nxt = page.evaluate(ACTIVE_STEP_JS) or ""
-        if msg:
-            comments.append(f"On Save and Continue TNREGINET said '{msg[:120]}'")
-    fields = page.evaluate(FIELDS_JS)
-    tp = page.evaluate("()=>(document.body.innerText.match(/TP\\/\\d+\\/\\d{4}/)||document.body.innerText.match(/Draft\\/[^\\n]+?\\/\\d+\\/\\d{4}/)||[''])[0]")
-    job.step(f"Stopped at {nxt or 'the next page'} after Property (draft saved)", page)
-    note = f"Party details filled; property tabs checked ({', '.join(seen)}); {len(done_all)} fields turned into English. Now at: {nxt or '?'}. "
+    job.step(f"{tp} not found in My Documents", page)
+    raise Stop(f"{tp} was created but not found in My Documents. Upload the documents by hand.")
+
+
+def upload_docs(P, job, page, t, case, comments):
+    tp = job.d.get("tpNo")
+    job.step("13 · Upload documents", page)
+    folder = os.path.join(os.path.dirname(os.path.abspath(__file__)), "files", job.id[:8])
+    os.makedirs(folder, exist_ok=True)
+    rep_k, rep_i = get_file(case, "rep_kyc", folder), get_file(case, "rep_id", folder)
+    rep_pdf = None
+    if rep_k or rep_i:
+        try:
+            rep_pdf = to_pdf([rep_k, rep_i], os.path.join(folder, "Rep_KYC_and_ID.pdf"))
+        except Exception as e:
+            P.warn.append(f"Rep KYC+ID join failed ({e}); uploading the KYC only")
+            rep_pdf = rep_k or rep_i
+    first = lambda n: (n or "").split()[0] if n else ""
+    plan = [
+        ("Identification", g(t, "Rep name"), rep_pdf, "Bank rep KYC + ID"),
+        ("Identification", g(t, "Witness 1 name"), get_file(case, "w1_kyc", folder), "Witness 1 KYC"),
+        ("Identification", g(t, "Witness 2 name"), get_file(case, "w2_kyc", folder), "Witness 2 KYC"),
+        ("Reference", "Reference Original", get_file(case, "modt", folder), "MODT"),
+        ("Reference", "Reference Bank Cert|Bank Cert", get_file(case, "noc", folder), "NOC"),
+    ]
+    open_my_docs_row(P, job, page, tp)
+    if not click_first(page, ["button:has-text('Upload Documents'):visible", "input[value='Upload Documents']:visible", "a:has-text('Upload Documents'):visible"]):
+        job.step("Upload Documents button not found", page)
+        raise Stop("TP created, but the Upload Documents button was not found. Upload by hand.")
+    wait_loader(page); P.wait(2)
+    done = []
+    for typ, who, f, what in plan:
+        if not f:
+            comments.append(f"{what}: file missing in the case - not uploaded")
+            continue
+        job.step(f"13 · Uploading {what}", page)
+        r = P.js(f"(()=>{{const s=[...document.querySelectorAll('select')].find(x=>x.offsetParent&&[...x.options].some(o=>/Identification/i.test(o.text))&&[...x.options].some(o=>/Reference/i.test(o.text)));if(!s)return 'NOSEL';window.__ut=s.id;return selre(s.id,{typ!r})}})()")
+        wait_loader(page); P.wait(1.5)
+        pat = re.escape(first(who)) if typ == "Identification" else who
+        r2 = P.js(f"(()=>{{const s=[...document.querySelectorAll('select')].find(x=>x.offsetParent&&x.id!==window.__ut&&x.options.length>1);if(!s)return 'NOSEL';return selre(s.id,{pat!r})}})()")
+        if not str(r2).startswith("ok"):
+            comments.append(f"{what}: document name '{who}' not in TNREGINET list ({r2})")
+            continue
+        inp = page.locator("#chooseFile, input[type=file]").first
+        try:
+            inp.set_input_files(f)
+        except Exception:
+            with page.expect_file_chooser() as fc:
+                page.locator("#chooseFile").click()
+            fc.value.set_files(f)
+        P.wait(1)
+        click_first(page, ["input[value='Upload Document']:visible", "button:text-is('Upload Document'):visible", "#btnUpload:visible"])
+        wait_loader(page); P.wait(2); m1 = P.popup_ok()
+        before = page.evaluate("()=>[...document.querySelectorAll('table')].filter(x=>x.offsetParent).reduce((n,x)=>n+x.rows.length,0)")
+        try:
+            click_first(page, ["#btnAdd:visible", "button:text-is('Add'):visible", "input[value='Add']:visible"])
+        except Exception:
+            pass
+        wait_loader(page); P.wait(2); m2 = P.popup_ok()
+        after = page.evaluate("()=>[...document.querySelectorAll('table')].filter(x=>x.offsetParent).reduce((n,x)=>n+x.rows.length,0)")
+        if after > before:
+            done.append(what)
+        else:
+            comments.append(f"{what}: not added ({(m1 + ' ' + m2).strip()[:100]})")
+    job.step(f"13 · Uploaded {len(done)} of {len(plan)}", page)
+    if len(done) == len(plan):
+        click_first(page, ["#submitUploadApp:visible", "button:text-is('Save'):visible", "input[value='Save']:visible"])
+        wait_loader(page); P.wait(2); P.popup_ok()
+        job.step("13 · Upload saved", page)
+    else:
+        comments.append("Uploads NOT saved - only " + ", ".join(done) + " added. Finish uploads by hand and press Save.")
+    return done
+
+
+def save_print(P, job, page, case_id, tp):
+    """My Documents → TP → Print Preview → save the PDF into the case."""
+    job.step("14 · Print preview", page)
+    open_my_docs_row(P, job, page, tp)
+    btn = page.locator("button:has-text('Print Preview'):visible, input[value='Print Preview']:visible, a:has-text('Print Preview'):visible")
+    if not btn.count():
+        return "Print Preview button not found"
+    folder = os.path.join(os.path.dirname(os.path.abspath(__file__)), "files", job.id[:8])
+    os.makedirs(folder, exist_ok=True)
+    out = os.path.join(folder, tp.replace("/", "_") + ".pdf")
+    try:
+        with page.expect_download(timeout=40000) as dl:
+            btn.first.click()
+        dl.value.save_as(out)
+    except Exception:
+        # some versions open the PDF in a new tab
+        try:
+            pages = page.context.pages
+            pv = pages[-1] if len(pages) > 1 else None
+            if not pv:
+                return "Print preview did not download"
+            pv.wait_for_load_state(timeout=30000)
+            resp = page.context.request.get(pv.url)
+            open(out, "wb").write(resp.body())
+            pv.close()
+        except Exception as e:
+            return f"Print preview not saved ({e})"
+    path = f"tp/{time.strftime('%Y-%m')}/{tp.replace('/', '_')}_{job.id[:6]}.pdf"
+    url = sb_upload(out, path)
+    c = kv_get("cases", case_id) or {}
+    docs = c.get("docs") or {}
+    docs["tpcopy"] = [{"name": tp.replace("/", "_") + " print.pdf", "url": url, "at": now()}]
+    kv_merge("cases", case_id, {"docs": docs, "tpPrint": url})
+    return ""
+
+
+def finish_dor(P, job, page, t, case, comments):
+    tp = loan_to_create(P, job, page, t, case, comments)
+    done = upload_docs(P, job, page, t, case, comments)
+    err = save_print(P, job, page, job.d.get("case", ""), tp)
+    if err:
+        comments.append(err)
+    note = f"TP created: {tp}. Uploaded: {', '.join(done) or 'none'}. Print saved in the case. Do biometric + payment yourself. "
     if comments:
         note += "CHECK: " + " · ".join(comments) + ". "
     if P.warn:
         note += "Warnings: " + "; ".join(P.warn[:8])
-    job.upd(status="review", tpNo=tp, message=note.strip(), comments=comments, pageFields=fields, propTabs=seen)
+    job.step("Finished - stopped before payment", page)
+    job.upd(status="done", tpNo=tp, message=note.strip(), comments=comments)
     return tp
 
 
@@ -837,7 +1127,7 @@ def handle(pw, jid, data):
         except Exception:
             job.step("Stopped here", page)
             raise
-        if tp:
+        if tp and tp.startswith("TP/"):
             kv_merge("cases", data["case"], {"tpNo": tp})
         # keep the browser open a while so a follow-up step can continue (future); then close
     finally:
