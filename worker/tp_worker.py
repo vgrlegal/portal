@@ -210,21 +210,45 @@ def logged_in(page):
 
 
 def captcha_png(page):
-    img = page.locator("#captcha_login").first
-    img.scroll_into_view_if_needed()
-    return "data:image/png;base64," + base64.b64encode(img.screenshot()).decode()
+    img = page.locator("#captcha_login:visible")
+    if img.count():
+        img.first.scroll_into_view_if_needed()
+        return "data:image/png;base64," + base64.b64encode(img.first.screenshot()).decode()
+    # hidden image: copy its pixels through a canvas
+    return page.evaluate("""()=>{const i=[...document.querySelectorAll('[id="captcha_login"]')].find(x=>x.naturalWidth)||document.getElementById('captcha_login');
+        if(!i) return ''; const c=document.createElement('canvas'); c.width=i.naturalWidth||160; c.height=i.naturalHeight||50; c.getContext('2d').drawImage(i,0,0); return c.toDataURL('image/png')}""")
+
+
+def open_login_form(page):
+    """Make the visible login box appear (TNREGINET shows it after clicking Sign In / Login)."""
+    for _ in range(4):
+        if page.locator("#username:visible").count():
+            return True
+        page.evaluate("""()=>{const re=/^\\s*(sign ?in|log ?in|login)\\s*$/i;
+            const b=[...document.querySelectorAll('a,button,span,li,div,input[type=button]')].find(e=>e.offsetParent&&re.test((e.value||e.textContent||'').trim())&&e.children.length<3);
+            if(b) b.click()}""")
+        page.wait_for_timeout(2500)
+    return page.locator("#username:visible").count() > 0
+
+
+def type_into(page, sel, val):
+    loc = page.locator(f"{sel}:visible")
+    if loc.count():
+        loc.first.click()
+        loc.first.fill(val)
+        return
+    page.evaluate("""([sel,val])=>document.querySelectorAll(sel).forEach(e=>{e.value=val;e.dispatchEvent(new Event('input',{bubbles:true}));e.dispatchEvent(new Event('change',{bubbles:true}))})""", [sel, val])
 
 
 def do_login(page, job, acc):
     job.upd(status="starting", step="Opening TNREGINET", at=now())
-    page.goto(URL, wait_until="domcontentloaded", timeout=60000)
-    page.wait_for_timeout(2000)
+    page.goto(URL, wait_until="domcontentloaded", timeout=90000)
+    page.wait_for_timeout(3000)
     for attempt in range(5):
-        if not page.locator("#username").first.is_visible():
-            page.evaluate("()=>{const b=[...document.querySelectorAll('a,button')].find(e=>e.offsetParent&&/^\\s*sign in\\s*$/i.test(e.textContent)); if(b) b.click()}")
-            page.wait_for_timeout(1500)
-        page.fill("#username", acc["username"])
-        page.fill("#password", acc["password"])
+        if not open_login_form(page):
+            job.step("Login box not visible, filling it directly", page)
+        type_into(page, "#username", acc["username"])
+        type_into(page, "#password", acc["password"])
         job.upd(status="captcha", captchaImg=captcha_png(page), captcha="", step="Waiting for the captcha", at=now())
         t0 = time.time()
         while True:
@@ -236,7 +260,7 @@ def do_login(page, job, acc):
             if time.time() - t0 > CAPTCHA_WAIT:
                 raise Stop("Nobody typed the captcha for 10 minutes")
             time.sleep(1.5)
-        page.fill("#txt_Captcha_login", d["captcha"].strip())
+        type_into(page, "#txt_Captcha_login", d["captcha"].strip())
         page.evaluate("""()=>{const u=document.getElementById('username'); let f=u; for(let i=0;i<8&&f;i++){f=f.parentElement; if(f&&f.querySelector('#txt_Captcha_login')&&[...f.querySelectorAll('button,input[type=submit],input[type=button]')].some(b=>/sign in|login/i.test(b.value||b.textContent))) break;}
             const b=[...(f||document).querySelectorAll('button,input[type=submit],input[type=button]')].find(b=>/sign in|login/i.test(b.value||b.textContent)); if(b) b.click();}""")
         page.wait_for_timeout(5000)
@@ -395,10 +419,18 @@ def handle(pw, jid, data):
     page = ctx.new_page()
     page.on("dialog", lambda d: d.accept())
     try:
-        do_login(page, job, acc)
+        try:
+            do_login(page, job, acc)
+        except Exception:
+            job.step("Problem at login", page)
+            raise
         if data.get("kind", "dor") != "dor":
             raise Stop("Only Deed of Receipt is automated so far")
-        tp = run_dor(page, job, case)
+        try:
+            tp = run_dor(page, job, case)
+        except Exception:
+            job.step("Stopped here", page)
+            raise
         if tp:
             kv_merge("cases", data["case"], {"tpNo": tp})
         # keep the browser open a while so a follow-up step can continue (future); then close
