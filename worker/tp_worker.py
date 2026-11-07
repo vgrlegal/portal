@@ -107,6 +107,9 @@ class Job:
         return self.fresh().get("status") == "cancel"
 
 
+DLG = []  # browser alert messages (e.g. "Invalid captcha")
+
+
 class Stop(Exception):
     pass
 
@@ -300,13 +303,21 @@ def do_login(page, job, acc):
                 raise Stop("Nobody typed the captcha for 10 minutes")
             time.sleep(1.5)
         type_into(page, "#txt_Captcha_login", d["captcha"].strip())
-        page.evaluate("""()=>{const u=document.getElementById('username'); let f=u; for(let i=0;i<8&&f;i++){f=f.parentElement; if(f&&f.querySelector('#txt_Captcha_login')&&[...f.querySelectorAll('button,input[type=submit],input[type=button]')].some(b=>/sign in|login/i.test(b.value||b.textContent))) break;}
-            const b=[...(f||document).querySelectorAll('button,input[type=submit],input[type=button]')].find(b=>/sign in|login/i.test(b.value||b.textContent)); if(b) b.click();}""")
-        page.wait_for_timeout(5000)
+        DLG.clear()
+        clicked = page.evaluate("""()=>{const re=/sign ?in|log ?in|உள்நுழை/i, no=/registration|பதிவு|forgot|unlock|மறந்து/i;
+            const u=[...document.querySelectorAll('[id="username"]')].find(e=>e.offsetParent)||document.getElementById('username'); let f=u;
+            for(let i=0;i<10&&f;i++){f=f.parentElement; if(f&&f.querySelector('#txt_Captcha_login')&&[...f.querySelectorAll('button,input[type=submit],input[type=button],a.btn')].some(b=>b.offsetParent&&re.test(b.value||b.textContent)&&!no.test(b.value||b.textContent))) break;}
+            const bs=[...(f||document).querySelectorAll('button,input[type=submit],input[type=button],a.btn')].filter(b=>b.offsetParent);
+            const b=bs.find(b=>re.test(b.value||b.textContent)&&!no.test(b.value||b.textContent));
+            if(b){b.click();return (b.value||b.textContent).trim()} return ''}""")
+        if not clicked:
+            page.locator("#txt_Captcha_login:visible").first.press("Enter")
+        page.wait_for_timeout(6000)
         if logged_in(page):
             job.upd(status="filling", captchaImg="", message="", step="Signed in as " + acc["username"], at=now())
             return
-        msg = page.evaluate("()=>[...document.querySelectorAll('.modal.show,.modal.in,.alert,.error,.swal2-popup,.jconfirm-box,.bootbox')].filter(e=>e.offsetParent).map(e=>e.innerText.trim()).join(' | ').slice(0,200)")
+        msg = " | ".join(DLG) or page.evaluate("()=>[...document.querySelectorAll('.alert,.error,.text-danger,.swal2-popup,.jconfirm-box,.bootbox,.modal.show .modal-body')].filter(e=>e.offsetParent&&e.innerText.trim().length<200&&!/PRESENCE/i.test(e.innerText)).map(e=>e.innerText.trim()).join(' | ').slice(0,200)")
+        job.step(f"Login try {attempt + 1}: button '{clicked or 'Enter key'}'", page)
         for sel in ["button:has-text('OK')", "button:has-text('Ok')", ".swal2-confirm"]:
             b = page.locator(sel)
             if b.count() and b.first.is_visible():
@@ -456,7 +467,7 @@ def handle(pw, jid, data):
     ctx = browser.new_context(viewport={"width": 1366, "height": 900}, locale="en-IN", timezone_id="Asia/Kolkata",
                               user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36")
     page = ctx.new_page()
-    page.on("dialog", lambda d: d.accept())
+    page.on("dialog", lambda d: (DLG.append(d.message[:150]), d.accept()))
     try:
         try:
             do_login(page, job, acc)
