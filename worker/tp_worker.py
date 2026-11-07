@@ -129,6 +129,14 @@ window.selfuzzy = (id,txt) => {const s=vis(id); if(!s) return 'NOFIELD '+id; con
   if(!best||score<0.5) return 'NOOPT '+id+' '+txt;
   if(window.jQuery) jQuery(s).val(best.value).trigger('change').trigger('chosen:updated'); else {s.value=best.value; s.dispatchEvent(new Event('change',{bubbles:true}))}
   return 'ok '+best.text+' '+score.toFixed(2)};
+window.selco = (id,txt) => {const s=vis(id); if(!s) return 'NOFIELD '+id;
+  const nz=x=>String(x).toLowerCase().replace(/aadhaar/g,'aadhar').replace(/\blimited\b/g,'ltd').replace(/\bprivate\b/g,'pvt').replace(/\bcompany\b/g,'co').replace(/[^a-z0-9 ]/g,' ').replace(/\s+/g,' ').trim();
+  const t=nz(txt), tw=new Set(t.split(' ')); let best=null,score=0;
+  for(const o of s.options){const n=nz(o.text); if(!n||/select/.test(n)) continue; if(n===t){best=o;score=1;break}
+    const nw=n.split(' '); const hit=nw.filter(w=>tw.has(w)).length; const sc=hit/Math.max(nw.length,tw.size); if(sc>score){score=sc;best=o}}
+  if(!best||score<0.6) return 'NOOPT '+id+' '+txt;
+  if(window.jQuery) jQuery(s).val(best.value).trigger('change').trigger('chosen:updated'); else {s.value=best.value; s.dispatchEvent(new Event('change',{bubbles:true}))}
+  return 'ok '+best.text+' '+score.toFixed(2)};
 window.tick = id => {const c=vis(id); if(c && !c.checked) c.click(); return c? 'ok':'NOFIELD '+id};
 """
 
@@ -378,7 +386,10 @@ def person(P, t, pre, designation=True):
 
 
 def address(P, state="Tamil Nadu", district="", taluk="", village="", addr="", addr_ta="", pin="", mobile=""):
-    P.sel("cmb_State", "^" + (state or "Tamil Nadu"), 2)
+    st = (state or "Tamil Nadu").strip()
+    if re.sub(r"[^a-z]", "", st.lower()) == "tamilnadu":
+        st = "Tamil Nadu"
+    P.sel("cmb_State", "^" + re.escape(st).replace("\\ ", " ?"), 2)
     if district:
         P.fuzzy("cmb_District", district, 2.5)
     if taluk:
@@ -398,6 +409,12 @@ def add_and_next(P, what):
     if t and not re.search(r"success|added", t, re.I):
         raise Stop(f"{what}: TNREGINET said '{t[:160]}'")
     P.click("btnChildNext", 4)
+
+
+def open_subtab(P, name):
+    P.js(f"(()=>{{const a=[...document.querySelectorAll('a')].find(x=>x.offsetParent&&x.textContent.trim()==={name!r});if(a)a.click()}})()")
+    P.wait(2.5)
+    P.popup_ok()
 
 
 def click_text(page, pattern):
@@ -465,7 +482,13 @@ def run_dor(page, job, case):
         raise Stop(f"TNREGINET could not find the MODT {g(t,'SRO')} {g(t,'Doc No')}/{g(t,'Year')}. Check SRO, Doc No and Year in Drafting.")
     P.wait(1); P.click("createDocProceed", 6)
     job.step("2 · Mortgagee (company)", page)
-    P.sel("partyType", "Company")
+    P.sel("partyType", "Company", 3)
+    co = g(t, "Company name")
+    r = P.js(f"selco('govtBodyList',{co!r})")
+    P.wait(2)
+    if not str(r).startswith("ok"):
+        job.step("Company not found in TNREGINET list", page)
+        raise Stop(f"TNREGINET's company list has no match for '{co}'. Check the company name in Drafting.")
     address(P, g(t, "Company state") or "Tamil Nadu", g(t, "Company district"), addr=g(t, "Company address"),
             addr_ta=g(t, "Company address (Tamil)"), pin=g(t, "Company pincode"))
     add_and_next(P, "Company")
@@ -478,26 +501,38 @@ def run_dor(page, job, case):
             g(t, "Mortgagor address"), "", g(t, "Mortgagor pincode"), g(t, "Mortgagor mobile"))
     add_and_next(P, "Mortgagor")
     job.step("4 · Company representative", page)
+    open_subtab(P, "Representative Details")
+    P.sel("representedParty", "^Mortgagee", 3)
+    P.js("[...document.querySelectorAll('[id^=representedPartyNames_]')].forEach(c=>{if(c.offsetParent&&!c.checked)c.click()})")
+    P.wait(2)
+    P.sel("representationBy", "Company Representative", 2)
     person(P, t, "Rep")
     address(P, g(t, "Rep state") or "Tamil Nadu", g(t, "Rep district"), addr=g(t, "Rep address"),
             addr_ta=g(t, "Rep address (Tamil)"), pin=g(t, "Rep pincode"), mobile=g(t, "Rep mobile"))
-    add_and_next(P, "Representative")
+    msg = P.click("addReperstativeDtls", 3)
+    if msg and not re.search(r"success|added", msg, re.I):
+        raise Stop(f"Representative: TNREGINET said '{msg[:160]}'")
+    open_subtab(P, "Witness Details")
     for n in (1, 2):
         if not g(t, f"Witness {n} name"):
             continue
         job.step(f"{4 + n} · Witness {n}", page)
+        P.js("tick('chkWitnessType0')")
         person(P, t, f"Witness {n}", designation=False)
         address(P, "Tamil Nadu", g(t, f"Witness {n} district"), addr=g(t, f"Witness {n} address"), pin=g(t, f"Witness {n} pincode"))
         msg = P.click("addExecutantDetailsInGrid", 3)
         if msg and not re.search(r"success|added", msg, re.I):
             raise Stop(f"Witness {n}: TNREGINET said '{msg[:160]}'")
-    P.click("btnChildNext", 4)
+    open_subtab(P, "Presenter Details")
+    job.step("7 · Presenter", page)
+    P.fuzzy("cmb_presenter", g(t, "Rep name"), 1)
+    P.click("btnMainSaveAsDraft", 4)
     # Next screens (presenter, property, loan, uploads): record what TNREGINET asks for, then stop for the MD.
     fields = page.evaluate("""()=>[...document.querySelectorAll('input,select,textarea')].filter(e=>e.offsetParent&&e.type!=='hidden')
         .map(e=>{const l=e.labels&&e.labels[0]?e.labels[0].innerText.trim():(e.closest('div,td')||{}).innerText||'';return (e.id||e.name)+' | '+l.slice(0,60)}).slice(0,80)""")
     tp = page.evaluate("()=>(document.body.innerText.match(/TP\\/\\d+\\/\\d{4}/)||[''])[0]")
-    job.step("Stopped before Presenter / Property / Uploads", page)
-    note = "Filled up to the witnesses. " + ("Warnings: " + "; ".join(P.warn[:8]) if P.warn else "")
+    job.step("Stopped before Property / Loan / Uploads (draft saved)", page)
+    note = "Party details filled and draft saved. " + ("Warnings: " + "; ".join(P.warn[:8]) if P.warn else "")
     job.upd(status="review", tpNo=tp, message=note.strip(), pageFields=fields)
     return tp
 
