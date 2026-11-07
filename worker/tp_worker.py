@@ -413,7 +413,10 @@ def to_english(page):
     if page.evaluate("()=>/[\\u0B80-\\u0BFF]{4}/.test((document.querySelector('h1,h2,h3,.breadcrumb,nav')||document.body).innerText)"):
         hit = page.evaluate("""()=>{const e=[...document.querySelectorAll('a,button,span')].find(x=>x.offsetParent&&/^\\s*English\\s*$/i.test(x.textContent));if(e){e.click();return true}return false}""")
         if hit:
-            page.wait_for_timeout(4000)
+            page.wait_for_timeout(1500)
+            # TNREGINET asks "change the language to English?" - press OK
+            page.evaluate("""()=>{const b=[...document.querySelectorAll('button,input[type=button],a')].find(x=>x.offsetParent&&/^\\s*(OK|சரி)\\s*$/i.test(x.value||x.textContent));if(b)b.click()}""")
+            page.wait_for_timeout(4500)
 
 
 def open_presenceless(page, job):
