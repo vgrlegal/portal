@@ -220,26 +220,34 @@ def captcha_png(page):
 
 
 def open_login_form(page):
-    """Make the visible login box appear (TNREGINET shows it after clicking Sign In / Login)."""
-    # close the "Presence less registration" promo and similar pop-ups
-    page.evaluate("""()=>{document.querySelectorAll('.modal.show .close,.modal.in .close,.modal.show [data-dismiss=modal],.modal.show [data-bs-dismiss=modal],.modal.show .btn-close').forEach(b=>{try{b.click()}catch(e){}})}""")
-    page.keyboard.press("Escape")
+    """Open TNREGINET's LOGIN dialog (showLoginDialog('ROD')) above any promo pop-up, with a fresh captcha."""
+    # close promo / notice pop-ups (anything modal that is not the login dialog)
+    page.evaluate("""()=>{const login=document.getElementById('username');
+        document.querySelectorAll('.modal,.popup,[role=dialog]').forEach(m=>{if(!m.offsetParent||(login&&m.contains(login)))return;
+          const x=[...m.querySelectorAll('button,a,span,i,div')].find(e=>e.offsetParent&&(/^\\s*[×x✕]\\s*$/i.test(e.textContent)||/close/i.test(e.className+' '+(e.getAttribute('aria-label')||''))));
+          if(x)x.click(); else m.style.display='none'})}""")
     page.wait_for_timeout(800)
-    # switch the site to English once (labels and messages become English)
-    if page.evaluate("()=>!/sign in|login/i.test(document.body.innerText)&&/உள்நுழைவு/.test(document.body.innerText)"):
-        page.evaluate("""()=>{const e=[...document.querySelectorAll('a,button,span')].find(x=>x.offsetParent&&/^\\s*English\\s*$/.test(x.textContent));if(e)e.click()}""")
-        page.wait_for_timeout(3500)
-        page.evaluate("""()=>{document.querySelectorAll('.modal.show .close,.modal.show [data-dismiss=modal],.modal.show [data-bs-dismiss=modal],.modal.show .btn-close').forEach(b=>{try{b.click()}catch(e){}})}""")
-        page.keyboard.press("Escape")
-        page.wait_for_timeout(800)
     for _ in range(4):
         if page.locator("#username:visible").count():
-            return True
-        page.evaluate("""()=>{const re=/^\\s*(sign ?in|log ?in|login|உள்நுழைவு)\\s*$/i;
-            const b=[...document.querySelectorAll('a,button,span,li,div,input[type=button]')].find(e=>e.offsetParent&&re.test((e.value||e.textContent||'').trim())&&e.children.length<3);
+            break
+        page.evaluate("""()=>{if(typeof showLoginDialog==='function'){showLoginDialog('ROD');return}
+            const re=/^\\s*(sign ?in|log ?in|login|உள்நுழைவு)\\s*$/i;
+            const b=[...document.querySelectorAll('a,button,span,li,input[type=button]')].find(e=>e.offsetParent&&re.test((e.value||e.textContent||'').trim())&&e.children.length<3);
             if(b) b.click()}""")
         page.wait_for_timeout(2500)
-    return page.locator("#username:visible").count() > 0
+    ok = page.locator("#username:visible").count() > 0
+    if ok:
+        # ask TNREGINET for a new login captcha so it is the one the server expects
+        page.evaluate("""()=>{const i=document.getElementById('captcha_login'); if(!i) return;
+            const box=i.closest('div,td,form')||i.parentElement;
+            const r=[...box.parentElement.querySelectorAll('*')].find(e=>e!==i&&e.offsetParent&&/refresh|reload|captcha/i.test((e.getAttribute('onclick')||'')+' '+e.className+' '+e.id+' '+(e.getAttribute('src')||'')+' '+(e.getAttribute('title')||''))&&e.tagName!=='INPUT');
+            if(r) r.click(); else i.src=i.src.split('?')[0]+'?'+Date.now()}""")
+        page.wait_for_timeout(1500)
+        try:
+            page.wait_for_function("()=>{const i=document.getElementById('captcha_login');return i&&i.complete&&i.naturalWidth>0}", timeout=15000)
+        except Exception:
+            pass
+    return ok
 
 
 def type_into(page, sel, val):
