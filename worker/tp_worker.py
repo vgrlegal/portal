@@ -15,7 +15,8 @@ import base64, datetime, json, os, re, sys, time, traceback
 import requests
 from playwright.sync_api import sync_playwright
 
-ENV = "/opt/vgr/worker.env"
+_here = os.path.dirname(os.path.abspath(__file__))
+ENV = os.environ.get("VGR_ENV") or (os.path.join(_here, "worker.env") if os.path.exists(os.path.join(_here, "worker.env")) else "/opt/vgr/worker.env")
 for line in open(ENV) if os.path.exists(ENV) else []:
     if "=" in line and not line.strip().startswith("#"):
         k, v = line.strip().split("=", 1)
@@ -427,7 +428,7 @@ def self_update():
         log("update check failed", e)
 
 
-PROBE = {"at": 0, "res": ""}
+PROBE = {"at": 0, "res": "", "ok": False}
 
 
 def probe():
@@ -445,7 +446,7 @@ def probe():
         out.append(f"ip {ip.get('ip')} {ip.get('country')} {ip.get('org','')[:40]}")
     except Exception:
         pass
-    PROBE.update(at=time.time(), res=" | ".join(out))
+    PROBE.update(at=time.time(), res=" | ".join(out), ok=any(x.startswith("tnreginet") and ": 200" in x for x in out))
     log("probe", PROBE["res"])
 
 
@@ -458,13 +459,18 @@ def main():
                 last_upd = time.time()
                 self_update()
             try:
-                if time.time() - PROBE["at"] > 1800:
+                if time.time() - PROBE["at"] > (1800 if PROBE["ok"] else 300):
                     probe()
+                if not PROBE["ok"]:
+                    # this computer cannot open TNREGINET: stay out of the way (another computer may take the jobs)
+                    kv_set("tp_jobs", "_blocked_" + os.uname().nodename, {"at": now(), "probe": PROBE["res"]})
+                    time.sleep(30)
+                    continue
                 if time.time() - last_beat > 30:
                     kv_set("tp_jobs", "_worker", {"at": now(), "host": os.uname().nodename, "probe": PROBE["res"]})
                     last_beat = time.time()
                 for row in kv_list("tp_jobs"):
-                    if row["id"] == "_worker" or (row["data"] or {}).get("status") != "queued":
+                    if row["id"].startswith("_") or (row["data"] or {}).get("status") != "queued":
                         continue
                     jid, data = row["id"], row["data"]
                     try:
