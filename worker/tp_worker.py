@@ -647,25 +647,47 @@ def mortgagee_new(P, job, page, t):
     add_and_next(P, "Company")
 
 
+EXEC_ROWS_JS = """()=>{const t=document.getElementById('tableForExecutantDtls');if(!t||!t.offsetParent)return [];
+  return [...t.rows].slice(1).filter(r=>r.cells.length>2).map(r=>r.cells[1].innerText.trim())}"""
+EDIT_EXEC_ROW_JS = """(i)=>{const t=document.getElementById('tableForExecutantDtls');if(!t)return '';const r=[...t.rows].slice(1).filter(r=>r.cells.length>2)[i];if(!r)return '';
+  const e=[...r.querySelectorAll('a,button,i,img,span')].find(e=>/edit|pencil|modify/i.test((e.className||'')+' '+(e.title||'')+' '+(e.getAttribute('onclick')||'')+' '+(e.getAttribute('src')||'')))||r.cells[r.cells.length-1].querySelector('a,button,i,img');
+  if(!e)return '';(e.closest('a,button')||e).click();return r.innerText.replace(/\\s+/g,' ').slice(0,80)}"""
+
+
 def mortgagor(P, job, page, t):
     job.step("3 · Mortgagor (borrower)", page)
     wait_for(P, "()=>{const e=document.getElementById('partyType');return !!(e&&e.offsetParent)}", 15)
-    row = edit_first_row(P)
-    if row:
-        # The MODT link already saved the mortgagor with Tamil name/address: only turn the English fields to English.
-        wait_for(P, "()=>{const e=document.getElementById('fullName');return !!(e&&e.offsetParent&&e.value)}", 15)
-        P.wait(1.5)
-        job.step(f"3 · Editing saved mortgagor: {row[:60]}", page)
-        english_pass(P, job, "Mortgagor")
-        current_age(P, t)
-        P.js("tick('aadhaarConsentCheckBox')")
-        b = click_btn_text(P, r"^update$")
-        P.wait(3); msg = P.popup_ok()
-        if not b:
-            P.warn.append("Mortgagor: no Update button")
-        elif msg and not re.search(r"success|updated|added", msg, re.I):
-            raise Stop(f"Mortgagor update: TNREGINET said '{msg[:160]}'")
-        job.step("3 · Mortgagor updated", page)
+    rows = page.evaluate(EXEC_ROWS_JS)
+    if rows:
+        # The MODT link saved EVERY mortgagor with Tamil name/address: edit each one and turn only the English fields to English.
+        for attempt in range(2):
+            for i in range(len(rows)):
+                if attempt and not TAMIL_RE.search(rows[i]):
+                    continue  # second pass: only rows that still show Tamil
+                row = page.evaluate(EDIT_EXEC_ROW_JS, i)
+                if not row:
+                    continue
+                wait_for(P, "()=>{const e=document.getElementById('fullName');return !!(e&&e.offsetParent&&e.value)}", 15)
+                P.wait(1.5)
+                job.step(f"3 · Mortgagor {i + 1} of {len(rows)}: {row[:60]}", page)
+                english_pass(P, job, f"Mortgagor {i + 1}")
+                current_age(P, t)
+                P.js("tick('aadhaarConsentCheckBox')")
+                b = click_btn_text(P, r"^update$")
+                P.wait(3); msg = P.popup_ok()
+                if not b:
+                    P.warn.append(f"Mortgagor {i + 1}: no Update button")
+                elif msg and not re.search(r"success|updated|added", msg, re.I):
+                    P.warn.append(f"CHECK Mortgagor {i + 1}: TNREGINET said '{msg[:120]}'")
+                wait_for(P, "()=>{const t=document.getElementById('tableForExecutantDtls');return !!(t&&t.offsetParent)}", 10)
+            rows = page.evaluate(EXEC_ROWS_JS)
+            if not any(TAMIL_RE.search(r) for r in rows):
+                break
+        left = [r for r in rows if TAMIL_RE.search(r)]
+        if left:
+            P.warn.append("CHECK Mortgagor: still in Tamil - " + ", ".join(left))
+        job.step(f"3 · {len(rows)} mortgagor(s) updated", page)
+        P.click("btnChildNext", 4)
         return
     P.sel("partyType", "Individual")
     person(P, t, "Mortgagor", designation=False)
