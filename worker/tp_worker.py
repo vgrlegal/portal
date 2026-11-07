@@ -40,32 +40,39 @@ def log(*a):
 
 
 # ---------------- Supabase ----------------
+# One shared session that retries dropped connections (home Wi-Fi / Supabase hiccups must not kill a TP run).
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
+HTTP = requests.Session()
+HTTP.mount("https://", HTTPAdapter(max_retries=Retry(total=6, connect=6, read=4, backoff_factor=1.5,
+                                                     status_forcelist=(500, 502, 503, 504, 520, 522, 524),
+                                                     allowed_methods=None, raise_on_status=False)))
 def kv_get(col, id_):
-    r = requests.get(f"{SB}/rest/v1/kv", headers=H, params={"collection": f"eq.{col}", "id": f"eq.{id_}", "select": "id,data"}, timeout=20)
+    r = HTTP.get(f"{SB}/rest/v1/kv", headers=H, params={"collection": f"eq.{col}", "id": f"eq.{id_}", "select": "id,data"}, timeout=20)
     r.raise_for_status()
     rows = r.json()
     return rows[0]["data"] if rows else None
 
 
 def kv_list(col):
-    r = requests.get(f"{SB}/rest/v1/kv", headers=H, params={"collection": f"eq.{col}", "select": "id,data"}, timeout=20)
+    r = HTTP.get(f"{SB}/rest/v1/kv", headers=H, params={"collection": f"eq.{col}", "select": "id,data"}, timeout=20)
     r.raise_for_status()
     return r.json()
 
 
 def kv_merge(col, id_, patch):
-    r = requests.post(f"{SB}/rest/v1/rpc/kv_merge", headers=H, json={"p_collection": col, "p_id": id_, "p_patch": patch}, timeout=20)
+    r = HTTP.post(f"{SB}/rest/v1/rpc/kv_merge", headers=H, json={"p_collection": col, "p_id": id_, "p_patch": patch}, timeout=20)
     r.raise_for_status()
 
 
 def kv_set(col, id_, data):
     h = dict(H, Prefer="resolution=merge-duplicates")
-    r = requests.post(f"{SB}/rest/v1/kv", headers=h, json={"collection": col, "id": id_, "data": data, "updated_at": now()}, timeout=20)
+    r = HTTP.post(f"{SB}/rest/v1/kv", headers=h, json={"collection": col, "id": id_, "data": data, "updated_at": now()}, timeout=20)
     r.raise_for_status()
 
 
 def login_of(id_):
-    r = requests.get(f"{SB}/rest/v1/tn_logins", headers=H, params={"id": f"eq.{id_}", "select": "username,password,client"}, timeout=20)
+    r = HTTP.get(f"{SB}/rest/v1/tn_logins", headers=H, params={"id": f"eq.{id_}", "select": "username,password,client"}, timeout=20)
     r.raise_for_status()
     rows = r.json()
     return rows[0] if rows else None
@@ -75,7 +82,7 @@ def download(url, dest):
     """Portal stores files as 'sb:<path>' in the private 'docs' bucket."""
     if not url.startswith("sb:"):
         return None
-    r = requests.get(f"{SB}/storage/v1/object/docs/{url[3:]}", headers=AUTH, timeout=60)
+    r = HTTP.get(f"{SB}/storage/v1/object/docs/{url[3:]}", headers=AUTH, timeout=60)
     r.raise_for_status()
     open(dest, "wb").write(r.content)
     return dest
@@ -88,7 +95,13 @@ class Job:
 
     def upd(self, **kv):
         self.d.update(kv)
-        kv_merge("tp_jobs", self.id, kv)
+        for i in range(4):
+            try:
+                kv_merge("tp_jobs", self.id, kv)
+                return
+            except Exception as e:
+                log(self.id[:8], "update failed:", e)
+                time.sleep(3 * (i + 1))
 
     def step(self, text, page=None):
         log(self.id[:8], text)
@@ -101,7 +114,10 @@ class Job:
         self.upd(**patch)
 
     def fresh(self):
-        self.d = kv_get("tp_jobs", self.id) or self.d
+        try:
+            self.d = kv_get("tp_jobs", self.id) or self.d
+        except Exception as e:  # a network blip while polling must not stop the TP
+            log(self.id[:8], "poll failed:", e)
         return self.d
 
     def cancelled(self):
@@ -885,7 +901,7 @@ def to_pdf(paths, out):
 
 def sb_upload(local, path, ctype="application/pdf"):
     with open(local, "rb") as fh:
-        r = requests.post(f"{SB}/storage/v1/object/docs/{path}", headers={**AUTH, "Content-Type": ctype, "x-upsert": "true"}, data=fh.read(), timeout=120)
+        r = HTTP.post(f"{SB}/storage/v1/object/docs/{path}", headers={**AUTH, "Content-Type": ctype, "x-upsert": "true"}, data=fh.read(), timeout=120)
     r.raise_for_status()
     return "sb:" + path
 
@@ -1144,7 +1160,7 @@ SRC = "https://raw.githubusercontent.com/vgrlegal/portal/main/worker/tp_worker.p
 def self_update():
     """Pick up new versions pushed to GitHub (systemd restarts us)."""
     try:
-        r = requests.get(SRC, timeout=20)
+        r = HTTP.get(SRC, timeout=20)
         me = os.path.abspath(__file__)
         if r.ok and "def main()" in r.text and r.text != open(me).read():
             open(me, "w").write(r.text)
