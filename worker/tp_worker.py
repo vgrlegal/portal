@@ -237,6 +237,7 @@ def open_login_form(page):
         page.wait_for_timeout(2500)
     ok = page.locator("#username:visible").count() > 0
     if ok:
+        uncover(page)
         # ask TNREGINET for a new login captcha so it is the one the server expects
         page.evaluate("""()=>{const i=document.getElementById('captcha_login'); if(!i) return;
             const box=i.closest('div,td,form')||i.parentElement;
@@ -250,10 +251,24 @@ def open_login_form(page):
     return ok
 
 
+def uncover(page):
+    """Hide whatever sits on top of the login box (e.g. the Presence Less Registration banner)."""
+    for _ in range(6):
+        hid = page.evaluate("""()=>{const u=[...document.querySelectorAll('[id="username"]')].find(e=>e.offsetParent); if(!u) return 'nouser';
+            const login=u.closest('.modal,[role=dialog]')||u.parentElement; const r=u.getBoundingClientRect();
+            const top=document.elementFromPoint(r.left+r.width/2, r.top+r.height/2);
+            if(!top||top===u||login.contains(top)) return 'clear';
+            let n=top; while(n.parentElement&&n.parentElement!==document.body&&!n.parentElement.contains(login)) n=n.parentElement;
+            n.style.setProperty('display','none','important'); return 'hid '+(n.id||n.className||n.tagName).toString().slice(0,40)}""")
+        if hid in ("clear", "nouser"):
+            return hid
+        page.wait_for_timeout(300)
+    return "covered"
+
+
 def type_into(page, sel, val):
     loc = page.locator(f"{sel}:visible")
     if loc.count():
-        loc.first.click()
         loc.first.fill(val)
         return
     page.evaluate("""([sel,val])=>document.querySelectorAll(sel).forEach(e=>{e.value=val;e.dispatchEvent(new Event('input',{bubbles:true}));e.dispatchEvent(new Event('change',{bubbles:true}))})""", [sel, val])
