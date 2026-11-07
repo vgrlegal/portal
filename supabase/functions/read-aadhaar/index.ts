@@ -19,6 +19,12 @@ Copy text exactly; do not translate or guess. If Tamil is not printed, leave the
 "bank":"mortgagee bank / finance company full name","bank_branch":"lender branch","loan_amount":"loan amount in rupees, digits only","loan_account":"loan account number if printed",
 "property_district":"district of the property","property_sro":"SRO of the property in English","village":"village of the property in English","survey_no":"survey number(s) with subdivision","extent":"extent with unit as printed","north":"north boundary","east":"east boundary","west":"west boundary","south":"south boundary"}
 Copy text exactly as printed; do not guess. If there are several mortgagors, give the first one in mortgagor fields. mortgagor_ta must be the Tamil spelling exactly as printed in the document (never transliterate it yourself; leave it empty if no Tamil name is printed). The four boundaries are in the property schedule (often near the end, sometimes in Tamil: வடக்கு north, கிழக்கு east, மேற்கு west, தெற்கு south) - give each boundary text as printed (English if English is printed, otherwise the Tamil text). For property_sro and village give the English name as printed.`,
+  english: `Below is a JSON object of text fields taken from a Tamil Nadu TNREGINET registration form. Most values are in Tamil script. For each key, give the English (Latin script) form that a Tamil Nadu document writer would type in the English field, and return ONLY a JSON object with the same keys.
+Rules:
+- Names: transliterate, do not translate. Tamil initials become English initials (மா. → M., இரா. → R., கே. → K.). Keep the same order and the same parts: if the Tamil has the father's name joined (e.g. ராமசாமி மாரிமுத்து), keep it joined (Ramasamy Marimuthu). Use the usual Tamil Nadu spelling (ராமசாமி → Ramasamy, முருகன் → Murugan, செல்வி → Selvi). Write names in Title Case.
+- Addresses and property text: transliterate names of people, streets, villages, towns; translate the common words: தெரு Street, சாலை Road, நகர் Nagar, கிராமம் Village, வட்டம் Taluk, மாவட்டம் District, அஞ்சல் Post, கதவு எண் / எண் Door No., பிளாட் Plot, சர்வே எண் / புல எண் S.F.No., உட்பிரிவு Sub Division, ஏக்கர் Acres, ஹெக்டேர் Hectares, சதுர அடி Sq.ft, நிலம் land, வீடு house, காலி மனை vacant site, பொது வழி / பாதை common pathway, ரோடு Road, வாய்க்கால் channel, புறம்போக்கு poramboke. Keep all numbers exactly.
+- Boundaries (keys mentioning north/south/east/west/boundary, or text that starts with வடக்கு/தெற்கு/கிழக்கு/மேற்கு): give ONLY the boundary description, e.g. "வடக்கு - ராமசாமி நிலம்" → "Ramasamy land". Never add the direction word, never add slashes or dashes.
+- If a value is already English, return it unchanged. Do not add anything that is not in the Tamil text.`,
 };
 
 Deno.serve(async (req) => {
@@ -30,20 +36,29 @@ Deno.serve(async (req) => {
     if (!role) return json({ error: "Not allowed" }, 403);
     const key = Deno.env.get("ANTHROPIC_API_KEY");
     if (!key) return json({ error: "ANTHROPIC_API_KEY is not set" }, 500);
-    const { images, kind = "aadhaar", hints = [] } = await req.json();
+    const { images, kind = "aadhaar", hints = [], texts } = await req.json();
     let PROMPT = PROMPTS[kind];
     if (!PROMPT) return json({ error: "Unknown kind" }, 400);
     if (Array.isArray(hints) && hints.length) {
       const h = hints.slice(0, 40).map((x: unknown) => String(x).slice(0, 200)).join("\n");
-      PROMPT += `\n\nOur staff corrected these readings before (field: "what was read" → "correct value"). They show the spellings and formats this office uses (SRO names, villages, company names). When you see the same text, use the corrected form; do not copy these values into other fields:\n${h}`;
+      if (kind === "english") PROMPT += `\n\nEnglish spellings already read from the MODT for this case. When the same name or place appears, use exactly these spellings:\n${h}`;
+      else PROMPT += `\n\nOur staff corrected these readings before (field: "what was read" → "correct value"). They show the spellings and formats this office uses (SRO names, villages, company names). When you see the same text, use the corrected form; do not copy these values into other fields:\n${h}`;
     }
-    if (!Array.isArray(images) || !images.length || images.length > 10) return json({ error: "Send 1-10 images" }, 400);
-    const content: unknown[] = images.map((d: string) => {
-      const m = /^data:(image\/(?:jpeg|png|webp));base64,(.+)$/.exec(d);
-      if (!m) throw new Error("Bad image");
-      return { type: "image", source: { type: "base64", media_type: m[1], data: m[2] } };
-    });
-    content.push({ type: "text", text: PROMPT });
+    let content: unknown[] = [];
+    if (kind === "english") {
+      if (!texts || typeof texts !== "object" || !Object.keys(texts).length) return json({ error: "Send texts" }, 400);
+      const t: Record<string, string> = {};
+      for (const [k, v] of Object.entries(texts).slice(0, 40)) t[String(k).slice(0, 60)] = String(v).slice(0, 1500);
+      content.push({ type: "text", text: PROMPT + "\n\nFields:\n" + JSON.stringify(t, null, 1) });
+    } else {
+      if (!Array.isArray(images) || !images.length || images.length > 10) return json({ error: "Send 1-10 images" }, 400);
+      content = images.map((d: string) => {
+        const m = /^data:(image\/(?:jpeg|png|webp));base64,(.+)$/.exec(d);
+        if (!m) throw new Error("Bad image");
+        return { type: "image", source: { type: "base64", media_type: m[1], data: m[2] } };
+      });
+      content.push({ type: "text", text: PROMPT });
+    }
     const r = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: { "x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json" },

@@ -13,6 +13,7 @@ Config: /opt/vgr/worker.env  (SUPABASE_URL, SUPABASE_SERVICE_KEY)
 """
 import base64, datetime, json, os, re, sys, time, traceback
 import requests
+import uuid
 from playwright.sync_api import sync_playwright
 
 _here = os.path.dirname(os.path.abspath(__file__))
@@ -476,6 +477,74 @@ def open_presenceless(page, job):
         job.step(f"Looking for Presence-less registration (clicked: {hit or 'nothing'})", page)
 
 
+TAMIL_RE = re.compile(r"[஀-௿]")
+
+
+def english_pass(P, job, what):
+    """English fields on the visible form that still hold Tamil (copied from the linked MODT):
+    ask the portal (Claude) for the English form and fill only those fields. Tamil fields stay as they are."""
+    texts = P.p.evaluate(r"""()=>{const o={};document.querySelectorAll('input[type=text],textarea').forEach(e=>{
+        if(!e.offsetParent||!e.id||/LL$|tamil|_ta$|Tamil/i.test(e.id)) return; const v=(e.value||'').trim();
+        if(/[஀-௿]/.test(v)) o[e.id]=v}); return o}""")
+    if not texts:
+        return {}
+    tr = uuid.uuid4().hex[:8]
+    job.upd(status="translate", toEnglish=texts, english=None, trId=tr, trWhat=what, at=now())
+    eng = None
+    for _ in range(120):
+        d = job.fresh()
+        if d.get("status") == "cancel":
+            raise Stop("Stopped from the portal")
+        if d.get("english") is not None and d.get("trId") == tr:
+            eng = d.get("english") or {}
+            break
+        time.sleep(1)
+    job.upd(status="filling", toEnglish=None)
+    if eng is None:
+        P.warn.append(f"{what}: Tamil not converted (keep the portal open during TP)")
+        return {}
+    done = {}
+    for k, v in eng.items():
+        if k in texts and v and not TAMIL_RE.search(str(v)):
+            P.set(k, str(v).strip())
+            done[k] = v
+    missed = [k for k in texts if k not in done]
+    if missed:
+        P.warn.append(f"{what}: still Tamil in {', '.join(missed)}")
+    return done
+
+
+def click_btn_text(P, pattern):
+    return P.p.evaluate("""(pat)=>{const re=new RegExp(pat,'i');const b=[...document.querySelectorAll('button,input[type=button],input[type=submit],a.btn')]
+        .find(x=>x.offsetParent&&re.test((x.value||x.innerText||'').trim()));if(!b)return '';b.click();return (b.id||'')+':'+(b.value||b.innerText||'').trim()}""", pattern)
+
+
+def edit_first_row(P, table_id="tableForExecutantDtls", row_re=""):
+    """Press the edit (pencil) icon of the first matching saved row. Returns the row text or ''."""
+    return P.p.evaluate("""([tid,rr])=>{const t=document.getElementById(tid)||[...document.querySelectorAll('table')].find(x=>x.offsetParent&&x.rows.length>1);
+        if(!t||!t.offsetParent||t.rows.length<2)return '';const re=rr?new RegExp(rr,'i'):null;
+        for(const r of [...t.rows].slice(1)){if(re&&!re.test(r.innerText))continue;
+          const els=[...r.querySelectorAll('a,button,i,img,span')];
+          const e=els.find(x=>/edit|pencil|modify/i.test((x.className||'')+' '+(x.title||'')+' '+(x.getAttribute('onclick')||'')+' '+(x.getAttribute('src')||'')))||r.cells[r.cells.length-1].querySelector('a,button,i,img');
+          if(e){(e.closest('a,button')||e).click();return r.innerText.replace(/\\s+/g,' ').slice(0,120)}}return ''}""", [table_id, row_re])
+
+
+def current_age(P, t):
+    """Age in the saved entry is the age at the MODT; add the years since the MODT."""
+    try:
+        a = int(re.sub(r"\D", "", P.p.evaluate("()=>{const e=document.getElementById('age');return e?e.value:''}") or "") or
+                re.sub(r"\D", "", g(t, "Mortgagor age")) or 0)
+    except ValueError:
+        return
+    y = re.sub(r"\D", "", g(t, "Year"))
+    if not a:
+        return
+    if y and len(y) == 4:
+        a += max(0, time.localtime().tm_year - int(y))
+    P.set("age", str(a))
+
+
+
 def run_dor(page, job, case):
     t = case.get("tp") or {}
     P = Portal(page, job)
@@ -499,8 +568,26 @@ def run_dor(page, job, case):
     if ok in ("NOTFOUND", "NOROW"):
         job.step("MODT not found in search", page)
         raise Stop(f"TNREGINET could not find the MODT {g(t,'SRO')} {g(t,'Doc No')}/{g(t,'Year')}. Check SRO, Doc No and Year in Drafting.")
-    P.wait(1); P.click("createDocProceed", 6)
+    P.wait(1)
+    # The linked MODT must be ADDED (saved) before Proceed - otherwise the draft has no linked document.
+    added = click_btn_text(P, r"^(add|link|add document|சேர்)$")
+    P.wait(3); pm = P.popup_ok()
+    job.step(f"Linked MODT added ({added or 'no Add button'}) {pm[:80]}", page)
+    if not added:
+        P.warn.append("Link: no Add button seen after the search")
+    P.click("createDocProceed", 6)
     job.step("2 · Mortgagee (company)", page)
+    if P.p.evaluate("()=>{const t=document.getElementById('tableForExecutantDtls');return !!(t&&t.offsetParent&&t.rows.length>1)}"):
+        job.step("2 · Mortgagee already saved from the linked MODT", page)
+        P.click("btnChildNext", 4)
+    else:
+        mortgagee_new(P, job, page, t)
+    mortgagor(P, job, page, t)
+    rep_witness_presenter(P, job, page, t)
+    return property_step(P, job, page, t)
+
+
+def mortgagee_new(P, job, page, t):
     P.sel("partyType", "Company", 3)
     co = g(t, "Company name")
     r = P.js(f"selco('govtBodyList',{co!r})")
@@ -511,7 +598,28 @@ def run_dor(page, job, case):
     address(P, g(t, "Company state") or "Tamil Nadu", g(t, "Company district"), addr=g(t, "Company address"),
             addr_ta=g(t, "Company address (Tamil)"), pin=g(t, "Company pincode"))
     add_and_next(P, "Company")
+
+
+def mortgagor(P, job, page, t):
     job.step("3 · Mortgagor (borrower)", page)
+    wait_for(P, "()=>{const e=document.getElementById('partyType');return !!(e&&e.offsetParent)}", 15)
+    row = edit_first_row(P)
+    if row:
+        # The MODT link already saved the mortgagor with Tamil name/address: only turn the English fields to English.
+        wait_for(P, "()=>{const e=document.getElementById('fullName');return !!(e&&e.offsetParent&&e.value)}", 15)
+        P.wait(1.5)
+        job.step(f"3 · Editing saved mortgagor: {row[:60]}", page)
+        english_pass(P, job, "Mortgagor")
+        current_age(P, t)
+        P.js("tick('aadhaarConsentCheckBox')")
+        b = click_btn_text(P, r"^update$")
+        P.wait(3); msg = P.popup_ok()
+        if not b:
+            P.warn.append("Mortgagor: no Update button")
+        elif msg and not re.search(r"success|updated|added", msg, re.I):
+            raise Stop(f"Mortgagor update: TNREGINET said '{msg[:160]}'")
+        job.step("3 · Mortgagor updated", page)
+        return
     P.sel("partyType", "Individual")
     person(P, t, "Mortgagor", designation=False)
     P.sel("professionId", "Others")
@@ -519,6 +627,9 @@ def run_dor(page, job, case):
     address(P, "Tamil Nadu", g(t, "Mortgagor district"), g(t, "Mortgagor taluk"), g(t, "Mortgagor village"),
             g(t, "Mortgagor address"), "", g(t, "Mortgagor pincode"), g(t, "Mortgagor mobile"))
     add_and_next(P, "Mortgagor")
+
+
+def rep_witness_presenter(P, job, page, t):
     job.step("4 · Company representative", page)
     open_subtab(P, "Representative Details", "representedParty")
     P.sel("representedParty", "^Mortgagee", 1)
@@ -550,13 +661,44 @@ def run_dor(page, job, case):
     wait_for(P, "()=>document.getElementById('cmb_presenter').options.length>1", 15)
     P.fuzzy("cmb_presenter", g(t, "Rep name"), 1)
     P.click("btnMainSaveAsDraft", 4)
-    # Next screens (presenter, property, loan, uploads): record what TNREGINET asks for, then stop for the MD.
-    fields = page.evaluate("""()=>[...document.querySelectorAll('input,select,textarea')].filter(e=>e.offsetParent&&e.type!=='hidden')
-        .map(e=>{const l=e.labels&&e.labels[0]?e.labels[0].innerText.trim():(e.closest('div,td')||{}).innerText||'';return (e.id||e.name)+' | '+l.slice(0,60)}).slice(0,80)""")
-    tp = page.evaluate("()=>(document.body.innerText.match(/TP\\/\\d+\\/\\d{4}/)||[''])[0]")
-    job.step("Stopped before Property / Loan / Uploads (draft saved)", page)
-    note = "Party details filled and draft saved. " + ("Warnings: " + "; ".join(P.warn[:8]) if P.warn else "")
-    job.upd(status="review", tpNo=tp, message=note.strip(), pageFields=fields)
+
+
+def property_step(P, job, page, t):
+    """Property details come from the linked MODT. Turn the Tamil English-fields (incl. 4 boundaries & remarks)
+    into English, compare with the MODT, note mismatches as comments, save the draft and stop for the MD."""
+    job.step("8 · Property details", page)
+    P.click("btnMainNext", 5)
+    wait_for(P, "()=>/Property Details/i.test(document.body.innerText)&&[...document.querySelectorAll('input,select,textarea')].filter(e=>e.offsetParent).length>4", 25)
+    P.wait(2)
+    comments = []
+    row = edit_first_row(P, "__none__")
+    if row:
+        P.wait(3)
+        job.step(f"8 · Editing saved property: {row[:60]}", page)
+    done = english_pass(P, job, "Property")
+    # mismatch check against what Claude read from the MODT
+    page_txt = page.evaluate("()=>[...document.querySelectorAll('input,select,textarea')].filter(e=>e.offsetParent).map(e=>e.tagName==='SELECT'?(e.selectedOptions[0]||{}).text:e.value).join(' | ')")
+    norm = lambda x: re.sub(r"[^0-9a-z]", "", str(x).lower())
+    for key in ("Survey No", "Old survey no", "New survey no", "Village", "Extent"):
+        v = g(t, key)
+        if v and norm(v) and norm(v) not in norm(page_txt):
+            comments.append(f"{key}: MODT says '{v}', not found on the TNREGINET property page")
+    if row:
+        b = click_btn_text(P, r"^(update|save)$")
+        P.wait(3); msg = P.popup_ok()
+        if msg and not re.search(r"success|updated|saved", msg, re.I):
+            comments.append(f"Property update: TNREGINET said '{msg[:120]}'")
+    P.click("btnMainSaveAsDraft", 4)
+    fields = page.evaluate("""()=>[...document.querySelectorAll('input,select,textarea,button')].filter(e=>e.offsetParent&&e.type!=='hidden')
+        .map(e=>{const l=e.labels&&e.labels[0]?e.labels[0].innerText.trim():'';const v=e.tagName==='SELECT'?((e.selectedOptions[0]||{}).text||''):(e.type==='password'?'':(e.value||''));return (e.id||e.name)+' | '+l.slice(0,40)+' | '+String(v).slice(0,40)}).slice(0,120)""")
+    tp = page.evaluate("()=>(document.body.innerText.match(/TP\\/\\d+\\/\\d{4}/)||document.body.innerText.match(/Draft\\/[^\\n]+?\\/\\d+\\/\\d{4}/)||[''])[0]")
+    job.step("Stopped at Property details for your check (draft saved)", page)
+    note = "Party details filled; property converted to English (" + str(len(done)) + " fields). "
+    if comments:
+        note += "CHECK: " + " · ".join(comments) + ". "
+    if P.warn:
+        note += "Warnings: " + "; ".join(P.warn[:8])
+    job.upd(status="review", tpNo=tp, message=note.strip(), comments=comments, pageFields=fields)
     return tp
 
 
