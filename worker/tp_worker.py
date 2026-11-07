@@ -578,13 +578,36 @@ def run_dor(page, job, case):
     P.click("createDocProceed", 6)
     job.step("2 · Mortgagee (company)", page)
     if P.p.evaluate("()=>{const t=document.getElementById('tableForExecutantDtls');return !!(t&&t.offsetParent&&t.rows.length>1)}"):
-        job.step("2 · Mortgagee already saved from the linked MODT", page)
-        P.click("btnChildNext", 4)
+        mortgagee_edit(P, job, page, t)
     else:
         mortgagee_new(P, job, page, t)
     mortgagor(P, job, page, t)
     rep_witness_presenter(P, job, page, t)
     return property_step(P, job, page, t)
+
+
+def mortgagee_edit(P, job, page, t):
+    """The linked MODT saves only the company name. Open that entry and type the rest (address, pincode, contact)."""
+    row = edit_first_row(P)
+    wait_for(P, "()=>{const e=document.getElementById('partyType');return !!(e&&e.offsetParent&&e.value)}", 15)
+    P.wait(2)
+    job.step(f"2 · Mortgagee: filling details for {row[:60]}", page)
+    if P.p.evaluate("()=>{const g=document.getElementById('govtBodyList'),o=document.getElementById('txt_OrgName');return !!(g&&g.offsetParent&&!g.value&&!(o&&o.offsetParent&&o.value))}"):
+        P.js(f"selco('govtBodyList',{g(t, 'Company name')!r})"); P.wait(2)
+    address(P, g(t, "Company state") or "Tamil Nadu", g(t, "Company district"), addr=g(t, "Company address"),
+            addr_ta=g(t, "Company address (Tamil)"), pin=g(t, "Company pincode"))
+    for f in ("mobileNo_1", "mobileNo"):
+        if g(t, "Company mobile"):
+            P.set(f, g(t, "Company mobile"))
+    english_pass(P, job, "Mortgagee")
+    b = click_btn_text(P, r"^update$")
+    P.wait(3); msg = P.popup_ok()
+    if not b:
+        P.warn.append("Mortgagee: no Update button")
+    elif msg and not re.search(r"success|updated|added", msg, re.I):
+        raise Stop(f"Mortgagee update: TNREGINET said '{msg[:160]}'")
+    job.step("2 · Mortgagee updated", page)
+    P.click("btnChildNext", 4)
 
 
 def mortgagee_new(P, job, page, t):
