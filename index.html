@@ -1068,13 +1068,16 @@ async function cloudTp(c,fresh){const box=$("rvLogin");box.innerHTML=`<div class
   let l=[];try{l=await tnLogins()}catch(e){box.innerHTML=`<p class="banner">${esc(e.message)}</p>`;return}
   const mine=l.filter(x=>x.client===c.bank),list=mine.length?mine:l;
   if(!list.length){box.innerHTML=`<div class="sect">Generate TP on TNREGINET</div><p class="banner">No TNREGINET login IDs yet. Add them in Clients &amp; Staff → TNREGINET login IDs.</p>`;return}
-  const on=W.at&&Date.now()-new Date(W.at).getTime()<120000;
-  box.innerHTML=`<div class="sect">Generate TP on TNREGINET</div>${on?"":`<p class="banner">The TP computer is offline right now. The job will wait and start when it comes online.</p>`}
+  const on=W.at&&Date.now()-new Date(W.at).getTime()<120000,hasTp=/^TP\//.test(c.tpNo||"");
+  box.innerHTML=`<div class="sect">${hasTp?"Upload documents to TNREGINET":"Generate TP on TNREGINET"}</div>${on?"":`<p class="banner">The TP computer is offline right now. The job will wait and start when it comes online.</p>`}
     <div class="fgrid"><label>Login ID${mine.length?"":" (no ID saved for this company, showing all)"}<select id="rvUser">${list.map(x=>`<option value="${x.id}">${esc(x.username)} · ${esc(x.client)}</option>`).join("")}</select></label>
-    <div style="display:flex;align-items:flex-end"><button type="button" class="btn primary" id="rvStart">Start TP</button></div></div><div id="rvJob"></div>`;
-  $("rvStart").onclick=async()=>{const sel=$("rvUser"),id=crypto.randomUUID(),u=sel.options[sel.selectedIndex].text.split(" · ")[0];$("rvStart").disabled=true;
-    try{await db.doc("tp_jobs/"+id).set({kind:isRD(c.type)?"dor":"modt",case:c._doc,caseId:c.id,login:sel.value,loginUser:u,status:"queued",by:who(),at:nowISO(),log:[]});
-      await patch(c,{tpJob:id,tpLogin:u},`TP Generate started (${u})`);watchJob(c,id)}catch(e){fail(e);$("rvStart").disabled=false}}}
+    <div style="display:flex;align-items:flex-end;gap:6px">${hasTp?`<button type="button" class="btn primary" id="rvUpOnly">Upload documents only</button>`:`<button type="button" class="btn primary" id="rvStart">Start TP</button>`}</div></div>
+    ${hasTp?`<p class="sf-note">TP already created: <b>${esc(c.tpNo)}</b>. A new TP will not be made. This only uploads the 5 documents and saves the TP print.</p>`:""}<div id="rvJob"></div>`;
+  const go=async(kind,btn)=>{const sel=$("rvUser"),id=crypto.randomUUID(),u=sel.options[sel.selectedIndex].text.split(" · ")[0];btn.disabled=true;
+    try{await db.doc("tp_jobs/"+id).set({kind,case:c._doc,caseId:c.id,login:sel.value,loginUser:u,status:"queued",by:who(),at:nowISO(),log:[]});
+      await patch(c,{tpJob:id,tpLogin:u},kind==="dor_upload"?`Upload documents started (${u})`:`TP Generate started (${u})`);watchJob(c,id)}catch(e){fail(e);btn.disabled=false}};
+  if($("rvStart"))$("rvStart").onclick=()=>go(isRD(c.type)?"dor":"modt",$("rvStart"));
+  if($("rvUpOnly"))$("rvUpOnly").onclick=()=>go("dor_upload",$("rvUpOnly"))}
 function watchJob(c,id){if(W.unsub)W.unsub();const box=$("rvJob")||$("rvLogin");
   W.unsub=db.doc("tp_jobs/"+id).onSnapshot(s=>{const j=s.exists?s.data():{};if(!$("rvLogin")){W.unsub&&W.unsub();W.unsub=null;return}
     if(j.status==="translate"&&j.toEnglish&&!j.english&&W.trReq!==j.trId){W.trReq=j.trId;
@@ -1087,7 +1090,7 @@ function watchJob(c,id){if(W.unsub)W.unsub();const box=$("rvJob")||$("rvLogin");
     if(j.status==="captcha"&&j.captchaImg)h+=`<div class="capt"><img src="${j.captchaImg}" alt="Captcha from TNREGINET"><input id="rvCapIn" placeholder="Type the code" autocomplete="off"><button type="button" class="btn primary" id="rvCapGo">Sign in</button></div>`;
     if(j.shot)h+=`<details style="margin-top:8px"><summary style="cursor:pointer;font-size:13px">Latest TNREGINET screen</summary><img src="${j.shot}" alt="TNREGINET screen" style="width:100%;border:1px solid var(--line);border-radius:8px;margin-top:6px"></details>`;
     if(stale&&!["done","error","cancelled","review"].includes(j.status))h+=`<p class="banner">No news from the TP computer for a while. Check that the Mac is on, then start again.</p>`;
-    h+=`<div style="margin-top:8px;display:flex;gap:6px">${!ended&&j.status!=="cancel"?`<button type="button" class="btn danger" id="rvCancelJob">Stop this TP</button>`:""}${ended||j.status==="cancel"?`<button type="button" class="btn primary" id="rvRetry">Start TP again</button>`:""}</div>`;
+    h+=`<div style="margin-top:8px;display:flex;gap:6px">${!ended&&j.status!=="cancel"?`<button type="button" class="btn danger" id="rvCancelJob">Stop this TP</button>`:""}${ended||j.status==="cancel"?`<button type="button" class="btn primary" id="rvRetry">${/^TP\//.test(j.tpNo||c.tpNo||"")?"Upload documents again":"Start TP again"}</button>`:""}</div>`;
     tgt.innerHTML=(tgt.id==="rvLogin"?`<div class="sect">Generate TP on TNREGINET</div>`:"")+h;
     if($("rvCapGo")){$("rvCapIn").focus();$("rvCapIn").onkeydown=e=>{if(e.key==="Enter"){e.preventDefault();$("rvCapGo").click()}};
       $("rvCapGo").onclick=async()=>{const t=fv("rvCapIn");if(!t)return;$("rvCapGo").disabled=true;await db.doc("tp_jobs/"+id).update({captcha:t,status:"captcha_sent"})}}

@@ -994,6 +994,12 @@ def open_my_docs_row(P, job, page, tp):
     raise Stop(f"{tp} was created but not found in My Documents. Upload the documents by hand.")
 
 
+UPLOAD_DIAG_JS = """()=>({files:[...document.querySelectorAll('input[type=file]')].map(e=>(e.id||e.name||'?')+(e.offsetParent?' visible':' hidden')+' accept='+(e.accept||'')),
+  buttons:[...document.querySelectorAll('button,input[type=button],input[type=submit],a.btn,label')].filter(b=>b.offsetParent).map(b=>(b.id||'')+'['+((b.value||b.innerText||'').trim().slice(0,30))+']').slice(0,60),
+  selects:[...document.querySelectorAll('select')].filter(x=>x.offsetParent).map(x=>x.id+': '+[...x.options].map(o=>o.text.trim()).slice(0,12).join('|')),
+  text:document.body.innerText.replace(/\\s+/g,' ').slice(0,1500)})"""
+
+
 def upload_docs(P, job, page, t, case, comments):
     tp = job.d.get("tpNo")
     job.step("13 · Upload documents", page)
@@ -1020,6 +1026,7 @@ def upload_docs(P, job, page, t, case, comments):
         job.step("Upload Documents button not found", page)
         raise Stop("TP created, but the Upload Documents button was not found. Upload by hand.")
     wait_loader(page); P.wait(2)
+    job.upd(uploadDiag=page.evaluate(UPLOAD_DIAG_JS))
     done = []
     for typ, who, f, what in plan:
         if not f:
@@ -1033,23 +1040,39 @@ def upload_docs(P, job, page, t, case, comments):
         if not str(r2).startswith("ok"):
             comments.append(f"{what}: document name '{who}' not in TNREGINET list ({r2})")
             continue
-        inp = page.locator("#chooseFile, input[type=file]").first
+        # attach the file to the real <input type=file> (it is often hidden behind a 'Choose File' button)
+        fid = page.evaluate("""()=>{const all=[...document.querySelectorAll('input[type=file]')];
+            const c=document.getElementById('chooseFile');if(c&&c.type==='file')return '#chooseFile';
+            const v=all.find(e=>e.offsetParent)||all.find(e=>{const s=e.closest('div,form,td');return s&&s.offsetParent})||all[0];
+            if(!v)return '';if(!v.id)v.id='__vgrFile';return '#'+v.id}""")
         try:
-            inp.set_input_files(f)
+            if not fid:
+                raise RuntimeError("no file input")
+            page.locator(fid).set_input_files(f)
+            page.evaluate("(sel)=>{const e=document.querySelector(sel);e.dispatchEvent(new Event('change',{bubbles:true}))}", fid)
         except Exception:
-            with page.expect_file_chooser() as fc:
-                page.locator("#chooseFile").click()
-            fc.value.set_files(f)
-        P.wait(1)
-        click_first(page, ["input[value='Upload Document']:visible", "button:text-is('Upload Document'):visible", "#btnUpload:visible"])
-        wait_loader(page); P.wait(2); m1 = P.popup_ok()
+            try:
+                with page.expect_file_chooser(timeout=8000) as fc:
+                    click_first(page, ["#chooseFile:visible", "button:has-text('Choose File'):visible", "label:has-text('Choose File'):visible", "text=Choose File"])
+                fc.value.set_files(f)
+            except Exception as e:
+                comments.append(f"{what}: could not attach the file ({e})")
+                job.upd(uploadDiag=page.evaluate(UPLOAD_DIAG_JS))
+                continue
+        P.wait(1.5)
+        up = page.evaluate("""()=>{const b=[...document.querySelectorAll('button,input[type=button],input[type=submit],a.btn')].find(x=>x.offsetParent&&/^\\s*upload(\\s*document)?\\s*$/i.test(x.value||x.innerText||''));if(!b)return '';b.click();return b.id||b.value||b.innerText}""")
+        wait_loader(page); P.wait(3); m1 = P.popup_ok()
+        if not up:
+            comments.append(f"{what}: Upload Document button not found")
+            job.upd(uploadDiag=page.evaluate(UPLOAD_DIAG_JS))
+            continue
+        job.step(f"13 · {what} uploaded, pressing Add", page)
         before = page.evaluate("()=>[...document.querySelectorAll('table')].filter(x=>x.offsetParent).reduce((n,x)=>n+x.rows.length,0)")
-        try:
-            click_first(page, ["#btnAdd:visible", "button:text-is('Add'):visible", "input[value='Add']:visible"])
-        except Exception:
-            pass
-        wait_loader(page); P.wait(2); m2 = P.popup_ok()
+        add = page.evaluate("""()=>{const b=document.getElementById('btnAdd')||[...document.querySelectorAll('button,input[type=button]')].find(x=>x.offsetParent&&/^\\s*add\\s*$/i.test(x.value||x.innerText||''));if(!b||!b.offsetParent)return '';b.click();return b.id||'add'}""")
+        wait_loader(page); P.wait(2.5); m2 = P.popup_ok()
         after = page.evaluate("()=>[...document.querySelectorAll('table')].filter(x=>x.offsetParent).reduce((n,x)=>n+x.rows.length,0)")
+        if not done and after <= before:
+            job.upd(uploadDiag=page.evaluate(UPLOAD_DIAG_JS))
         if after > before:
             done.append(what)
         else:
@@ -1070,6 +1093,7 @@ def save_print(P, job, page, case_id, tp):
     open_my_docs_row(P, job, page, tp)
     btn = page.locator("button:has-text('Print Preview'):visible, input[value='Print Preview']:visible, a:has-text('Print Preview'):visible")
     if not btn.count():
+        job.upd(printDiag=page.evaluate(UPLOAD_DIAG_JS))
         return "Print Preview button not found"
     folder = os.path.join(os.path.dirname(os.path.abspath(__file__)), "files", job.id[:8])
     os.makedirs(folder, exist_ok=True)
@@ -1100,13 +1124,35 @@ def save_print(P, job, page, case_id, tp):
     return ""
 
 
+def upload_only(page, job, case):
+    """TP already created: log in, upload the 5 documents, save the print. Never creates a TP."""
+    t = case.get("tp") or {}
+    tp = case.get("tpNo") or ""
+    if not tp.startswith("TP/"):
+        raise Stop("This case has no TP number yet.")
+    P = Portal(page, job)
+    job.upd(tpNo=tp)
+    comments = []
+    to_english(page)
+    done = upload_docs(P, job, page, t, case, comments)
+    err = save_print(P, job, page, job.d.get("case", ""), tp)
+    if err:
+        comments.append(err)
+    note = f"{tp}: uploaded {', '.join(done) or 'none'}" + ("" if err else "; print saved in the case") + ". "
+    if comments:
+        note += "CHECK: " + " · ".join(comments)
+    job.step("Upload run finished", page)
+    job.upd(status="done", message=note.strip(), comments=comments)
+    return tp
+
+
 def finish_dor(P, job, page, t, case, comments):
     tp = loan_to_create(P, job, page, t, case, comments)
     done = upload_docs(P, job, page, t, case, comments)
     err = save_print(P, job, page, job.d.get("case", ""), tp)
     if err:
         comments.append(err)
-    note = f"TP created: {tp}. Uploaded: {', '.join(done) or 'none'}. Print saved in the case. Do biometric + payment yourself. "
+    note = f"TP created: {tp}. Uploaded: {', '.join(done) or 'none'}" + ("" if err else ". Print saved in the case") + ". Do biometric + payment yourself. "
     if comments:
         note += "CHECK: " + " · ".join(comments) + ". "
     if P.warn:
@@ -1136,8 +1182,13 @@ def handle(pw, jid, data):
         except Exception:
             job.step("Problem at login", page)
             raise
+        if data.get("kind") == "dor_upload":
+            upload_only(page, job, case)
+            return
         if data.get("kind", "dor") != "dor":
             raise Stop("Only Deed of Receipt is automated so far")
+        if str(case.get("tpNo") or "").startswith("TP/"):
+            raise Stop(f"This case already has {case['tpNo']}. Use 'Upload documents only' - a new TP is not created.")
         try:
             tp = run_dor(page, job, case)
         except Exception:
