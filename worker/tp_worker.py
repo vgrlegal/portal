@@ -514,6 +514,13 @@ def main():
                     kv_set("tp_jobs", "_blocked_" + os.uname().nodename, {"at": now(), "probe": PROBE["res"]})
                     time.sleep(30)
                     continue
+                if not PROBE.get("cleaned"):
+                    # jobs left half-way by an earlier run of this worker can never continue: close them
+                    for row in kv_list("tp_jobs"):
+                        st = (row["data"] or {}).get("status")
+                        if not row["id"].startswith("_") and st in ("starting", "captcha", "captcha_sent", "filling", "uploading", "cancel"):
+                            kv_merge("tp_jobs", row["id"], {"status": "cancelled", "message": "Stopped (the TP computer restarted). Start again.", "at": now()})
+                    PROBE["cleaned"] = True
                 if time.time() - last_beat > 30:
                     kv_set("tp_jobs", "_worker", {"at": now(), "host": os.uname().nodename, "probe": PROBE["res"]})
                     last_beat = time.time()

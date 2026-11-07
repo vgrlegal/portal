@@ -1063,8 +1063,8 @@ async function tnRender(ro){const box=$("tnList");if(!box)return;$("tnAdd").hidd
   box.querySelectorAll("[data-tnx]").forEach(b=>b.onclick=()=>ask("Remove this login ID?",`<p class="sf-note">The TP computer will stop using it.</p>`,async()=>{const{error}=await window.__sb.from("tn_logins").delete().eq("id",b.dataset.tnx);if(error)toast(error.message);else{toast("Removed");tnRender(ro)}},"Remove"));
   $("tnAdd").onsubmit=async e=>{e.preventDefault();const client=fv("tn_client"),username=fv("tn_user"),password=$("tn_pass").value;if(!client||!username||!password){toast("Fill company, login ID and password");return}
     const{error}=await window.__sb.from("tn_logins").insert({client,username,password});if(error){toast(error.message);return}$("tn_user").value="";$("tn_pass").value="";toast("Login ID saved");tnRender(ro)}}
-async function cloudTp(c){const box=$("rvLogin");box.innerHTML=`<div class="sect">Generate TP on TNREGINET</div><p class="sf-note">Loading login IDs…</p>`;
-  if(c.tpJob){const j=await db.doc("tp_jobs/"+c.tpJob).get().catch(()=>null);if(j&&j.exists&&!["done","error","cancelled"].includes((j.data()||{}).status))return watchJob(c,c.tpJob)}
+async function cloudTp(c,fresh){const box=$("rvLogin");box.innerHTML=`<div class="sect">Generate TP on TNREGINET</div><p class="sf-note">Loading login IDs…</p>`;
+  if(c.tpJob&&!fresh){const j=await db.doc("tp_jobs/"+c.tpJob).get().catch(()=>null);if(j&&j.exists&&!["done","error","cancelled"].includes((j.data()||{}).status))return watchJob(c,c.tpJob)}
   let l=[];try{l=await tnLogins()}catch(e){box.innerHTML=`<p class="banner">${esc(e.message)}</p>`;return}
   const mine=l.filter(x=>x.client===c.bank),list=mine.length?mine:l;
   if(!list.length){box.innerHTML=`<div class="sect">Generate TP on TNREGINET</div><p class="banner">No TNREGINET login IDs yet. Add them in Clients &amp; Staff → TNREGINET login IDs.</p>`;return}
@@ -1077,15 +1077,19 @@ async function cloudTp(c){const box=$("rvLogin");box.innerHTML=`<div class="sect
       await patch(c,{tpJob:id,tpLogin:u},`TP Generate started (${u})`);watchJob(c,id)}catch(e){fail(e);$("rvStart").disabled=false}}}
 function watchJob(c,id){if(W.unsub)W.unsub();const box=$("rvJob")||$("rvLogin");
   W.unsub=db.doc("tp_jobs/"+id).onSnapshot(s=>{const j=s.exists?s.data():{};if(!$("rvLogin")){W.unsub&&W.unsub();W.unsub=null;return}
-    const tgt=$("rvJob")||$("rvLogin"),lbl={queued:"Waiting for the TP computer…",starting:"Opening TNREGINET…",captcha:"Type the captcha",captcha_sent:"Signing in…",filling:"Filling TNREGINET",uploading:"Uploading documents",review:"Stopped for your check",done:"TP created",error:"Stopped with a problem",cancelled:"Cancelled"}[j.status]||j.status;
+    const tgt=$("rvJob")||$("rvLogin"),lbl={queued:"Waiting for the TP computer…",starting:"Opening TNREGINET…",captcha:"Type the captcha",captcha_sent:"Signing in…",filling:"Filling TNREGINET",uploading:"Uploading documents",review:"Stopped for your check",done:"TP created",error:"Stopped with a problem",cancelled:"Stopped",cancel:"Stopping…"}[j.status]||j.status;
+    const stale=j.at&&Date.now()-new Date(j.at).getTime()>(j.status==="captcha"?11*60000:180000),ended=["done","error","cancelled","review"].includes(j.status)||(j.status==="cancel"&&j.at&&Date.now()-new Date(j.at).getTime()>15000)||stale;
     let h=`<div class="kv"><span>Status</span><b>${esc(lbl||"")}</b></div>${j.step?`<div class="kv"><span>Step</span><b>${esc(j.step)}</b></div>`:""}${j.message?`<p class="${j.status==="error"?"banner":"sf-note"}">${esc(j.message)}</p>`:""}${j.tpNo?`<div class="kv"><span>TP number</span><b>${esc(j.tpNo)}</b></div>`:""}`;
     if(j.status==="captcha"&&j.captchaImg)h+=`<div class="capt"><img src="${j.captchaImg}" alt="Captcha from TNREGINET"><input id="rvCapIn" placeholder="Type the code" autocomplete="off"><button type="button" class="btn primary" id="rvCapGo">Sign in</button></div>`;
     if(j.shot)h+=`<details style="margin-top:8px"><summary style="cursor:pointer;font-size:13px">Latest TNREGINET screen</summary><img src="${j.shot}" alt="TNREGINET screen" style="width:100%;border:1px solid var(--line);border-radius:8px;margin-top:6px"></details>`;
-    if(!["done","error","cancelled"].includes(j.status))h+=`<div style="margin-top:8px"><button type="button" class="btn danger" id="rvCancelJob">Stop this TP</button></div>`;
+    if(stale&&!["done","error","cancelled","review"].includes(j.status))h+=`<p class="banner">No news from the TP computer for a while. Check that the Mac is on, then start again.</p>`;
+    h+=`<div style="margin-top:8px;display:flex;gap:6px">${!ended&&j.status!=="cancel"?`<button type="button" class="btn danger" id="rvCancelJob">Stop this TP</button>`:""}${ended||j.status==="cancel"?`<button type="button" class="btn primary" id="rvRetry">Start TP again</button>`:""}</div>`;
     tgt.innerHTML=(tgt.id==="rvLogin"?`<div class="sect">Generate TP on TNREGINET</div>`:"")+h;
     if($("rvCapGo")){$("rvCapIn").focus();$("rvCapIn").onkeydown=e=>{if(e.key==="Enter"){e.preventDefault();$("rvCapGo").click()}};
       $("rvCapGo").onclick=async()=>{const t=fv("rvCapIn");if(!t)return;$("rvCapGo").disabled=true;await db.doc("tp_jobs/"+id).update({captcha:t,status:"captcha_sent"})}}
-    if($("rvCancelJob"))$("rvCancelJob").onclick=()=>db.doc("tp_jobs/"+id).update({status:"cancel"});
+    if($("rvCancelJob"))$("rvCancelJob").onclick=()=>db.doc("tp_jobs/"+id).update({status:"cancel",at:nowISO()});
+    if($("rvRetry"))$("rvRetry").onclick=async()=>{if(!["done","error","cancelled","review"].includes(j.status))await db.doc("tp_jobs/"+id).update({status:"cancelled",message:"Stopped from the portal"}).catch(()=>{});
+      if(W.unsub){W.unsub();W.unsub=null}const cur=cases.find(x=>x._doc===c._doc)||c;cloudTp(cur,true)};
   },()=>{})}
 
 /* ================= helper (Mac) ================= */
