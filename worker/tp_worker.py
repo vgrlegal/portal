@@ -198,6 +198,8 @@ class Portal:
             return
         if not english_text:
             return
+        if not self.p.evaluate(f"()=>{{const e=document.getElementById({fid!r});return !!(e&&e.offsetParent)}}"):
+            return
         try:
             loc = self.p.locator(f"[id='{fid}']:visible").first
             loc.click(timeout=5000)
@@ -689,42 +691,74 @@ def rep_witness_presenter(P, job, page, t):
     P.click("btnMainSaveAsDraft", 4)
 
 
+ACTIVE_TAB_JS = """()=>{const a=[...document.querySelectorAll('.nav-tabs a.active,.nav-tabs li.active a,a.active[data-toggle],a.nav-link.active')].find(x=>x.offsetParent);return a?a.textContent.replace(/["\\s]+/g,' ').trim():''}"""
+ROWS_JS = """()=>{const t=[...document.querySelectorAll('table')].filter(x=>x.offsetParent&&x.rows.length>1);let n=0;
+    t.forEach(x=>[...x.rows].slice(1).forEach(r=>{if([...r.querySelectorAll('a,button,i,img,span')].some(e=>/edit|pencil|modify/i.test((e.className||'')+' '+(e.title||'')+' '+(e.getAttribute('onclick')||'')+' '+(e.getAttribute('src')||''))))n++}));return n}"""
+EDIT_ROW_JS = """(i)=>{const rows=[];[...document.querySelectorAll('table')].filter(x=>x.offsetParent&&x.rows.length>1).forEach(x=>[...x.rows].slice(1).forEach(r=>{
+    const e=[...r.querySelectorAll('a,button,i,img,span')].find(e=>/edit|pencil|modify/i.test((e.className||'')+' '+(e.title||'')+' '+(e.getAttribute('onclick')||'')+' '+(e.getAttribute('src')||'')));if(e)rows.push([r,e])}));
+    const x=rows[i];if(!x)return '';(x[1].closest('a,button')||x[1]).click();return x[0].innerText.replace(/\\s+/g,' ').slice(0,100)}"""
+PAGE_TXT_JS = """()=>[...document.querySelectorAll('input,select,textarea')].filter(e=>e.offsetParent&&e.type!=='password').map(e=>e.tagName==='SELECT'?((e.selectedOptions[0]||{}).text||''):e.value).join(' | ')+' | '+[...document.querySelectorAll('table')].filter(x=>x.offsetParent).map(x=>x.innerText).join(' | ')"""
+
+
 def property_step(P, job, page, t):
-    """Property details come from the linked MODT. Turn the Tamil English-fields (incl. 4 boundaries & remarks)
-    into English, compare with the MODT, note mismatches as comments, save the draft and stop for the MD."""
+    """Property details come from the linked MODT. Walk every property sub-tab (Property, Survey, Boundary,
+    Building, ...): for saved rows press Edit, turn the Tamil English-fields (incl. 4 boundaries & remarks) into
+    English and Update. Compare with the MODT, note mismatches as comments, save the draft and stop for the MD."""
     job.step("8 · Property details", page)
     P.click("btnMainNext", 5)
     wait_for(P, "()=>/Property Details/i.test(document.body.innerText)&&[...document.querySelectorAll('input,select,textarea')].filter(e=>e.offsetParent).length>4", 25)
     P.wait(2)
-    comments = []
-    row = edit_first_row(P, "__none__")
-    if row:
-        P.wait(3)
-        job.step(f"8 · Editing saved property: {row[:60]}", page)
-    done = english_pass(P, job, "Property")
-    # mismatch check against what Claude read from the MODT
-    page_txt = page.evaluate("()=>[...document.querySelectorAll('input,select,textarea')].filter(e=>e.offsetParent).map(e=>e.tagName==='SELECT'?(e.selectedOptions[0]||{}).text:e.value).join(' | ')")
-    norm = lambda x: re.sub(r"[^0-9a-z]", "", str(x).lower())
-    for key in ("Survey No", "Old survey no", "New survey no", "Village", "Extent"):
+    comments, done_all, seen, all_txt = [], {}, [], ""
+    for _ in range(10):
+        tab = page.evaluate(ACTIVE_TAB_JS) or f"tab {len(seen) + 1}"
+        if tab in seen:
+            break
+        seen.append(tab)
+        job.step(f"8 · Property · {tab}", page)
+        n = page.evaluate(ROWS_JS)
+        if n:
+            for i in range(min(n, 8)):
+                row = page.evaluate(EDIT_ROW_JS, i)
+                if not row:
+                    break
+                P.wait(2.5)
+                d = english_pass(P, job, f"{tab} row {i + 1}")
+                done_all.update({f"{tab}:{k}": v for k, v in d.items()})
+                b = click_btn_text(P, r"^(update|save)$") if d else click_btn_text(P, r"^cancel$")
+                P.wait(2.5); msg = P.popup_ok()
+                if d and msg and not re.search(r"success|updated|saved", msg, re.I):
+                    comments.append(f"{tab} row {i + 1}: TNREGINET said '{msg[:100]}'")
+        else:
+            d = english_pass(P, job, tab)
+            done_all.update({f"{tab}:{k}": v for k, v in d.items()})
+        all_txt += " | " + page.evaluate(PAGE_TXT_JS)
+        if not page.evaluate("()=>{const b=document.getElementById('btnChildNext');return !!(b&&b.offsetParent)}"):
+            break
+        P.click("btnChildNext", 3)
+        P.wait(1.5)
+    # mismatch check against what Claude read from the MODT (numbers must appear somewhere on the property tabs)
+    nums = lambda x: re.findall(r"\d+(?:\.\d+)?", str(x))
+    page_nums = set(nums(all_txt))
+    low = all_txt.lower()
+    for key in ("Survey No", "Old survey no", "New survey no", "Extent"):
         v = g(t, key)
-        if v and norm(v) and norm(v) not in norm(page_txt):
-            comments.append(f"{key}: MODT says '{v}', not found on the TNREGINET property page")
-    if row:
-        b = click_btn_text(P, r"^(update|save)$")
-        P.wait(3); msg = P.popup_ok()
-        if msg and not re.search(r"success|updated|saved", msg, re.I):
-            comments.append(f"Property update: TNREGINET said '{msg[:120]}'")
+        miss = [n for n in nums(v) if n not in page_nums]
+        if v and miss:
+            comments.append(f"{key}: MODT '{v}' – {', '.join(miss)} not on TNREGINET")
+    vil = g(t, "Village")
+    if vil and re.sub(r"[^a-z]", "", vil.lower())[:6] not in re.sub(r"[^a-z]", "", low):
+        comments.append(f"Village: MODT '{vil}' not on TNREGINET")
     P.click("btnMainSaveAsDraft", 4)
     fields = page.evaluate("""()=>[...document.querySelectorAll('input,select,textarea,button')].filter(e=>e.offsetParent&&e.type!=='hidden')
         .map(e=>{const l=e.labels&&e.labels[0]?e.labels[0].innerText.trim():'';const v=e.tagName==='SELECT'?((e.selectedOptions[0]||{}).text||''):(e.type==='password'?'':(e.value||''));return (e.id||e.name)+' | '+l.slice(0,40)+' | '+String(v).slice(0,40)}).slice(0,120)""")
     tp = page.evaluate("()=>(document.body.innerText.match(/TP\\/\\d+\\/\\d{4}/)||document.body.innerText.match(/Draft\\/[^\\n]+?\\/\\d+\\/\\d{4}/)||[''])[0]")
-    job.step("Stopped at Property details for your check (draft saved)", page)
-    note = "Party details filled; property converted to English (" + str(len(done)) + " fields). "
+    job.step("Stopped after Property details for your check (draft saved)", page)
+    note = f"Party details filled; property tabs checked ({', '.join(seen)}); {len(done_all)} fields turned into English. "
     if comments:
         note += "CHECK: " + " · ".join(comments) + ". "
     if P.warn:
         note += "Warnings: " + "; ".join(P.warn[:8])
-    job.upd(status="review", tpNo=tp, message=note.strip(), comments=comments, pageFields=fields)
+    job.upd(status="review", tpNo=tp, message=note.strip(), comments=comments, pageFields=fields, propTabs=seen)
     return tp
 
 
