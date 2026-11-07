@@ -975,6 +975,9 @@ function openReview(c,gen){
   const fillVil=()=>{const v=document.querySelector('[data-vil]');if(!v)return;const sroSel=$("rv_Property_SRO")&&$("rv_Property_SRO").value?$("rv_Property_SRO"):$("rv_SRO");const L=villagesOf(sroSel&&sroSel.value),raw=v.dataset.raw,m=bestOf(L,raw),cur=v.value||m||"";
     v.innerHTML=`<option value="">${L.length?"— select village —":"Pick the SRO first"}</option>${raw&&!m?`<option value="${esc(raw)}"${!cur||cur===raw?" selected":""}>⚠ ${esc(raw)} (not in list, pick the right one)</option>`:""}${L.map(x=>`<option${x===cur?" selected":""}>${esc(x)}</option>`).join("")}`};
   fillVil();document.querySelectorAll("[data-sro]").forEach(x=>x.addEventListener("change",fillVil));
+  {const ex=$("rv_Execution_SRO"),ta=$("rv_SRO_Tamil");if(ex&&ta){
+    if(!ex.value&&$("rv_SRO")&&$("rv_SRO").value){ex.value=$("rv_SRO").value}
+    const syncTa=()=>{const t=sroTamil(ex.value);if(t)ta.value=t};if(!ta.value)syncTa();ex.addEventListener("change",syncTa)}}
   $("rvSplit").onclick=()=>$("rvDocPane").hidden?openDocPane(c):closeDocPane();
   if($("rvReread")){$("rvReread").onclick=()=>rereadModt(c,false);$("rvRereadAll").onclick=()=>ask("Replace all fields?",`<p class="sf-note">Every field the MODT has will replace what is in Drafting now, including your corrections.</p>`,()=>rereadModt(c,true),"Replace")}
   if(window.innerWidth>1000&&caseFiles(c).length)openDocPane(c);else closeDocPane();
@@ -1247,7 +1250,9 @@ async function sfLoad(){
   for(const[z,zn,d,dn,sid,sn]of g.t){sro[sid]={zn,d,dn,sid,sn,n:sfNorm(sn),vil:[]};(dro[d]=dro[d]||{zn,dn,sros:[]}).sros.push(sid)}
   const vil=[];for(const[sid,rows]of Object.entries(g.v))for(const[v,a,b]of rows){const r=[v,sfNorm(v),sid,a,b];vil.push(r);if(sro[sid])sro[sid].vil.push(r)}
   SF.G={sro,dro,vil};
+  try{SF.TA=await(await fetch("sro/sro_ta.json")).json()}catch(e){SF.TA={}}
 }
+function sroTamil(n){if(!n||!SF.TA)return"";if(SF.TA[n])return SF.TA[n];const m=bestOf(Object.keys(SF.TA),n);return m?SF.TA[m]:""}
 function sfOpen(){if(!SF.loading)SF.loading=sfLoad().catch(()=>{$("sf-out").innerHTML='<div class="empty">Could not load the village list. Reload the page to try again.</div>'});SF.loading.then(sfRender)}
 const sfPeriod=(a,b)=>`${a||"—"} → ${b||"till date"}`;
 function sfVillageCard(name,rows){
@@ -1829,6 +1834,7 @@ async function claudeModt(file){if(!window.__sb)return null;const{canvases}=awai
   put("Boundary North",f.north);put("Boundary East",f.east);put("Boundary West",f.west);put("Boundary South",f.south);
   if(/^(mrs|ms)/i.test(d["Mortgagor salutation"]||""))d["Mortgagor gender"]="Female";else if(d["Mortgagor salutation"]==="Mr")d["Mortgagor gender"]="Male";
   if(/wife/i.test(d["Mortgagor relation"]||""))d["Mortgagor marital status"]="Married";
+  if(!d["SRO Tamil"]&&d.SRO){try{if(!SF.G)await(SF.loading||(SF.loading=sfLoad()));d["SRO Tamil"]=sroTamil(d.SRO)}catch(e){}}
   if(!d["SRO Tamil"]&&d.SRO){try{const r=await window.__sb.functions.invoke("read-aadhaar",{body:{kind:"tamil",texts:{sro:d.SRO}}});const ta=r.data&&r.data.fields&&r.data.fields.sro;if(ta&&/[\u0B80-\u0BFF]/.test(ta))d["SRO Tamil"]=ta}catch(e){}}
   const nl=applyLearned(d);if(nl)console.info("applied",nl,"learned corrections");
   return{d,bankText:[f.bank,f.bank_branch].filter(Boolean).join(" ")}}
