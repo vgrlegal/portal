@@ -1158,68 +1158,52 @@ def _click_text_any(ctx, pattern):
 
 
 def save_print(P, job, page, case_id, tp):
-    """My Documents → select TP → Print → 'Document certificate successfully ready' (reference no. = TP no.)
-    → Print Preview Document Details → Click here to download PDF → save into the case as 'TP copy'."""
+    """My Documents → select TP → Print → Acknowledgement 'Document Created Successfully!' (TP no. must match)
+    → Preview Document Details → 'Your PDF has been generated successfully! Click here to download PDF'
+    → fetch that PDF with the signed-in session → save into the case as 'TP copy'."""
     job.step("14 · Print", page)
     open_my_docs_row(P, job, page, tp)
-    if not click_first(page, ["#print_my_doc:visible", "button:text-is('Print'):visible", "input[value='Print']:visible"]):
+    if not click_first(page, ["#print_my_doc:visible", "input[value='Print']:visible", "button:text-is('Print'):visible"]):
         job.upd(printDiag=page.evaluate(UPLOAD_DIAG_JS))
         return "Print button not found"
-    ctx = page.context
-    got = {}
-    ctx.on("page", lambda pg: pg.on("download", lambda d: got.setdefault("dl", d)))
-    page.on("download", lambda d: got.setdefault("dl", d))
     wait_loader(page)
-    # 1. wait for "Document certificate successfully ready" and check the reference number is our TP
-    no = tp.split("/")[1] if "/" in tp else tp
-    ready = False
-    for _ in range(40):
-        time.sleep(1)
-        for pg in ctx.pages:
-            try:
-                txt = pg.inner_text("body")
-            except Exception:
-                continue
-            if re.search(r"success", txt, re.I) and re.search(r"ready|certificate|generated", txt, re.I):
-                ready = True
-                if no not in txt:
-                    job.step("Print: reference number does not match", pg)
-                    return f"Print said ready, but the reference number on screen is not {tp} - not downloaded"
-                break
-        if ready:
-            break
-    P.popup_ok()
-    job.step("14 · Document ready, opening Print Preview Document Details", page)
-    # 2. Print Preview Document Details
-    pv = _click_text_any(ctx, r"preview\s*document\s*details|print\s*preview")
-    if not pv:
-        job.upd(printDiag=page.evaluate(UPLOAD_DIAG_JS))
-        return "Print Preview Document Details link not found"
-    for _ in range(25):
-        time.sleep(1)
-        if got.get("dl") or any(re.search(r"click here.*download|download\s*pdf", (p2.inner_text("body") if not p2.is_closed() else ""), re.I) for p2 in ctx.pages):
-            break
-    # 3. Click here to download PDF
-    if not got.get("dl"):
-        _click_text_any(ctx, r"click\s*here.*download|download\s*pdf")
-        for _ in range(40):
-            time.sleep(1)
-            if got.get("dl"):
-                break
+    if not wait_for(P, "()=>/Document Created Successfully|Temporary Document Number/i.test(document.body.innerText)", 40):
+        job.step("Print acknowledgement did not appear", page)
+        return "Print acknowledgement did not appear"
+    if tp not in page.inner_text("body"):
+        job.step("Print: TP number does not match", page)
+        return f"The acknowledgement does not show {tp} - print not downloaded"
+    job.step(f"14 · Acknowledgement shows {tp}", page)
+    if not click_first(page, ["button:has-text('Preview Document Details'):visible", "input[value='Preview Document Details']:visible", "a:has-text('Preview Document Details'):visible"]):
+        return "Preview Document Details button not found"
+    wait_loader(page)
+    if not wait_for(P, "()=>[...document.querySelectorAll('a')].some(a=>a.offsetParent&&/^\\s*click here\\s*$/i.test(a.innerText))", 60):
+        job.step("PDF link did not appear", page)
+        return "'Click here to download PDF' did not appear"
+    href = page.evaluate("()=>{const a=[...document.querySelectorAll('a')].find(a=>a.offsetParent&&/^\\s*click here\\s*$/i.test(a.innerText));return a?a.href:''}")
+    job.step("14 · PDF generated, downloading", page)
     folder = os.path.join(os.path.dirname(os.path.abspath(__file__)), "files", job.id[:8])
     os.makedirs(folder, exist_ok=True)
     out = os.path.join(folder, tp.replace("/", "_") + ".pdf")
     try:
-        if got.get("dl"):
-            got["dl"].save_as(out)
+        r = page.context.request.get(href, timeout=90000)
+        body = r.body()
+        if body[:4] != b"%PDF":
+            # fall back to clicking the link (new tab / download)
+            got = {}
+            page.context.on("page", lambda pg: pg.on("download", lambda d: got.setdefault("dl", d)))
+            page.on("download", lambda d: got.setdefault("dl", d))
+            click_first(page, ["a:text-is('Click here'):visible", "text=Click here"])
+            for _ in range(40):
+                time.sleep(1)
+                if got.get("dl"):
+                    break
+            if got.get("dl"):
+                got["dl"].save_as(out)
+            else:
+                return "PDF did not download"
         else:
-            # PDF opened in a tab instead of downloading: fetch it
-            last = ctx.pages[-1]
-            r = ctx.request.get(last.url) if last.url.startswith("http") else None
-            if r is None or "pdf" not in (r.headers.get("content-type") or "").lower():
-                job.step("Print PDF did not download", last)
-                return "Print PDF did not download"
-            open(out, "wb").write(r.body())
+            open(out, "wb").write(body)
     except Exception as e:
         return f"Print PDF not saved ({str(e)[:120]})"
     if os.path.getsize(out) < 2000 or open(out, "rb").read(4) != b"%PDF":
