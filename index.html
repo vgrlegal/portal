@@ -1816,7 +1816,7 @@ async function claudeModt(file){if(!window.__sb)return null;const{canvases}=awai
   const{data,error}=await window.__sb.functions.invoke("read-aadhaar",{body:{kind:"modt",images:canvases.slice(0,10).map(c=>jpegOf(c,1500)),hints}});
   if(error||!data||!data.fields){console.warn("Claude MODT",error||data);return null}
   const f=data.fields,d={},put=(k,v)=>{v=String(v??"").trim();if(v)d[k]=v};
-  put("SRO",f.sro);put("Book",f.book);put("Doc No",f.doc_no);put("Year",f.year);
+  put("SRO",f.sro);put("SRO Tamil",f.sro_ta);put("Execution SRO",f.sro);put("Book",f.book);put("Doc No",f.doc_no);put("Year",f.year);
   if(f.mortgagor_sal)put("Mortgagor salutation",salNorm(f.mortgagor_sal));put("Mortgagor",String(f.mortgagor||"").toUpperCase());put("Mortgagor name (Tamil)",f.mortgagor_ta);
   if(f.age){const y=+f.year||new Date().getFullYear();put("Mortgagor Age",String(+String(f.age).replace(/\D/g,"")+(new Date().getFullYear()-y)))}
   if(f.rel_type)put("Mortgagor relation",relNorm(f.rel_type));put("Mortgagor relative name",String(f.rel_name||"").toUpperCase());
