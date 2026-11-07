@@ -693,7 +693,12 @@ def rep_witness_presenter(P, job, page, t):
     P.click("btnMainSaveAsDraft", 4)
 
 
-ACTIVE_TAB_JS = """()=>{const a=[...document.querySelectorAll('.nav-tabs a.active,.nav-tabs li.active a,a.active[data-toggle],a.nav-link.active')].find(x=>x.offsetParent);return a?a.textContent.replace(/["\\s]+/g,' ').trim():''}"""
+ACTIVE_TAB_JS = """()=>{const clean=x=>(x.textContent||'').replace(/["\\s]+/g,' ').trim();
+  const tabs=[...document.querySelectorAll('a')].filter(a=>a.offsetParent&&/^(Property|Survey|Boundary|Building|Linear|Flat|Land|Other|Patta|Remarks?)\\b.*(Details|Measurement|Remarks?)?$/i.test(clean(a))&&clean(a).length<40);
+  const act=tabs.find(a=>/active|selected|current/i.test(a.className+' '+(a.parentElement||{}).className)||a.getAttribute('aria-selected')==='true');
+  if(act) return clean(act);
+  const heads=[...document.querySelectorAll('h1,h2,h3,h4,h5,h6,b,strong,.title,legend')].filter(h=>h.offsetParent).map(clean);
+  const hit=tabs.map(clean).find(n=>heads.includes(n)); return hit||''}"""
 ROWS_JS = """()=>{const t=[...document.querySelectorAll('table')].filter(x=>x.offsetParent&&x.rows.length>1);let n=0;
     t.forEach(x=>[...x.rows].slice(1).forEach(r=>{if([...r.querySelectorAll('a,button,i,img,span')].some(e=>/edit|pencil|modify/i.test((e.className||'')+' '+(e.title||'')+' '+(e.getAttribute('onclick')||'')+' '+(e.getAttribute('src')||''))))n++}));return n}"""
 EDIT_ROW_JS = """(i)=>{const rows=[];[...document.querySelectorAll('table')].filter(x=>x.offsetParent&&x.rows.length>1).forEach(x=>[...x.rows].slice(1).forEach(r=>{
@@ -710,6 +715,16 @@ def property_step(P, job, page, t):
     P.click("btnMainNext", 5)
     wait_for(P, "()=>/Property Details/i.test(document.body.innerText)&&[...document.querySelectorAll('input,select,textarea')].filter(e=>e.offsetParent).length>4", 25)
     P.wait(2)
+    # The linked MODT's property is already in "List of all added property": open it with Edit.
+    if not page.evaluate("()=>{const b=document.getElementById('btnChildNext');return !!(b&&b.offsetParent)}"):
+        row = page.evaluate(EDIT_ROW_JS, 0)
+        job.step(f"8 · Editing saved property: {row[:80] or 'no saved property row'}", page)
+        if not row:
+            raise Stop("No saved property came from the linked MODT. Check the link (SRO / Doc No / Year).")
+        if not wait_for(P, "()=>{const b=document.getElementById('btnChildNext');return !!(b&&b.offsetParent)}", 25):
+            job.step("Property sub-tabs did not open", page)
+            raise Stop("The saved property did not open for editing on TNREGINET. Send the screen to Claude.")
+        P.wait(2)
     comments, done_all, seen, all_txt = [], {}, [], ""
     for _ in range(10):
         tab = page.evaluate(ACTIVE_TAB_JS) or f"tab {len(seen) + 1}"
@@ -717,7 +732,8 @@ def property_step(P, job, page, t):
             break
         seen.append(tab)
         job.step(f"8 · Property · {tab}", page)
-        if re.search(r"bound", tab, re.I):
+        bound_page = page.evaluate("()=>[...document.querySelectorAll('input,textarea')].some(e=>e.offsetParent&&/north|south|east|west|bound/i.test(e.id||''))")
+        if re.search(r"bound", tab, re.I) or bound_page:
             # Boundaries: only the upper (English) field of each side becomes English; Tamil stays.
             n = page.evaluate(ROWS_JS)
             if n:
