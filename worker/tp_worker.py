@@ -221,10 +221,21 @@ def captcha_png(page):
 
 def open_login_form(page):
     """Make the visible login box appear (TNREGINET shows it after clicking Sign In / Login)."""
+    # close the "Presence less registration" promo and similar pop-ups
+    page.evaluate("""()=>{document.querySelectorAll('.modal.show .close,.modal.in .close,.modal.show [data-dismiss=modal],.modal.show [data-bs-dismiss=modal],.modal.show .btn-close').forEach(b=>{try{b.click()}catch(e){}})}""")
+    page.keyboard.press("Escape")
+    page.wait_for_timeout(800)
+    # switch the site to English once (labels and messages become English)
+    if page.evaluate("()=>!/sign in|login/i.test(document.body.innerText)&&/உள்நுழைவு/.test(document.body.innerText)"):
+        page.evaluate("""()=>{const e=[...document.querySelectorAll('a,button,span')].find(x=>x.offsetParent&&/^\\s*English\\s*$/.test(x.textContent));if(e)e.click()}""")
+        page.wait_for_timeout(3500)
+        page.evaluate("""()=>{document.querySelectorAll('.modal.show .close,.modal.show [data-dismiss=modal],.modal.show [data-bs-dismiss=modal],.modal.show .btn-close').forEach(b=>{try{b.click()}catch(e){}})}""")
+        page.keyboard.press("Escape")
+        page.wait_for_timeout(800)
     for _ in range(4):
         if page.locator("#username:visible").count():
             return True
-        page.evaluate("""()=>{const re=/^\\s*(sign ?in|log ?in|login)\\s*$/i;
+        page.evaluate("""()=>{const re=/^\\s*(sign ?in|log ?in|login|உள்நுழைவு)\\s*$/i;
             const b=[...document.querySelectorAll('a,button,span,li,div,input[type=button]')].find(e=>e.offsetParent&&re.test((e.value||e.textContent||'').trim())&&e.children.length<3);
             if(b) b.click()}""")
         page.wait_for_timeout(2500)
