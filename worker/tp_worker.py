@@ -211,7 +211,8 @@ def logged_in(page):
         return bool(page.evaluate("""()=>{const t=document.body.textContent||'';
             const out=/log ?out|sign ?out|வெளியேறு/i.test(t)||!!document.querySelector('a[href*="ogout"],[onclick*="ogout"]');
             const box=[...document.querySelectorAll('[id="username"]')].some(e=>e.offsetParent);
-            return out&&!box}"""))
+            const signin=[...document.querySelectorAll('a,button')].some(e=>e.offsetParent&&/^\\s*(sign ?in|உள்நுழைவு)\\s*$/i.test(e.textContent));
+            return out&&!box&&!signin}"""))
     except Exception:
         return False
 
