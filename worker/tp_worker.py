@@ -408,8 +408,17 @@ def click_text(page, pattern):
         const e=els[0]; if(!e) return ''; (e.closest('a,button,[onclick],.card,.tile')||e).click(); return (e.textContent||'').trim().slice(0,60)}""", pattern)
 
 
+def to_english(page):
+    """TNREGINET remembers the language; the form option names must be English for our matching."""
+    if page.evaluate("()=>/[\\u0B80-\\u0BFF]{4}/.test((document.querySelector('h1,h2,h3,.breadcrumb,nav')||document.body).innerText)"):
+        hit = page.evaluate("""()=>{const e=[...document.querySelectorAll('a,button,span')].find(x=>x.offsetParent&&/^\\s*English\\s*$/i.test(x.textContent));if(e){e.click();return true}return false}""")
+        if hit:
+            page.wait_for_timeout(4000)
+
+
 def open_presenceless(page, job):
     """From the signed-in home page, open Presence-less registration (Tamil or English menu)."""
+    to_english(page)
     if page.locator("#deedType").count():
         return
     for attempt in range(3):
