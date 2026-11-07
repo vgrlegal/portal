@@ -1238,3 +1238,170 @@ def save_print(P, job, page, case_id, tp):
     return ""
 
 
+def upload_only(page, job, case):
+    """TP already created: log in, upload the 5 documents, save the print. Never creates a TP."""
+    t = case.get("tp") or {}
+    tp = case.get("tpNo") or ""
+    if not tp.startswith("TP/"):
+        raise Stop("This case has no TP number yet.")
+    P = Portal(page, job)
+    job.upd(tpNo=tp)
+    comments = []
+    to_english(page)
+    done = upload_docs(P, job, page, t, case, comments)
+    err = save_print(P, job, page, job.d.get("case", ""), tp)
+    if err:
+        comments.append(err)
+    note = f"{tp}: uploaded {', '.join(done) or 'none'}" + ("" if err else "; TP print saved in the case (TP copy)") + (". Only biometric + payment pending. " if not err and len(done) == 5 else ". ")
+    if comments:
+        note += "CHECK: " + " · ".join(comments)
+    job.step("Upload run finished", page)
+    job.upd(status="done", message=note.strip(), comments=comments)
+    return tp
+
+
+def finish_dor(P, job, page, t, case, comments):
+    tp = loan_to_create(P, job, page, t, case, comments)
+    done = upload_docs(P, job, page, t, case, comments)
+    err = save_print(P, job, page, job.d.get("case", ""), tp)
+    if err:
+        comments.append(err)
+    note = f"TP created: {tp}. Uploaded: {', '.join(done) or 'none'}" + ("" if err else ". Print saved in the case") + ". Do biometric + payment yourself. "
+    if comments:
+        note += "CHECK: " + " · ".join(comments) + ". "
+    if P.warn:
+        note += "Warnings: " + "; ".join(P.warn[:8])
+    job.step("Finished - stopped before payment", page)
+    job.upd(status="done", tpNo=tp, message=note.strip(), comments=comments)
+    return tp
+
+
+def handle(pw, jid, data):
+    job = Job(jid, data)
+    job.upd(status="starting", pickedAt=now(), message="")
+    case = kv_get("cases", data.get("case", ""))
+    if not case:
+        raise Stop("Case not found")
+    acc = login_of(data.get("login", ""))
+    if not acc:
+        raise Stop("Login ID not found. Add it in Clients & Staff → TNREGINET login IDs.")
+    browser = pw.chromium.launch(headless=True, args=["--no-sandbox"])
+    ctx = browser.new_context(viewport={"width": 1366, "height": 900}, locale="en-IN", timezone_id="Asia/Kolkata",
+                              user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36")
+    page = ctx.new_page()
+    page.on("dialog", lambda d: (DLG.append(d.message[:150]), d.accept()))
+    try:
+        try:
+            do_login(page, job, acc)
+        except Exception:
+            job.step("Problem at login", page)
+            raise
+        if data.get("kind") == "dor_upload":
+            upload_only(page, job, case)
+            return
+        if data.get("kind", "dor") != "dor":
+            raise Stop("Only Deed of Receipt is automated so far")
+        if str(case.get("tpNo") or "").startswith("TP/"):
+            raise Stop(f"This case already has {case['tpNo']}. Use 'Upload documents only' - a new TP is not created.")
+        try:
+            tp = run_dor(page, job, case)
+        except Exception:
+            job.step("Stopped here", page)
+            raise
+        if tp and tp.startswith("TP/"):
+            kv_merge("cases", data["case"], {"tpNo": tp})
+        # keep the browser open a while so a follow-up step can continue (future); then close
+    finally:
+        try:
+            job.d["shot"] = None
+            ctx.close(); browser.close()
+        except Exception:
+            pass
+
+
+SRC = "https://raw.githubusercontent.com/vgrlegal/portal/main/worker/tp_worker.py"
+
+
+def self_update():
+    """Pick up new versions pushed to GitHub (systemd restarts us)."""
+    try:
+        r = HTTP.get(SRC, timeout=20)
+        me = os.path.abspath(__file__)
+        if r.ok and "def main()" in r.text and r.text != open(me).read():
+            open(me, "w").write(r.text)
+            log("updated from GitHub, restarting")
+            sys.exit(0)
+    except SystemExit:
+        raise
+    except Exception as e:
+        log("update check failed", e)
+
+
+PROBE = {"at": 0, "res": "", "ok": False}
+
+
+def probe():
+    """Can this computer reach TNREGINET? (reported in the heartbeat)"""
+    out = []
+    for u in ("https://tnreginet.gov.in/portal/", "https://tnreginet.gov.in/", "https://www.google.com/"):
+        t = time.time()
+        try:
+            r = requests.get(u, timeout=25, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/124.0 Safari/537.36"})
+            out.append(f"{u.split('/')[2]}{'/portal' if 'portal' in u else ''}: {r.status_code} {time.time()-t:.1f}s")
+        except Exception as e:
+            out.append(f"{u.split('/')[2]}{'/portal' if 'portal' in u else ''}: {type(e).__name__} {time.time()-t:.1f}s")
+    try:
+        ip = requests.get("https://ipinfo.io/json", timeout=10).json()
+        out.append(f"ip {ip.get('ip')} {ip.get('country')} {ip.get('org','')[:40]}")
+    except Exception:
+        pass
+    PROBE.update(at=time.time(), res=" | ".join(out), ok=any(x.startswith("tnreginet") and ": 200" in x for x in out))
+    log("probe", PROBE["res"])
+
+
+def main():
+    log("TP worker started", "key type:", "secret" if KEY.startswith("sb_secret_") else "jwt" if KEY.startswith("eyJ") else ("EMPTY" if not KEY else "unknown"))
+    with sync_playwright() as pw:
+        last_beat, last_upd = 0, time.time()
+        while True:
+            if time.time() - last_upd > 300:
+                last_upd = time.time()
+                self_update()
+            try:
+                if time.time() - PROBE["at"] > (1800 if PROBE["ok"] else 300):
+                    probe()
+                if not PROBE["ok"]:
+                    # this computer cannot open TNREGINET: stay out of the way (another computer may take the jobs)
+                    kv_set("tp_jobs", "_blocked_" + os.uname().nodename, {"at": now(), "probe": PROBE["res"]})
+                    time.sleep(30)
+                    continue
+                if not PROBE.get("cleaned"):
+                    # jobs left half-way by an earlier run of this worker can never continue: close them
+                    for row in kv_list("tp_jobs"):
+                        st = (row["data"] or {}).get("status")
+                        if not row["id"].startswith("_") and st in ("starting", "captcha", "captcha_sent", "filling", "uploading", "cancel"):
+                            kv_merge("tp_jobs", row["id"], {"status": "cancelled", "message": "Stopped (the TP computer restarted). Start again.", "at": now()})
+                    PROBE["cleaned"] = True
+                if time.time() - last_beat > 30:
+                    kv_set("tp_jobs", "_worker", {"at": now(), "host": os.uname().nodename, "probe": PROBE["res"]})
+                    last_beat = time.time()
+                for row in kv_list("tp_jobs"):
+                    if row["id"].startswith("_") or (row["data"] or {}).get("status") != "queued":
+                        continue
+                    jid, data = row["id"], row["data"]
+                    try:
+                        handle(pw, jid, data)
+                    except Stop as e:
+                        kv_merge("tp_jobs", jid, {"status": "cancelled" if "portal" in str(e) else "error", "message": str(e), "at": now()})
+                    except Exception as e:
+                        traceback.print_exc()
+                        kv_merge("tp_jobs", jid, {"status": "error", "message": f"Unexpected problem: {e}"[:300], "at": now()})
+                    last_beat = 0
+            except Exception as e:
+                log("loop error", e)
+                time.sleep(10)
+            time.sleep(3)
+
+
+if __name__ == "__main__":
+    main()
