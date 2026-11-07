@@ -1120,7 +1120,17 @@ def upload_docs(P, job, page, t, case, comments):
             except Exception as e:
                 comments.append(f"{what}: could not attach the file ({e})")
                 continue
-        P.wait(2); P.popup_ok()
+        P.wait(1.5); P.popup_ok()
+        # 'Upload Document' must be pressed after Choose File, otherwise Add says 'Please Upload Document'
+        up = page.evaluate("""()=>{const b=[...document.querySelectorAll('button,input[type=button],input[type=submit],a.btn')].find(x=>x.offsetParent&&/^\\s*upload\\s*document\\s*$/i.test(x.value||x.innerText||''));if(!b)return '';b.click();return b.id||'upload'}""")
+        wait_loader(page); P.wait(3); m0 = P.popup_ok()
+        if not up:
+            comments.append(f"{what}: Upload Document button not found")
+            job.upd(uploadDiag=page.evaluate(UPLOAD_DIAG_JS))
+            continue
+        if m0 and re.search(r"invalid|not allowed|corrupt|size|select", m0, re.I):
+            comments.append(f"{what}: TNREGINET said '{m0[:100]}'")
+            continue
         page.evaluate("()=>{const b=document.getElementById('btnAdd');if(b)b.click()}")
         wait_loader(page)
         fname = os.path.basename(f).upper()
@@ -1185,25 +1195,61 @@ def save_print(P, job, page, case_id, tp):
     folder = os.path.join(os.path.dirname(os.path.abspath(__file__)), "files", job.id[:8])
     os.makedirs(folder, exist_ok=True)
     out = os.path.join(folder, tp.replace("/", "_") + ".pdf")
+    ctx = page.context
+    cap = {}
+
+    def on_resp(resp):
+        try:
+            ct = (resp.headers.get("content-type") or "").lower()
+            cd = (resp.headers.get("content-disposition") or "").lower()
+            if "pdf" in ct or ".pdf" in cd or "octet-stream" in ct:
+                b = resp.body()
+                if b[:4] == b"%PDF" and "pdf" not in cap:
+                    cap["pdf"] = b
+        except Exception:
+            pass
+
+    def on_dl(d):
+        cap.setdefault("dl", d)
+
+    ctx.on("response", on_resp)
+    ctx.on("page", lambda pg: pg.on("download", on_dl))
+    page.on("download", on_dl)
+    diag = {}
     try:
-        r = page.context.request.get(href, timeout=90000)
+        r = ctx.request.get(href, timeout=90000, headers={"Referer": page.url})
         body = r.body()
-        if body[:4] != b"%PDF":
-            # fall back to clicking the link (new tab / download)
-            got = {}
-            page.context.on("page", lambda pg: pg.on("download", lambda d: got.setdefault("dl", d)))
-            page.on("download", lambda d: got.setdefault("dl", d))
-            click_first(page, ["a:text-is('Click here'):visible", "text=Click here"])
-            for _ in range(40):
-                time.sleep(1)
-                if got.get("dl"):
-                    break
-            if got.get("dl"):
-                got["dl"].save_as(out)
-            else:
-                return "PDF did not download"
+        diag["get"] = f"{r.status} {r.headers.get('content-type', '')} {body[:20]!r}"
+        if body[:4] == b"%PDF":
+            cap["pdf"] = body
+    except Exception as e:
+        diag["get"] = str(e)[:120]
+    if "pdf" not in cap:
+        page.evaluate("()=>{const a=[...document.querySelectorAll('a')].find(a=>a.offsetParent&&/^\\s*click here\\s*$/i.test(a.innerText));if(a)a.click()}")
+        for _ in range(60):
+            time.sleep(1)
+            if cap.get("pdf") or cap.get("dl"):
+                break
+        if not cap.get("pdf") and not cap.get("dl") and len(ctx.pages) > 1:
+            pv = ctx.pages[-1]
+            diag["tab"] = pv.url[:60] + " | " + (pv.title() or "")[:40]
+            try:
+                # the tab may show the PDF inside an <embed>/<iframe>: fetch that source with the session
+                src = pv.evaluate("()=>{const e=document.querySelector('embed,iframe,object');return e?(e.src||e.data||''):''}")
+                if src and src.startswith("http"):
+                    b = ctx.request.get(src, timeout=90000).body()
+                    if b[:4] == b"%PDF":
+                        cap["pdf"] = b
+            except Exception as e:
+                diag["tab_err"] = str(e)[:80]
+    try:
+        if cap.get("pdf"):
+            open(out, "wb").write(cap["pdf"])
+        elif cap.get("dl"):
+            cap["dl"].save_as(out)
         else:
-            open(out, "wb").write(body)
+            job.upd(printDiag=diag)
+            return "Print PDF did not download"
     except Exception as e:
         return f"Print PDF not saved ({str(e)[:120]})"
     if os.path.getsize(out) < 2000 or open(out, "rb").read(4) != b"%PDF":
