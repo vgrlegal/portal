@@ -19,6 +19,7 @@ Copy text exactly; do not translate or guess. If Tamil is not printed, leave the
 "co_mortgagors":[{"sal":"Mr, Mrs or Ms","name":"English name","name_ta":"Tamil name exactly as printed","age":"age number","rel_type":"S/O, W/O, D/O or C/O","rel_name":"relative's name in English"}],"bank":"mortgagee bank / finance company full name","bank_branch":"lender branch","loan_amount":"loan amount in rupees, digits only","loan_account":"loan account number if printed",
 "property_district":"district of the property","property_sro":"SRO of the property in English","village":"village of the property in English","survey_no":"survey number(s) with subdivision","extent":"extent with unit as printed","north":"north boundary","east":"east boundary","west":"west boundary","south":"south boundary"}
 Copy text exactly as printed; do not guess. If there are several mortgagors / borrowers / co-borrowers, give the first one in the mortgagor fields and EVERY other one, in the order printed, in co_mortgagors (empty list if only one). Never skip a mortgagor. mortgagor_ta must be the Tamil spelling exactly as printed in the document (never transliterate it yourself; leave it empty if no Tamil name is printed). The four boundaries are in the property schedule (often near the end, sometimes in Tamil: வடக்கு north, கிழக்கு east, மேற்கு west, தெற்கு south) - give each boundary text as printed (English if English is printed, otherwise the Tamil text). For property_sro and village give the English name as printed.`,
+  tamil: `Below is a JSON object of Tamil Nadu place names (Sub-Registrar offices, villages, taluks, districts) in English. For each key give the name in Tamil script exactly as the Tamil Nadu Registration Department writes it (e.g. Rasipuram → இராசிபுரம், Kunrathur → குன்றத்தூர், Oothangarai → ஊத்தங்கரை). Return ONLY a JSON object with the same keys. Tamil script only, no English, no explanation.`,
   english: `Below is a JSON object of text fields taken from a Tamil Nadu TNREGINET registration form. Most values are in Tamil script. For each key, give the English (Latin script) form that a Tamil Nadu document writer would type in the English field, and return ONLY a JSON object with the same keys.
 Rules:
 - Names: transliterate, do not translate. Tamil initials become English initials (மா. → M., இரா. → R., கே. → K.). Keep the same order and the same parts: if the Tamil has the father's name joined (e.g. ராமசாமி மாரிமுத்து), keep it joined (Ramasamy Marimuthu). Use the usual Tamil Nadu spelling (ராமசாமி → Ramasamy, முருகன் → Murugan, செல்வி → Selvi). Write names in Title Case.
@@ -45,7 +46,7 @@ Deno.serve(async (req) => {
       else PROMPT += `\n\nOur staff corrected these readings before (field: "what was read" → "correct value"). They show the spellings and formats this office uses (SRO names, villages, company names). When you see the same text, use the corrected form; do not copy these values into other fields:\n${h}`;
     }
     let content: unknown[] = [];
-    if (kind === "english") {
+    if (kind === "english" || kind === "tamil") {
       if (!texts || typeof texts !== "object" || !Object.keys(texts).length) return json({ error: "Send texts" }, 400);
       const t: Record<string, string> = {};
       for (const [k, v] of Object.entries(texts).slice(0, 40)) t[String(k).slice(0, 60)] = String(v).slice(0, 1500);

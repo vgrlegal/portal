@@ -501,10 +501,10 @@ def open_presenceless(page, job):
 TAMIL_RE = re.compile(r"[஀-௿]")
 
 
-def english_pass(P, job, what, only=None):
+def english_pass(P, job, what, only=None, kind="english", texts=None):
     """English fields on the visible form that still hold Tamil (copied from the linked MODT):
     ask the portal (Claude) for the English form and fill only those fields. Tamil fields stay as they are."""
-    texts = P.p.evaluate(r"""()=>{const o={};document.querySelectorAll('input[type=text],textarea').forEach(e=>{
+    texts = texts if texts is not None else P.p.evaluate(r"""()=>{const o={};document.querySelectorAll('input[type=text],textarea').forEach(e=>{
         if(!e.offsetParent||!e.id||/LL$|tamil|_ta$|Tamil/i.test(e.id)) return; const v=(e.value||'').trim();
         if(/[஀-௿]/.test(v)) o[e.id]=v}); return o}""")
     if only:
@@ -512,7 +512,7 @@ def english_pass(P, job, what, only=None):
     if not texts:
         return {}
     tr = uuid.uuid4().hex[:8]
-    job.upd(status="translate", toEnglish=texts, english=None, trId=tr, trWhat=what, at=now())
+    job.upd(status="translate", toEnglish=texts, english=None, trId=tr, trWhat=what, trKind=kind, at=now())
     eng = None
     for _ in range(120):
         d = job.fresh()
@@ -527,6 +527,8 @@ def english_pass(P, job, what, only=None):
         P.warn.append(f"{what}: Tamil not converted (keep the portal open during TP)")
         return {}
     done = {}
+    if kind == "tamil":
+        return {k: v for k, v in eng.items() if k in texts and v and TAMIL_RE.search(str(v))}
     for k, v in eng.items():
         if k in texts and v and not TAMIL_RE.search(str(v)):
             P.set(k, str(v).strip())
@@ -677,7 +679,7 @@ def mortgagor(P, job, page, t):
                 P.wait(3); msg = P.popup_ok()
                 if not b:
                     P.warn.append(f"Mortgagor {i + 1}: no Update button")
-                elif msg and not re.search(r"success|updated|added", msg, re.I):
+                elif msg and not re.search(r"success|updated|added|also going to execute", msg, re.I):
                     P.warn.append(f"CHECK Mortgagor {i + 1}: TNREGINET said '{msg[:120]}'")
                 wait_for(P, "()=>{const t=document.getElementById('tableForExecutantDtls');return !!(t&&t.offsetParent)}", 10)
             rows = page.evaluate(EXEC_ROWS_JS)
@@ -949,6 +951,10 @@ def loan_to_create(P, job, page, t, case, comments):
     wait_for(P, "()=>/Place of Execution|place of exec/i.test(document.body.innerText)", 20)
     sro = g(t, "Execution SRO", "SRO")
     sro_ta = g(t, "SRO Tamil", "SRO (Tamil)")
+    if not sro_ta and sro:
+        sro_ta = english_pass(P, job, "SRO Tamil", kind="tamil", texts={"sro": sro}).get("sro", "")
+        if sro_ta:
+            comments.append(f"SRO Tamil was empty - used '{sro_ta}', please check")
     if not label_fill(page, r"State of execution|Place of\s*Execution(?!.*Tam)", sro):
         comments.append("Place of execution (English) box not found")
     if sro_ta:

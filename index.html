@@ -1082,7 +1082,7 @@ function watchJob(c,id){if(W.unsub)W.unsub();const box=$("rvJob")||$("rvLogin");
   W.unsub=db.doc("tp_jobs/"+id).onSnapshot(s=>{const j=s.exists?s.data():{};if(!$("rvLogin")){W.unsub&&W.unsub();W.unsub=null;return}
     if(j.status==="translate"&&j.toEnglish&&!j.english&&W.trReq!==j.trId){W.trReq=j.trId;
       const T=c.tp||{},hints=Object.entries(T).filter(([k,v])=>v&&/name|address|village|taluk|district|survey|north|south|east|west|relative/i.test(k)&&!/tamil|aadhaar|mobile/i.test(k)&&!/[\u0B80-\u0BFF]/.test(String(v))).map(([k,v])=>k+": "+v).slice(0,30);
-      window.__sb.functions.invoke("read-aadhaar",{body:{kind:"english",texts:j.toEnglish,hints}}).then(({data,error})=>{
+      window.__sb.functions.invoke("read-aadhaar",{body:{kind:j.trKind||"english",texts:j.toEnglish,hints}}).then(({data,error})=>{
         const f=!error&&data&&data.fields?data.fields:{};db.doc("tp_jobs/"+id).update({english:f,trErr:error?String(error.message||error):"",status:"filling"}).catch(()=>{})})}
     const tgt=$("rvJob")||$("rvLogin"),lbl={translate:"Turning Tamil into English…",queued:"Waiting for the TP computer…",starting:"Opening TNREGINET…",captcha:"Type the captcha",captcha_sent:"Signing in…",filling:"Filling TNREGINET",uploading:"Uploading documents",review:"Stopped for your check",done:"TP created",error:"Stopped with a problem",cancelled:"Stopped",cancel:"Stopping…"}[j.status]||j.status;
     const stale=j.at&&Date.now()-new Date(j.at).getTime()>(j.status==="captcha"?11*60000:180000),ended=["done","error","cancelled","review"].includes(j.status)||(j.status==="cancel"&&j.at&&Date.now()-new Date(j.at).getTime()>15000)||stale;
@@ -1829,6 +1829,7 @@ async function claudeModt(file){if(!window.__sb)return null;const{canvases}=awai
   put("Boundary North",f.north);put("Boundary East",f.east);put("Boundary West",f.west);put("Boundary South",f.south);
   if(/^(mrs|ms)/i.test(d["Mortgagor salutation"]||""))d["Mortgagor gender"]="Female";else if(d["Mortgagor salutation"]==="Mr")d["Mortgagor gender"]="Male";
   if(/wife/i.test(d["Mortgagor relation"]||""))d["Mortgagor marital status"]="Married";
+  if(!d["SRO Tamil"]&&d.SRO){try{const r=await window.__sb.functions.invoke("read-aadhaar",{body:{kind:"tamil",texts:{sro:d.SRO}}});const ta=r.data&&r.data.fields&&r.data.fields.sro;if(ta&&/[\u0B80-\u0BFF]/.test(ta))d["SRO Tamil"]=ta}catch(e){}}
   const nl=applyLearned(d);if(nl)console.info("applied",nl,"learned corrections");
   return{d,bankText:[f.bank,f.bank_branch].filter(Boolean).join(" ")}}
 async function fileOfDoc(f){const u=await docUrl(f.url);const b=await (await fetch(u)).blob();return new File([b],f.name,{type:b.type||(/\.pdf$/i.test(f.name)?"application/pdf":"image/jpeg")})}
