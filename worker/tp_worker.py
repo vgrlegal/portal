@@ -482,12 +482,14 @@ def open_presenceless(page, job):
 TAMIL_RE = re.compile(r"[஀-௿]")
 
 
-def english_pass(P, job, what):
+def english_pass(P, job, what, only=None):
     """English fields on the visible form that still hold Tamil (copied from the linked MODT):
     ask the portal (Claude) for the English form and fill only those fields. Tamil fields stay as they are."""
     texts = P.p.evaluate(r"""()=>{const o={};document.querySelectorAll('input[type=text],textarea').forEach(e=>{
         if(!e.offsetParent||!e.id||/LL$|tamil|_ta$|Tamil/i.test(e.id)) return; const v=(e.value||'').trim();
         if(/[஀-௿]/.test(v)) o[e.id]=v}); return o}""")
+    if only:
+        texts = {k: v for k, v in texts.items() if re.search(only, k, re.I)}
     if not texts:
         return {}
     tr = uuid.uuid4().hex[:8]
@@ -715,27 +717,40 @@ def property_step(P, job, page, t):
             break
         seen.append(tab)
         job.step(f"8 · Property · {tab}", page)
-        n = page.evaluate(ROWS_JS)
-        if n:
-            for i in range(min(n, 8)):
-                row = page.evaluate(EDIT_ROW_JS, i)
-                if not row:
-                    break
-                P.wait(2.5)
-                d = english_pass(P, job, f"{tab} row {i + 1}")
+        if re.search(r"bound", tab, re.I):
+            # Boundaries: only the upper (English) field of each side becomes English; Tamil stays.
+            n = page.evaluate(ROWS_JS)
+            if n:
+                for i in range(min(n, 8)):
+                    row = page.evaluate(EDIT_ROW_JS, i)
+                    if not row:
+                        break
+                    P.wait(2.5)
+                    d = english_pass(P, job, f"{tab} row {i + 1}")
+                    done_all.update({f"{tab}:{k}": v for k, v in d.items()})
+                    b = click_btn_text(P, r"^(update|save)$") if d else click_btn_text(P, r"^cancel$")
+                    P.wait(2.5); msg = P.popup_ok()
+                    if d and msg and not re.search(r"success|updated|saved", msg, re.I):
+                        comments.append(f"{tab} row {i + 1}: TNREGINET said '{msg[:100]}'")
+            else:
+                d = english_pass(P, job, tab)
                 done_all.update({f"{tab}:{k}": v for k, v in d.items()})
-                b = click_btn_text(P, r"^(update|save)$") if d else click_btn_text(P, r"^cancel$")
-                P.wait(2.5); msg = P.popup_ok()
-                if d and msg and not re.search(r"success|updated|saved", msg, re.I):
-                    comments.append(f"{tab} row {i + 1}: TNREGINET said '{msg[:100]}'")
         else:
-            d = english_pass(P, job, tab)
+            # Property / Survey / Building / Linear measurement: verify only, never change.
+            # Only a Property Remarks field (upper, English one) is turned into English.
+            d = english_pass(P, job, tab, only=r"remark")
             done_all.update({f"{tab}:{k}": v for k, v in d.items()})
         all_txt += " | " + page.evaluate(PAGE_TXT_JS)
         if not page.evaluate("()=>{const b=document.getElementById('btnChildNext');return !!(b&&b.offsetParent)}"):
             break
         P.click("btnChildNext", 3)
         P.wait(1.5)
+    if done_all:
+        b = click_btn_text(P, r"^update$")
+        if b:
+            P.wait(3); msg = P.popup_ok()
+            if msg and not re.search(r"success|updated|saved", msg, re.I):
+                comments.append(f"Property update: TNREGINET said '{msg[:100]}'")
     # mismatch check against what Claude read from the MODT (numbers must appear somewhere on the property tabs)
     nums = lambda x: re.findall(r"\d+(?:\.\d+)?", str(x))
     page_nums = set(nums(all_txt))
@@ -745,6 +760,11 @@ def property_step(P, job, page, t):
         miss = [n for n in nums(v) if n not in page_nums]
         if v and miss:
             comments.append(f"{key}: MODT '{v}' – {', '.join(miss)} not on TNREGINET")
+    for key in ("Property SRO", "SRO"):
+        v = g(t, key)
+        if v and re.sub(r"[^a-z]", "", v.lower())[:5] not in re.sub(r"[^a-z]", "", low):
+            comments.append(f"SRO: MODT '{v}' not on TNREGINET property")
+            break
     vil = g(t, "Village")
     if vil and re.sub(r"[^a-z]", "", vil.lower())[:6] not in re.sub(r"[^a-z]", "", low):
         comments.append(f"Village: MODT '{vil}' not on TNREGINET")
