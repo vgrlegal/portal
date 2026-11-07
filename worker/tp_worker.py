@@ -256,6 +256,11 @@ def do_login(page, job, acc):
     page.goto(URL, wait_until="domcontentloaded", timeout=90000)
     page.wait_for_timeout(3000)
     for attempt in range(5):
+        if attempt:
+            # a wrong captcha: load the page again so TNREGINET gives a brand-new captcha
+            job.upd(captchaImg="", step="Getting a new captcha", at=now())
+            page.goto(URL, wait_until="domcontentloaded", timeout=90000)
+            page.wait_for_timeout(3000)
         if not open_login_form(page):
             job.step("Login box not visible, filling it directly", page)
         type_into(page, "#username", acc["username"])
