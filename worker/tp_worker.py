@@ -427,6 +427,28 @@ def self_update():
         log("update check failed", e)
 
 
+PROBE = {"at": 0, "res": ""}
+
+
+def probe():
+    """Can this computer reach TNREGINET? (reported in the heartbeat)"""
+    out = []
+    for u in ("https://tnreginet.gov.in/portal/", "https://tnreginet.gov.in/", "https://www.google.com/"):
+        t = time.time()
+        try:
+            r = requests.get(u, timeout=25, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/124.0 Safari/537.36"})
+            out.append(f"{u.split('/')[2]}{'/portal' if 'portal' in u else ''}: {r.status_code} {time.time()-t:.1f}s")
+        except Exception as e:
+            out.append(f"{u.split('/')[2]}{'/portal' if 'portal' in u else ''}: {type(e).__name__} {time.time()-t:.1f}s")
+    try:
+        ip = requests.get("https://ipinfo.io/json", timeout=10).json()
+        out.append(f"ip {ip.get('ip')} {ip.get('country')} {ip.get('org','')[:40]}")
+    except Exception:
+        pass
+    PROBE.update(at=time.time(), res=" | ".join(out))
+    log("probe", PROBE["res"])
+
+
 def main():
     log("TP worker started", "key type:", "secret" if KEY.startswith("sb_secret_") else "jwt" if KEY.startswith("eyJ") else ("EMPTY" if not KEY else "unknown"))
     with sync_playwright() as pw:
@@ -436,8 +458,10 @@ def main():
                 last_upd = time.time()
                 self_update()
             try:
+                if time.time() - PROBE["at"] > 1800:
+                    probe()
                 if time.time() - last_beat > 30:
-                    kv_set("tp_jobs", "_worker", {"at": now(), "host": os.uname().nodename})
+                    kv_set("tp_jobs", "_worker", {"at": now(), "host": os.uname().nodename, "probe": PROBE["res"]})
                     last_beat = time.time()
                 for row in kv_list("tp_jobs"):
                     if row["id"] == "_worker" or (row["data"] or {}).get("status") != "queued":
