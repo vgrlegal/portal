@@ -1863,10 +1863,11 @@ const DOR_PAGES=[
   ["5 · Witness 1",[["Witness 1","wsel"]]],["6 · Witness 2",[["Witness 2","wsel"]]],
   ["7 · Presenter",[["Presenter","s",["Company representative","Mortgagor"]]]],
   ["8 · Property",[["Property district"],["Property SRO","sro"],["Village","vil"],["Survey number"],["Extent"],["Boundary North","w"],["Boundary East","w"],["Boundary West","w"],["Boundary South","w"]]],
-  ["9 · Loan repayment",[["Loan Amount"],["Loan closure date"]]]];
+  ["9 · Loan repayment",[["Loan Amount"],["Loan closure date"]]],
+  ["10 · Place of execution",[["Execution SRO","sro"],["SRO Tamil"]]]];
 const DOR_REQ=["SRO","Doc No","Year","Company name","Mortgagor","Mortgagor Age","Rep name","Rep Aadhaar","Witness 1 name","Witness 1 Aadhaar","Witness 2 name","Witness 2 Aadhaar","Loan Amount"];
 function dorFill(c,d){const set=(k,v)=>{if(v!=null&&String(v).trim()!==""&&!String(d[k]||"").trim())d[k]=String(v)};
-  set("Deed type","Deed Of Receipt");set("Book","1");set("Document type","Regular Document");set("Presenter","Company representative");
+  set("Deed type","Deed Of Receipt");set("Execution SRO",d.SRO);set("Book","1");set("Document type","Regular Document");set("Presenter","Company representative");
   set("Loan Amount",c.loanAmount);set("Mortgagor",c.applicant);set("Mortgagor mobile",c.phone);
   const p=profOf(c.bank)||{},co=p.company||{};set("Company name",co.full_name||c.bank);set("Company state",co.state);set("Company district",co.district);set("Company address",co.addr_en);set("Company address (Tamil)",co.addr_ta);set("Company pincode",co.pincode);
   const r=(p.reps||[]).find(x=>x.name===c.rep)||(p.reps||[])[0];if(r){set("Rep salutation",r.sal);set("Rep name",r.name);set("Rep name (Tamil)",r.name_ta);set("Rep relation",r.rel_type);set("Rep relative name",r.rel_name);set("Rep relative name (Tamil)",r.rel_ta);set("Rep age",ageOf(r.dob));set("Rep gender",r.gender);set("Rep Aadhaar",digits(r.id_no));set("Rep designation",r.designation);set("Rep state",r.state);set("Rep district",r.district);set("Rep address",r.addr);set("Rep address (Tamil)",r.addr_ta);set("Rep pincode",r.pincode);set("Rep mobile",r.mobile)}
