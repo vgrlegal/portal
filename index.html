@@ -92,7 +92,7 @@ tr:last-child td{border-bottom:0}
 .drawer.review.wide{width:100vw}
 #review .dhead{display:flex;align-items:center;gap:8px}#review .dhead h2{flex:1}
 .bulkbar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;padding:10px 14px;margin:0 0 10px;border:2px solid #1f3c88;border-radius:12px;background:linear-gradient(90deg,rgba(31,60,136,.07),rgba(214,170,64,.10))}
-.bulkbar b{font-size:14px}.bulkbar .sp{flex:1}
+.bulkbar b{font-size:14px}#bulkView label:has(.bvL){font-weight:600}.bulkbar .sp{flex:1}
 .bulkbar button{font:700 14px var(--body);padding:10px 16px;border-radius:10px;border:0;cursor:pointer}
 .bulkbar .bmove{background:#1f3c88;color:#fff}.bulkbar .brun{background:#d6aa40;color:#13284d}.bulkbar .bclr{background:transparent;color:var(--ink);border:1px solid var(--line)}
 .bulkbar button:disabled{opacity:.45;cursor:not-allowed}
@@ -1431,7 +1431,7 @@ async function saveCfg(n){if(!db){toast("Sign in to save");return}cfg=n;fillStat
   try{await db.doc("config/lists").set({banks:n.banks,staff:n.staff.map(staffObj),types:n.types,pay:n.pay||{},profiles:n.profiles||{},wit:n.wit||[]});toast("Saved")}catch(err){fail(err)}}
 function fillStatic(){
   opts($("fClient"),cfg.banks,"All Clients");
-  const names=cfg.staff.map(s=>staffObj(s).name),mv=me;
+  const names=[...(isMD?[MD_NAME]:[]),...cfg.staff.map(s=>staffObj(s).name).filter(n=>!(isMD&&n===MD_NAME))],mv=me;
   $("meSel").innerHTML=`<option value="">— pick your name —</option>`+names.map(s=>`<option>${esc(s)}</option>`).join("");$("meSel").value=names.includes(mv)?mv:"";
   $("meSel").disabled=!!(myStaff&&!isMD);
 }
