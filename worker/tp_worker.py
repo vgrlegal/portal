@@ -124,7 +124,26 @@ class Job:
         return self.fresh().get("status") == "cancel"
 
 
-DLG = []  # browser alert messages (e.g. "Invalid captcha")
+import threading
+
+
+class _ThreadList:
+    """Browser alert messages (e.g. "Invalid captcha"), kept per robot thread (several logins run side by side)."""
+    _t = threading.local()
+
+    def _l(self):
+        if not hasattr(self._t, "l"):
+            self._t.l = []
+        return self._t.l
+
+    def append(self, x): self._l().append(x)
+    def clear(self): self._l().clear()
+    def __iter__(self): return iter(list(self._l()))
+    def __len__(self): return len(self._l())
+    def __bool__(self): return bool(self._l())
+
+
+DLG = _ThreadList()
 
 
 class Stop(Exception):
@@ -1596,6 +1615,91 @@ def handle(pw, jid, data):
             pass
 
 
+ACTIVE = set()          # (batch, login) chains running now
+ACTIVE_LOCK = threading.Lock()
+MAX_CHAINS = 3          # logins running side by side (Admin's Bulk Run)
+
+
+def next_in_chain(batch, login):
+    rows = [r for r in kv_list("tp_jobs") if not r["id"].startswith("_") and (r["data"] or {}).get("batch") == batch
+            and (r["data"] or {}).get("login") == login and (r["data"] or {}).get("status") == "queued"]
+    rows.sort(key=lambda r: (r["data"].get("seq", 0), r["data"].get("at", "")))
+    return rows[0] if rows else None
+
+
+def run_chain(batch, login, first_id, first_data):
+    """Bulk Run: one browser, one login (one captcha) for a whole list of cases, one after another.
+    A failed case is recorded and the next one starts; nothing waits for a person except the captcha."""
+    key = (batch, login)
+    try:
+        with sync_playwright() as pw:
+            acc = login_of(login)
+            browser = pw.chromium.launch(headless=True, args=["--no-sandbox"])
+            ctx = browser.new_context(viewport={"width": 1366, "height": 900}, locale="en-IN", timezone_id="Asia/Kolkata",
+                                      user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36")
+            page = ctx.new_page()
+            page.on("dialog", lambda d: (DLG.append(d.message[:150]), d.accept()))
+            jid, data, first = first_id, first_data, True
+            try:
+                while jid:
+                    job = Job(jid, data)
+                    try:
+                        job.upd(status="starting", pickedAt=now(), message="")
+                        if not acc:
+                            raise Stop("Login ID not found. Add it in Clients & Staff → TNREGINET login IDs.")
+                        case = kv_get("cases", data.get("case", ""))
+                        if not case:
+                            raise Stop("Case not found")
+                        if str(case.get("tpNo") or "").startswith("TP/"):
+                            raise Stop(f"This case already has {case['tpNo']} - skipped (no new TP).")
+                        if first or not logged_in(page):
+                            if not first:
+                                page.goto("https://tnreginet.gov.in/portal/", wait_until="domcontentloaded", timeout=90000)
+                            do_login(page, job, acc)
+                            first = False
+                        else:
+                            page.goto("https://tnreginet.gov.in/portal/", wait_until="domcontentloaded", timeout=90000)
+                            page.wait_for_timeout(2500)
+                            to_english(page)
+                        tp = run_dor(page, job, case)
+                        if tp and tp.startswith("TP/"):
+                            kv_merge("cases", data["case"], {"tpNo": tp})
+                    except Stop as e:
+                        try:
+                            job.step("Stopped here", page)
+                        except Exception:
+                            pass
+                        job.upd(status="cancelled" if "portal" in str(e) else "error", message=str(e), at=now())
+                    except Exception as e:
+                        traceback.print_exc()
+                        try:
+                            job.step("Stopped here", page)
+                        except Exception:
+                            pass
+                        job.upd(status="error", message=f"Unexpected problem: {e}"[:300], at=now())
+                        try:  # a broken page: start the next case from a clean page
+                            page.close()
+                        except Exception:
+                            pass
+                        page = ctx.new_page()
+                        page.on("dialog", lambda d: (DLG.append(d.message[:150]), d.accept()))
+                    nxt = next_in_chain(batch, login)
+                    if not nxt:
+                        break
+                    jid, data = nxt["id"], nxt["data"]
+                    kv_merge("tp_jobs", jid, {"status": "starting", "pickedAt": now()})
+            finally:
+                try:
+                    ctx.close(); browser.close()
+                except Exception:
+                    pass
+    except Exception as e:
+        log("chain error", e)
+    finally:
+        with ACTIVE_LOCK:
+            ACTIVE.discard(key)
+
+
 SRC = "https://raw.githubusercontent.com/vgrlegal/portal/main/worker/tp_worker.py"
 
 
@@ -1641,7 +1745,7 @@ def main():
     with sync_playwright() as pw:
         last_beat, last_upd = 0, time.time()
         while True:
-            if time.time() - last_upd > 300:
+            if time.time() - last_upd > 300 and not ACTIVE:
                 last_upd = time.time()
                 self_update()
             try:
@@ -1666,6 +1770,18 @@ def main():
                     if row["id"].startswith("_") or (row["data"] or {}).get("status") != "queued":
                         continue
                     jid, data = row["id"], row["data"]
+                    if data.get("batch"):
+                        key = (data["batch"], data.get("login", ""))
+                        with ACTIVE_LOCK:
+                            if key in ACTIVE or len(ACTIVE) >= MAX_CHAINS or any(k[1] == key[1] for k in ACTIVE):
+                                continue  # that chain is already running (it takes its own next case), or too many logins at once
+                            ACTIVE.add(key)
+                        kv_merge("tp_jobs", jid, {"status": "starting", "pickedAt": now()})
+                        threading.Thread(target=run_chain, args=(data["batch"], data.get("login", ""), jid, data), daemon=True).start()
+                        continue
+                    with ACTIVE_LOCK:
+                        if any(k[1] == data.get("login", "") for k in ACTIVE):
+                            continue  # this login is busy in a Bulk Run - one TNREGINET session per login
                     try:
                         handle(pw, jid, data)
                     except Stop as e:

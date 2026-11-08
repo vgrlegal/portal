@@ -89,6 +89,29 @@ tr:last-child td{border-bottom:0}
 .banner{background:var(--warn-soft);color:var(--warn);border-radius:8px;padding:10px 14px;margin-bottom:12px;font-size:13px}
 /* dashboard */
 .dash{display:grid;gap:16px}
+.drawer.review.wide{width:100vw}
+#review .dhead{display:flex;align-items:center;gap:8px}#review .dhead h2{flex:1}
+.bulkbar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;padding:10px 14px;margin:0 0 10px;border:2px solid #1f3c88;border-radius:12px;background:linear-gradient(90deg,rgba(31,60,136,.07),rgba(214,170,64,.10))}
+.bulkbar b{font-size:14px}.bulkbar .sp{flex:1}
+.bulkbar button{font:700 14px var(--body);padding:10px 16px;border-radius:10px;border:0;cursor:pointer}
+.bulkbar .bmove{background:#1f3c88;color:#fff}.bulkbar .brun{background:#d6aa40;color:#13284d}.bulkbar .bclr{background:transparent;color:var(--ink);border:1px solid var(--line)}
+.bulkbar button:disabled{opacity:.45;cursor:not-allowed}
+.selbox{width:18px;height:18px;margin:0 8px 0 0;vertical-align:-3px;accent-color:#1f3c88}
+#bulkView{position:fixed;inset:0;z-index:60;background:var(--bg);overflow:auto;padding:18px}
+#bulkView[hidden]{display:none}
+#bulkView .bh{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:14px}
+#bulkView .bh h2{margin:0;font:700 20px var(--display);flex:1}
+#bulkView .big{font:700 15px var(--body);padding:12px 20px;border-radius:10px;border:0;cursor:pointer}
+#bulkView .bstart{background:#1f9d55;color:#fff}#bulkView .bpause{background:#c08a1e;color:#fff}#bulkView .bstop{background:#b4321f;color:#fff}#bulkView .bclose{background:var(--panel);color:var(--ink);border:1px solid var(--line)}
+#bulkView .bauto{background:#1f3c88;color:#fff}
+#bulkView .bcard{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:14px;margin-bottom:12px}
+#bulkView table{width:100%;border-collapse:collapse;font-size:13.5px}#bulkView th,#bulkView td{text-align:left;padding:8px;border-bottom:1px solid var(--line);vertical-align:top}
+#bulkView .st{display:inline-block;padding:3px 9px;border-radius:999px;font-weight:600;font-size:12px;background:var(--panel)}
+#bulkView .st.run{background:#dbe6ff;color:#1f3c88}#bulkView .st.ok{background:#d9f2df;color:#1e6b34}#bulkView .st.bad{background:#fde0dc;color:#9b2a1a}#bulkView .st.wait{background:#fff1cf;color:#7a5410}
+#bulkView .caps{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:10px}
+#bulkView .capbox{border:2px solid #d6aa40;border-radius:12px;padding:10px;background:#fffaf0}#bulkView .capbox img{display:block;max-width:100%;margin:6px 0}
+#bulkView .capbox input{width:60%;padding:8px;font-size:16px}#bulkView .msg{color:var(--muted);font-size:12.5px;max-width:420px}
+
 /* VGR dashboard — "today's desk": brand band, action lanes, slim numbers, details below */
 .vgrband{display:flex;gap:16px;align-items:center;flex-wrap:wrap;padding:18px 20px;border-radius:14px;background:linear-gradient(120deg,#13284d 0%,#1f3c88 70%,#2a4aa0 100%);color:#fff;position:relative;overflow:hidden}
 .vgrband::after{content:"";position:absolute;right:-40px;top:-40px;width:180px;height:180px;border-radius:50%;border:18px solid rgba(214,170,64,.22)}
@@ -335,6 +358,8 @@ tr.hf input,tr.hf select{font-size:12.5px;padding:5px 7px;margin:2px 0}
         <button class="btn" id="csvBtn" title="Download as Excel (CSV)">⤓ Excel</button>
         <select id="pageSize" style="width:auto"><option value="25">Showing 25 rows</option><option value="50" selected>Showing 50 rows</option><option value="100">Showing 100 rows</option></select>
       </div>
+      <div class="bulkbar" id="bulkBar" hidden><b id="bulkCount">0 selected</b><span class="sub">Tick cases on the left.</span><span class="sp"></span>
+        <button type="button" class="bmove" id="bulkMove">➜ Move to TP Creation</button><button type="button" class="brun" id="bulkRun">⚡ Bulk Run TP</button><button type="button" class="bclr" id="bulkClr">Clear</button></div>
       <div class="tablebox">
         <table>
           <thead>
@@ -438,8 +463,9 @@ tr.hf input,tr.hf select{font-size:12.5px;padding:5px 7px;margin:2px 0}
 <div class="scrim" id="pescrim" hidden style="z-index:24"></div>
 <aside class="drawer review" id="prof" hidden aria-labelledby="peTitle" style="z-index:25"><div class="dhead"><h2 id="peTitle">Profile</h2><button class="btn" id="peClose" aria-label="Close">✕</button></div><div class="dbody" id="peBody"></div><div class="dfoot"><span class="sp"></span><button class="btn primary" id="peSave" type="button">Save</button></div></aside>
 <div id="rvDocPane" hidden><div class="dph"><select id="rvDocSel" aria-label="Document to view"></select><button type="button" class="btn" id="rvDocSize" title="Half page / full page">⤢ Full page</button><a class="btn" id="rvDocNew" target="_blank" rel="noopener">Open in new tab</a><button type="button" class="btn" id="rvDocClose">Hide</button></div><div class="dpv" id="rvDocView"></div></div>
+<div id="bulkView" hidden></div>
 <aside class="drawer review" id="review" hidden aria-labelledby="rvTitle">
-  <div class="dhead"><h2 id="rvTitle">Drafting</h2></div>
+  <div class="dhead"><h2 id="rvTitle">Drafting</h2><button type="button" class="btn" id="rvWide" title="Form: full page / half page">⤢ Full page</button></div>
   <div class="dbody" id="rvBody"></div>
   <div class="dfoot" id="rvFoot"></div>
 </aside>
@@ -762,13 +788,13 @@ function render(){
   if(tab==="dash"){$("v-dash").hidden=false;renderDash();return}
   $("v-list").hidden=false;
   $("tpbar").hidden=!(isRD(tab)||tab==="MODT");if(!$("tpbar").hidden)renderHelperChip();
-  renderSegs(baseList());
+  renderSegs(baseList());$("bulkBar").hidden=!(bulkOk()&&(isRD(tab)||tab==="__all"));bulkCount();
   const all=listed(),ps=+$("pageSize").value,pages=Math.max(1,Math.ceil(all.length/ps));if(page>=pages)page=pages-1;
   const rows=all.slice(page*ps,page*ps+ps);
   $("tbody").innerHTML=rows.map(c=>{
     const cm=(c.comments||[]).length;
     return`<tr data-id="${esc(c._doc)}">
-    <td><span class="strong">${esc(c.applicant)}</span>${c.loanNo?`<span class="sub mono">Loan ${esc(c.loanNo)}</span>`:""}<span class="sub mono">${esc(c.id)}</span>${tab==="__all"?`<span class="sub">${esc(c.type)}</span>`:""}</td>
+    <td>${bulkOk()&&isRD(c.type)?`<input type="checkbox" class="selbox" data-sel="${esc(c._doc)}" ${SEL.has(c._doc)?"checked":""} aria-label="Select ${esc(c.applicant)}">`:""}<span class="strong">${esc(c.applicant)}</span>${c.loanNo?`<span class="sub mono">Loan ${esc(c.loanNo)}</span>`:""}<span class="sub mono">${esc(c.id)}</span>${tab==="__all"?`<span class="sub">${esc(c.type)}</span>`:""}</td>
     <td><span class="strong">${esc(c.bank||"—")}</span><span class="sub">${esc(c.branch||"")}</span></td>
     <td>${datesCell(c)}</td>
     <td>${statusCell(c)}</td>
@@ -781,6 +807,83 @@ function render(){
 }
 $("prev").onclick=()=>{page--;render()};$("next").onclick=()=>{page++;render()};
 $("tbody").onclick=e=>{const b=e.target.closest("button[data-a]");if(!b)return;const c=cases.find(x=>x._doc===b.closest("tr").dataset.id);if(!c)return;runAction(c,b.dataset.a)};
+
+/* ================= Bulk (Admin only): tick cases → move to TP Creation, or Bulk Run TP on up to 3 logins ================= */
+const SEL=new Set();
+function bulkOk(){return isMD&&canWrite}
+function bulkCount(){const n=SEL.size;$("bulkCount").textContent=n+" selected";$("bulkMove").disabled=!n;$("bulkRun").disabled=!n}
+$("tbody").addEventListener("change",e=>{const b=e.target.closest("[data-sel]");if(!b)return;if(b.checked)SEL.add(b.dataset.sel);else SEL.delete(b.dataset.sel);bulkCount()});
+$("bulkClr").onclick=()=>{SEL.clear();render()};
+function selCases(){return [...SEL].map(id=>cases.find(c=>c._doc===id)).filter(Boolean)}
+function missingFor(c){const d=dorFill(c,{...(c.tp||{})});return DOR_REQ.filter(k=>!String(d[k]||"").trim())}
+$("bulkMove").onclick=()=>{const cs=selCases().filter(c=>isRD(c.type));
+  const ready=cs.filter(c=>["Draft Pending"].includes(c.stage)&&!missingFor(c).length),
+    notReady=cs.filter(c=>c.stage==="Draft Pending"&&missingFor(c).length),other=cs.filter(c=>c.stage!=="Draft Pending");
+  ask("Move to TP Creation",`<p><b>${ready.length}</b> case(s) will move to <b>TP Creation</b>.</p>
+    ${notReady.length?`<p class="banner">Not moved (Drafting incomplete):</p><ul>${notReady.map(c=>`<li>${esc(c.applicant)} – missing ${esc(missingFor(c).join(", "))}</li>`).join("")}</ul>`:""}
+    ${other.length?`<p class="sf-note">Skipped (not in Draft Pending): ${other.map(c=>esc(c.applicant)+" ("+esc(c.stage)+")").join(", ")}</p>`:""}`,
+    async()=>{let n=0;for(const c of ready){if(await patch(c,{stage:"TP Creation"},null))n++}toast(n+" case(s) moved to TP Creation");ready.forEach(c=>SEL.delete(c._doc));render()},ready.length?"Move "+ready.length:null)};
+
+const BV={unsub:null,batch:null,tr:new Set()};
+$("bulkRun").onclick=async()=>{const cs=selCases().filter(c=>isRD(c.type));
+  const ok=cs.filter(c=>c.stage==="TP Creation"&&!/^TP\//.test(c.tpNo||"")),skip=cs.filter(c=>!ok.includes(c));
+  let logins=[];try{logins=await tnLogins()}catch(e){toast("Could not read the login IDs");return}
+  if(!logins.length){toast("Add a TNREGINET login ID in Clients & Staff first");return}
+  const v=$("bulkView");v.hidden=false;
+  const W1=(cfg.wit||[]).map(w=>`<option>${esc(w.name)}</option>`).join("");
+  const lopt=sel=>logins.map(l=>`<option value="${esc(l.id)}"${l.id===sel?" selected":""}>${esc(l.client)} · ${esc(l.username)}</option>`).join("");
+  v.innerHTML=`<div class="bh"><h2>⚡ Bulk Run TP · ${ok.length} case(s)</h2><button type="button" class="big bclose" id="bvClose">✕ Close</button></div>
+   ${skip.length?`<p class="banner">Not included: ${skip.map(c=>esc(c.applicant)+" ("+esc(/^TP\//.test(c.tpNo||"")?c.tpNo:c.stage)+")").join(", ")}. Only cases in TP Creation without a TP number run.</p>`:""}
+   <div class="bcard"><b>1 · Login IDs</b> <span class="sub">(up to 3 run side by side · one captcha each)</span>
+     <div style="display:flex;gap:8px;flex-wrap:wrap;margin:8px 0">${logins.map(l=>`<label style="display:flex;gap:6px;align-items:center;border:1px solid var(--line);border-radius:9px;padding:8px 10px"><input type="checkbox" class="bvL" value="${esc(l.id)}">${esc(l.client)} · ${esc(l.username)}</label>`).join("")}</div>
+     <button type="button" class="big bauto" id="bvAuto">⇄ Auto split cases between the ticked IDs</button></div>
+   <div class="bcard"><b>2 · Witnesses for all</b> <span class="sub">(leave as is to keep each case's own)</span>
+     <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:8px"><label>Witness 1 <select id="bvW1"><option value="">Keep each case's</option>${W1}</select></label><label>Witness 2 <select id="bvW2"><option value="">Keep each case's</option>${W1}</select></label></div>
+     <p class="sub" style="margin:6px 0 0">The company representative comes from each case's bank, as in Drafting.</p></div>
+   <div class="bcard"><b>3 · Cases</b><table><thead><tr><th>#</th><th>Applicant</th><th>Bank</th><th>Login ID</th><th>Status</th><th>TP number / message</th><th></th></tr></thead><tbody id="bvRows">
+     ${ok.map((c,i)=>`<tr data-doc="${esc(c._doc)}"><td>${i+1}</td><td>${esc(c.applicant)}<span class="sub mono">${esc(c.id)}</span></td><td>${esc(c.bank||"")}</td><td><select class="bvSel">${lopt(logins[i%Math.min(3,logins.length)].id)}</select></td><td><span class="st wait">Ready</span></td><td class="msg"></td><td></td></tr>`).join("")}
+   </tbody></table></div>
+   <div class="bh"><button type="button" class="big bstart" id="bvStart" ${ok.length?"":"disabled"}>▶ Start Bulk Run</button><button type="button" class="big bpause" id="bvPause" hidden>⏸ Pause</button><button type="button" class="big bstart" id="bvResume" hidden>▶ Resume</button><button type="button" class="big bstop" id="bvStop" hidden>■ Stop all</button></div>
+   <div class="bcard" id="bvCapsCard" hidden><b>Captcha</b> <span class="sub">(one per login ID)</span><div class="caps" id="bvCaps"></div></div>`;
+  $("bvClose").onclick=()=>{v.hidden=true;if(BV.unsub){BV.unsub();BV.unsub=null}};
+  $("bvAuto").onclick=()=>{const ids=[...v.querySelectorAll(".bvL:checked")].map(x=>x.value).slice(0,3);if(!ids.length){toast("Tick 1 to 3 login IDs first");return}
+    [...v.querySelectorAll("#bvRows tr")].forEach((tr,i)=>tr.querySelector(".bvSel").value=ids[i%ids.length]);toast(`Split between ${ids.length} login ID(s)`)};
+  $("bvStart").onclick=async()=>{const rows=[...v.querySelectorAll("#bvRows tr")];const used=new Set(rows.map(r=>r.querySelector(".bvSel").value));
+    if(used.size>3){toast("At most 3 login IDs at once");return}
+    const b="B"+Date.now().toString(36),w1=$("bvW1").value,w2=$("bvW2").value;$("bvStart").disabled=true;
+    for(const [i,tr] of rows.entries()){const c=cases.find(x=>x._doc===tr.dataset.doc);if(!c)continue;const lid=tr.querySelector(".bvSel").value,l=logins.find(x=>x.id===lid)||{};
+      if(w1||w2){const tp={...(c.tp||{})};[1,2].forEach(n=>{const w=n===1?w1:w2;if(w)WPF(n).forEach(([k])=>delete tp[k])});const c2={...c,w1:w1||c.w1,w2:w2||c.w2};await patch(c,{w1:c2.w1,w2:c2.w2,tp:dorFill(c2,tp)},null)}
+      const id=crypto.randomUUID();await db.doc("tp_jobs/"+id).set({kind:"dor",batch:b,seq:i,case:c._doc,caseId:c.id,login:lid,loginUser:l.username||"",status:"queued",by:who(),at:nowISO(),log:[]});
+      await patch(c,{tpJob:id,tpLogin:l.username||""},`Bulk Run queued (${l.username||""})`);tr.dataset.job=id}
+    BV.batch=b;bulkWatch(b);["bvPause","bvStop"].forEach(x=>$(x).hidden=false);toast("Bulk Run started")};
+  $("bvPause").onclick=()=>bulkSet("queued","paused",true);$("bvResume").onclick=()=>bulkSet("paused","queued",false);
+  $("bvStop").onclick=()=>ask("Stop the whole Bulk Run?",`<p class="sf-note">Cases waiting will not start; the running ones stop at the next step. TPs already created stay.</p>`,async()=>{await bulkSet("queued","cancelled");await bulkSet("paused","cancelled");
+    for(const j of BV.jobs||[])if(["starting","captcha","captcha_sent","filling","translate","uploading"].includes(j.status))await db.doc("tp_jobs/"+j._id).update({status:"cancel",at:nowISO()}).catch(()=>{})},"Stop all");
+};
+async function bulkSet(from,to,pause){for(const j of BV.jobs||[])if(j.status===from)await db.doc("tp_jobs/"+j._id).update({status:to,at:nowISO()}).catch(()=>{});
+  if(pause!==undefined){$("bvPause").hidden=pause;$("bvResume").hidden=!pause}}
+function bulkWatch(b){if(BV.unsub)BV.unsub();
+  BV.unsub=db.collection("tp_jobs").onSnapshot(snap=>{const jobs=snap.docs.map(d=>({...d.data(),_id:d.id})).filter(j=>j.batch===b);BV.jobs=jobs;const v=$("bulkView");if(v.hidden)return;
+    const lbl={queued:["Waiting","wait"],paused:["Paused","wait"],starting:["Opening","run"],captcha:["Captcha","wait"],captcha_sent:["Signing in","run"],filling:["Filling","run"],translate:["Tamil→English","run"],uploading:["Uploading","run"],done:["TP created ✓","ok"],review:["Check","wait"],error:["Failed","bad"],cancelled:["Stopped","bad"],cancel:["Stopping","bad"]};
+    jobs.forEach(j=>{const tr=v.querySelector(`#bvRows tr[data-job="${j._id}"]`)||[...v.querySelectorAll("#bvRows tr")].find(t=>t.dataset.doc===j.case&&!t.dataset.job);if(!tr)return;tr.dataset.job=j._id;
+      const [t,cl]=lbl[j.status]||[j.status,"wait"];tr.cells[4].innerHTML=`<span class="st ${cl}">${esc(t)}</span>`;
+      tr.cells[5].innerHTML=j.tpNo?`<b class="mono">${esc(j.tpNo)}</b>${j.message?`<div class="msg">${esc(j.message)}</div>`:""}`:`<div class="msg">${esc(j.message||j.step||"")}</div>`;
+      tr.cells[6].innerHTML=["error","cancelled"].includes(j.status)?`<button type="button" class="btn" data-retry="${esc(j._id)}">↻ Retry</button>`:j.status==="queued"||j.status==="paused"?`<span class="sub">ID can be changed</span>`:"";
+      const s=tr.querySelector(".bvSel");if(s){s.disabled=!["queued","paused"].includes(j.status);s.onchange=()=>db.doc("tp_jobs/"+j._id).update({login:s.value,loginUser:s.options[s.selectedIndex].text.split(" · ")[1]||""})}
+      if(j.status==="translate"&&j.toEnglish&&!j.english&&!BV.tr.has(j.trId)){BV.tr.add(j.trId);const c=cases.find(x=>x._doc===j.case)||{};const T=c.tp||{};
+        const hints=Object.entries(T).filter(([k,x])=>x&&/name|address|village|taluk|district|survey|north|south|east|west|relative/i.test(k)&&!/tamil|aadhaar|mobile/i.test(k)&&!/[஀-௿]/.test(String(x))).map(([k,x])=>k+": "+x).slice(0,30);
+        window.__sb.functions.invoke("read-aadhaar",{body:{kind:j.trKind||"english",texts:j.toEnglish,hints}}).then(({data,error})=>db.doc("tp_jobs/"+j._id).update({english:!error&&data&&data.fields?data.fields:{},status:"filling"}).catch(()=>{}))}});
+    const caps=jobs.filter(j=>j.status==="captcha"&&j.captchaImg);$("bvCapsCard").hidden=!caps.length;
+    const cur=[...$("bvCaps").querySelectorAll("[data-cap]")].map(x=>x.dataset.cap).join();if(cur!==caps.map(j=>j._id).join())
+      $("bvCaps").innerHTML=caps.map(j=>`<div class="capbox" data-cap="${esc(j._id)}"><b>${esc(j.loginUser||"")}</b><img src="${j.captchaImg}" alt="Captcha"><input placeholder="Type the code" autocomplete="off"> <button type="button" class="btn primary">Sign in</button></div>`).join("");
+    $("bvCaps").querySelectorAll("[data-cap]").forEach(bx=>{const go=async()=>{const t=bx.querySelector("input").value.trim();if(!t)return;bx.querySelector("button").disabled=true;await db.doc("tp_jobs/"+bx.dataset.cap).update({captcha:t,status:"captcha_sent"})};
+      bx.querySelector("button").onclick=go;bx.querySelector("input").onkeydown=e=>{if(e.key==="Enter"){e.preventDefault();go()}}});
+    v.querySelectorAll("[data-retry]").forEach(btn=>btn.onclick=async()=>{const j=jobs.find(x=>x._id===btn.dataset.retry);if(!j)return;const c=cases.find(x=>x._doc===j.case);
+      if(c&&/^TP\//.test(c.tpNo||"")){toast("This case already has "+c.tpNo+" - use Upload documents only in Drafting");return}
+      const id=crypto.randomUUID(),tr=btn.closest("tr");await db.doc("tp_jobs/"+id).set({kind:"dor",batch:b,seq:999+Math.random(),case:j.case,caseId:j.caseId,login:tr.querySelector(".bvSel").value,loginUser:j.loginUser,status:"queued",by:who(),at:nowISO(),log:[]});
+      tr.dataset.job=id;if(c)await patch(c,{tpJob:id},null)});
+    const done=jobs.filter(j=>j.status==="done").length;v.querySelector(".bh h2").textContent=`⚡ Bulk Run TP · ${done}/${jobs.length} TP created`;
+  },()=>{})}
 
 /* ================= writes ================= */
 async function patch(c,changes,logText){
@@ -1042,7 +1145,8 @@ function openReview(c,gen){
     const syncTa=()=>{const t=sroTamil(ex.value);if(t)ta.value=t};if(!ta.value)syncTa();ex.addEventListener("change",syncTa)}}
   $("rvSplit").onclick=()=>$("rvDocPane").hidden?openDocPane(c):closeDocPane();
   if($("rvReread")){$("rvReread").onclick=()=>rereadModt(c,false);$("rvRereadAll").onclick=()=>ask("Replace all fields?",`<p class="sf-note">Every field the MODT has will replace what is in Drafting now, including your corrections.</p>`,()=>rereadModt(c,true),"Replace")}
-  if(window.innerWidth>1000&&caseFiles(c).length)openDocPane(c);else closeDocPane();
+  const wantWide=(()=>{try{return localStorage.getItem("vgrFormWide")==="1"}catch(e){return false}})();
+  if(!wantWide&&window.innerWidth>1000&&caseFiles(c).length)openDocPane(c);else{closeDocPane();setFormWide(wantWide)}
 }
 function caseFiles(c){const pri=["modt","deed","legal","noc","sanction","revenue","ec"],out=[];
   docsFor(c.type).slice().sort((a,b)=>((pri.indexOf(a.k)+1)||99)-((pri.indexOf(b.k)+1)||99)).forEach(d=>((c.docs||{})[d.k]||[]).forEach(f=>out.push({...f,lab:d.l})));return out}
@@ -1054,11 +1158,15 @@ async function showDoc(f){const v=$("rvDocView");v.innerHTML=`<p style="color:#f
 function openDocPane(c){const fs=caseFiles(c);if(!fs.length){toast("No documents uploaded for this case yet");return}
   $("rvDocSel").innerHTML=fs.map((f,i)=>`<option value="${i}">${esc(f.lab)} · ${esc(f.name)}</option>`).join("");
   $("rvDocSel").onchange=()=>showDoc(fs[+$("rvDocSel").value]);$("rvDocClose").onclick=closeDocPane;
+  $("review").classList.remove("wide");$("rvWide").textContent="⤢ Full page";
   $("rvDocPane").hidden=false;$("review").classList.add("split");if($("rvSplit"))$("rvSplit").textContent="📄 Hide documents";
   const full=(()=>{try{return localStorage.getItem("vgrDocFull")==="1"}catch(e){return false}})(),setSize=f=>{$("rvDocPane").classList.toggle("full",f);$("rvDocSize").textContent=f?"⤡ Half page":"⤢ Full page";try{localStorage.setItem("vgrDocFull",f?"1":"0")}catch(e){}};
   setSize(full);$("rvDocSize").onclick=()=>setSize(!$("rvDocPane").classList.contains("full"));showDoc(fs[0])}
+function setFormWide(f){$("review").classList.toggle("wide",f);$("rvWide").textContent=f?"⤡ Half page":"⤢ Full page";try{localStorage.setItem("vgrFormWide",f?"1":"0")}catch(e){}
+  if(f&&!$("rvDocPane").hidden){$("rvDocPane").hidden=true;$("review").classList.remove("split");if($("rvSplit"))$("rvSplit").textContent="📄 Show documents side by side"}}
+$("rvWide").onclick=()=>setFormWide(!$("review").classList.contains("wide"));
 function closeDocPane(){$("rvDocPane").hidden=true;$("rvDocPane").classList.remove("full");$("rvDocView").innerHTML="";$("review").classList.remove("split");if($("rvSplit"))$("rvSplit").textContent="📄 Show documents side by side"}
-function closeReview(){closeDocPane();$("review").hidden=true;$("rvscrim").hidden=true;rv={c:null,gen:false}}
+function closeReview(){closeDocPane();$("review").classList.remove("wide");$("review").hidden=true;$("rvscrim").hidden=true;rv={c:null,gen:false}}
 $("rvscrim").onclick=closeReview;
 function readReview(){const c=rv.c,dor=isRD(c.type),sections=dor?DOR_PAGES:MODT_FIELDS,out={...(dor?c.tp:c.draft)||{}};
   sections.forEach(([,fields])=>fields.forEach(ff=>{const f=Array.isArray(ff)?ff[0]:ff,el=$("rv_"+f.replace(/\W+/g,"_"));if(el)out[f]=el.value.trim()}));
