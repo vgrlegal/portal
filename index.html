@@ -1286,7 +1286,7 @@ function renderDash(){
   </div></details>`;
   if(!cases.length)h+=`<div class="card empty"><h2>No cases yet</h2>Open MODT, Deed of Receipt or Legal Report and click “+ New Case”.</div>`;
   $("dash").innerHTML=h;
-  db.doc("tp_jobs/_worker").get().then(s=>{const w=s.exists?s.data():null,on=w&&Date.now()-new Date(w.at).getTime()<180000,el=$("dashRobot");if(el){el.classList.toggle("on",!!on);el.lastChild.textContent=on?"TP robot online":"TP robot offline"}}).catch(()=>{});
+  if(db)db.doc("tp_jobs/_worker").get().then(s=>{const w=s.exists?s.data():null,on=w&&Date.now()-new Date(w.at).getTime()<180000,el=$("dashRobot");if(el){el.classList.toggle("on",!!on);el.lastChild.textContent=on?"TP robot online":"TP robot offline"}}).catch(()=>{});
 }
 $("dash").addEventListener("click",e=>{const o=e.target.closest("[data-open]");if(o){const c=cases.find(x=>x._doc===o.dataset.open);if(c)openInfo(c);return}
   const j=e.target.closest("[data-jump]");if(j){tab=j.dataset.jump;page=0;render()}});
