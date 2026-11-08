@@ -89,6 +89,40 @@ tr:last-child td{border-bottom:0}
 .banner{background:var(--warn-soft);color:var(--warn);border-radius:8px;padding:10px 14px;margin-bottom:12px;font-size:13px}
 /* dashboard */
 .dash{display:grid;gap:16px}
+/* VGR dashboard — "today's desk": brand band, action lanes, slim numbers, details below */
+.vgrband{display:flex;gap:16px;align-items:center;flex-wrap:wrap;padding:18px 20px;border-radius:14px;background:linear-gradient(120deg,#13284d 0%,#1f3c88 70%,#2a4aa0 100%);color:#fff;position:relative;overflow:hidden}
+.vgrband::after{content:"";position:absolute;right:-40px;top:-40px;width:180px;height:180px;border-radius:50%;border:18px solid rgba(214,170,64,.22)}
+.vgrband h1{font:700 22px var(--display);margin:0;letter-spacing:.01em}
+.vgrband .when{font-size:13px;opacity:.8}
+.vgrband .gold{color:#e6c46a}
+.vgrband .sp{flex:1}
+.vgrband .rb{display:inline-flex;align-items:center;gap:7px;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.25);border-radius:999px;padding:6px 12px;font-size:12.5px;z-index:1}
+.vgrband .rb i{width:9px;height:9px;border-radius:50%;background:#9aa4ab;display:inline-block}
+.vgrband .rb.on i{background:#5fd27a;box-shadow:0 0 0 3px rgba(95,210,122,.25)}
+.vgrband .jump{display:flex;gap:6px;flex-wrap:wrap;z-index:1}
+.vgrband .jump button{background:#fff;color:#13284d;border:0;border-radius:8px;padding:7px 12px;font:600 13px var(--body);cursor:pointer}
+.vgrband .jump button.g{background:#e6c46a}
+.nums{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:0;background:var(--surface);border:1px solid var(--line);border-radius:12px;overflow:hidden}
+.nums div{background:var(--surface);padding:12px 14px;box-shadow:0 0 0 .5px var(--line)}
+.nums b{display:block;font:600 24px var(--mono);font-variant-numeric:tabular-nums}
+.nums span{font-size:12.5px;color:var(--muted)}
+.nums .bad b{color:var(--bad)}
+.lanes{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:12px}
+.lane{background:var(--surface);border:1px solid var(--line);border-radius:12px;display:flex;flex-direction:column;min-width:0;border-top:4px solid var(--lc,#1f3c88)}
+.lane h3{display:flex;align-items:center;gap:8px;margin:0;padding:12px 14px 8px;font:600 14px var(--body)}
+.lane h3 .ct{margin-left:auto;font:600 12px var(--mono);background:var(--panel);border-radius:999px;padding:2px 9px}
+.lane .hint{padding:0 14px 8px;font-size:12px;color:var(--muted)}
+.lane ul{list-style:none;margin:0;padding:0 8px 10px;display:flex;flex-direction:column;gap:6px}
+.lane li button{width:100%;text-align:left;background:var(--bg);border:1px solid var(--line);border-radius:9px;padding:8px 10px;cursor:pointer;color:var(--ink);font:inherit}
+.lane li button:hover{border-color:var(--accent)}
+.lane li b{display:block;font-weight:600;font-size:13.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.lane li span{display:flex;justify-content:space-between;gap:8px;font-size:12px;color:var(--muted)}
+.lane li .late{color:var(--bad);font-weight:600}
+.lane .none{padding:6px 14px 14px;font-size:12.5px;color:var(--muted)}
+.lane .more{margin:0 8px 10px}
+details.dmore{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:4px 16px}
+details.dmore summary{cursor:pointer;padding:10px 0;font-weight:600}
+
 .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px}
 .kpi{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:14px 16px}
 .kpi b{display:block;font:600 26px var(--mono);font-variant-numeric:tabular-nums}
@@ -1208,24 +1242,43 @@ $("csvBtn").onclick=async()=>{
 
 /* ================= dashboard ================= */
 function renderDash(){
-  const vis=cases.filter(c=>allowedTab(c.type)),cs=vis.filter(inRange),open=cs.filter(c=>!FINAL.has(c.stage));
-  const k=(n,l,al)=>`<div class="kpi ${al&&n?"alert":""}"><b>${n}</b><span>${l}</span></div>`;
-  let h=`<div class="kpis">${k(cs.length,"Cases in range")}${k(open.length,"Pending")}${k(open.filter(c=>days(c)>5).length,"Over 5 days TAT",1)}${k(open.filter(c=>/Returned|On Hold|Query/.test(c.stage)).length,"Returned / on hold",1)}${k(open.filter(c=>c.stage==="Photo/Biometric").length,"Waiting for biometric")}${k(open.filter(c=>c.stage==="Payment"&&!c.paid).length,"Waiting for payment")}</div>`;
+  const vis=cases.filter(c=>allowedTab(c.type)),cs=vis.filter(inRange),open=vis.filter(c=>!FINAL.has(c.stage));
+  const now=new Date(),hr=now.getHours(),greet=hr<12?"Good morning":hr<17?"Good afternoon":"Good evening";
+  const types=cfg.types.filter(allowedTab);
+  const isTp=c=>/^TP\//.test(c.tpNo||"");
+  const lanes=[
+    {k:"draft",t:"Drafting & TP",h:"MODT read, check Drafting, start TP",c:"#1f3c88",f:c=>!isTp(c)&&["Draft Pending","TP Creation","Docs Received","Drafting"].includes(c.stage)},
+    {k:"bio",t:"Biometric",h:"TP ready · photo & fingerprint pending",c:"#c08a1e",f:c=>c.stage==="Photo/Biometric"||(isTp(c)&&["Draft Pending","TP Creation"].includes(c.stage))},
+    {k:"pay",t:"Payment",h:"Biometric done · pay & submit",c:"#2b7a3a",f:c=>c.stage==="Payment"&&!c.paid},
+    {k:"hold",t:"Returned / on hold",h:"SRO query, return or hold",c:"#b4321f",f:c=>/Returned|On Hold|Query/.test(c.stage)},
+  ];
+  const item=c=>{const d=Math.floor(days(c));return`<li><button type="button" data-open="${esc(c._doc)}"><b>${esc(c.applicant||c.id)}</b><span><span>${esc(c.bank||c.type)}</span><span class="${d>5?"late":""}">${d}d</span></span>${isTp(c)?`<span><span class="mono">${esc(c.tpNo)}</span></span>`:""}</button></li>`};
+  const laneHtml=lanes.map(L=>{const x=open.filter(L.f).sort((a,b)=>days(b)-days(a));return`<section class="lane" style="--lc:${L.c}"><h3>${esc(L.t)}<span class="ct">${x.length}</span></h3><div class="hint">${esc(L.h)}</div>${x.length?`<ul>${x.slice(0,6).map(item).join("")}</ul>${x.length>6?`<button type="button" class="btn more" data-jump="__all">+${x.length-6} more · All Cases</button>`:""}`:`<div class="none">Nothing here ✓</div>`}</section>`}).join("");
+  const done=cs.filter(c=>FINAL.has(c.stage)).length;
+  const num=(n,l,bad)=>`<div class="${bad&&n?"bad":""}"><b>${n}</b><span>${l}</span></div>`;
+  let h=`<div class="vgrband"><div><div class="when">${esc(now.toLocaleDateString("en-IN",{weekday:"long",day:"numeric",month:"long",year:"numeric"}))}</div><h1>${greet}${(isMD?MD_NAME:(myStaff&&myStaff.name))?", "+esc((isMD?MD_NAME:myStaff.name).replace(/\s*\(MD\)/,"")):""} <span class="gold">·</span> VGR Legal desk</h1></div><span class="sp"></span>
+    <span class="rb" id="dashRobot"><i></i>TP robot…</span>
+    <div class="jump">${types.map((t,i)=>`<button type="button" class="${i===0?"g":""}" data-jump="${esc(t)}">${esc(t)}</button>`).join("")}<button type="button" data-jump="__all">All Cases</button></div></div>
+  <div class="nums">${num(open.length,"Open cases")}${num(open.filter(c=>days(c)>5).length,"Over 5 days",1)}${num(open.filter(c=>isTp(c)).length,"TP created, not registered")}${num(cs.length,"New in range")}${num(done,"Completed in range")}</div>
+  <div class="lanes">${laneHtml}</div>`;
   const per={};cs.forEach(c=>{const L=stageLog(c);L.forEach((e,i)=>{const end=L[i+1]?new Date(L[i+1].at):(FINAL.has(c.stage)?null:new Date());if(!end||e.s==="Case Created"||FINAL.has(e.s))return;(per[e.s]=per[e.s]||[]).push((end-new Date(e.at))/864e5)})});
   const order=[...FLOWS.reg,...SIDE.reg,...FLOWS.legal,...SIDE.legal].filter(s=>per[s]);
   const avg=a=>(a.reduce((x,y)=>x+y,0)/a.length);
   const stageRows=order.map(s=>`<tr><td>${esc(s)}</td><td class="r">${per[s].length}</td><td class="r ${avg(per[s])>2?"late":""}">${avg(per[s]).toFixed(1)}</td><td class="r">${Math.max(...per[s]).toFixed(1)}</td></tr>`).join("");
-  const byType=cfg.types.filter(allowedTab).map(t=>{const x=cs.filter(c=>c.type===t);return`<tr><td>${esc(t)}</td><td class="r">${x.length}</td><td class="r">${x.filter(c=>!FINAL.has(c.stage)).length}</td><td class="r">${x.filter(c=>FINAL.has(c.stage)).length}</td></tr>`}).join("");
+  const byType=types.map(t=>{const x=cs.filter(c=>c.type===t);return`<tr><td>${esc(t)}</td><td class="r">${x.length}</td><td class="r">${x.filter(c=>!FINAL.has(c.stage)).length}</td><td class="r">${x.filter(c=>FINAL.has(c.stage)).length}</td></tr>`}).join("");
   const names=[...cfg.staff.map(s=>staffObj(s).name),""];
   const byStaff=names.map(s=>{const x=open.filter(c=>(c.assignee||"")===s);if(!x.length&&!s)return"";return`<tr><td>${s?esc(s):"<i>Unassigned</i>"}</td><td class="r">${x.length}</td><td class="r ${x.filter(c=>days(c)>5).length?"late":""}">${x.filter(c=>days(c)>5).length}</td></tr>`}).join("");
-  h+=`<div class="grid2">
-    <div class="card"><h2>Where the time goes</h2><p>Days spent in each stage, for cases in the selected range.</p><table class="mini"><tr><th>Stage</th><th class="r">Cases</th><th class="r">Avg days</th><th class="r">Max</th></tr>${stageRows||`<tr><td colspan="4" style="color:var(--muted)">Shows once cases move through stages.</td></tr>`}</table></div>
-    <div class="card"><h2>By work type</h2><p>Cases requested in the selected range.</p><table class="mini"><tr><th>Type</th><th class="r">Total</th><th class="r">Pending</th><th class="r">Done</th></tr>${byType}</table></div>
-    <div class="card"><h2>Staff workload</h2><p>Open cases per person.</p><table class="mini"><tr><th>Staff</th><th class="r">Open</th><th class="r">&gt; 5 days</th></tr>${byStaff||`<tr><td colspan="3" style="color:var(--muted)">No open cases.</td></tr>`}</table></div>
-  </div>`;
+  h+=`<details class="dmore"><summary>Staff workload, work types and time per stage</summary><div class="grid2" style="padding-bottom:14px">
+    <div class="card"><h2>Staff workload</h2><table class="mini"><tr><th>Staff</th><th class="r">Open</th><th class="r">&gt; 5 days</th></tr>${byStaff||`<tr><td colspan="3" style="color:var(--muted)">No open cases.</td></tr>`}</table></div>
+    <div class="card"><h2>By work type</h2><table class="mini"><tr><th>Type</th><th class="r">New</th><th class="r">Pending</th><th class="r">Done</th></tr>${byType}</table></div>
+    <div class="card"><h2>Where the time goes</h2><table class="mini"><tr><th>Stage</th><th class="r">Cases</th><th class="r">Avg days</th><th class="r">Max</th></tr>${stageRows||`<tr><td colspan="4" style="color:var(--muted)">Shows once cases move through stages.</td></tr>`}</table></div>
+  </div></details>`;
   if(!cases.length)h+=`<div class="card empty"><h2>No cases yet</h2>Open MODT, Deed of Receipt or Legal Report and click “+ New Case”.</div>`;
   $("dash").innerHTML=h;
+  db.doc("tp_jobs/_worker").get().then(s=>{const w=s.exists?s.data():null,on=w&&Date.now()-new Date(w.at).getTime()<180000,el=$("dashRobot");if(el){el.classList.toggle("on",!!on);el.lastChild.textContent=on?"TP robot online":"TP robot offline"}}).catch(()=>{});
 }
+$("dash").addEventListener("click",e=>{const o=e.target.closest("[data-open]");if(o){const c=cases.find(x=>x._doc===o.dataset.open);if(c)openInfo(c);return}
+  const j=e.target.closest("[data-jump]");if(j){tab=j.dataset.jump;page=0;render()}});
 
 /* ================= settings ================= */
 function renderSettings(){
