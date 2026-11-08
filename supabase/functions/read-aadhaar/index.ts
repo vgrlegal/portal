@@ -37,7 +37,9 @@ async function invite(role: unknown, email: unknown) {
   const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
   const { data: cfg } = await admin.from("kv").select("data").eq("collection", "config").eq("id", "lists").maybeSingle();
   const staff = ((cfg?.data as { staff?: unknown[] })?.staff ?? []) as { email?: string }[];
-  if (!staff.some((x) => typeof x === "object" && String(x.email ?? "").toLowerCase() === em)) return json({ error: "Save this email in Clients & Staff first" }, 400);
+  const clients = ((cfg?.data as { clients?: unknown[] })?.clients ?? []) as { email?: string }[];
+  const listed = (a: { email?: string }[]) => a.some((x) => typeof x === "object" && String(x.email ?? "").toLowerCase() === em);
+  if (!listed(staff) && !listed(clients)) return json({ error: "Save this email in Clients & Staff first" }, 400);
   const { error } = await admin.auth.admin.inviteUserByEmail(em, { redirectTo: "https://portal.vgrlegal.in/?invite=1" });
   if (error) {
     if (/already/i.test(error.message)) {
@@ -50,6 +52,23 @@ async function invite(role: unknown, email: unknown) {
   return json({ ok: true, sent: "invite" });
 }
 
+// A bank (client) login opens a file of its own case: the server checks the case belongs to that bank and
+// the file is one the bank may see, then hands back a short-lived link.
+// deno-lint-ignore no-explicit-any
+async function clientFile(sb: any, role: unknown, doc: unknown, url: unknown) {
+  if (role !== "client") return json({ error: "Not allowed" }, 403);
+  const { data: list, error } = await sb.rpc("client_cases");
+  if (error) return json({ error: error.message }, 400);
+  const c = (list ?? []).find((x: { doc: string }) => x.doc === String(doc));
+  if (!c) return json({ error: "Case not found" }, 404);
+  const ok = Object.values(c.docs ?? {}).some((arr) => Array.isArray(arr) && arr.some((f: { url?: string }) => f.url === url));
+  if (!ok || !String(url).startsWith("sb:")) return json({ error: "File not found" }, 404);
+  const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+  const { data, error: e2 } = await admin.storage.from("docs").createSignedUrl(String(url).slice(3), 600);
+  if (e2) return json({ error: e2.message }, 400);
+  return json({ url: data.signedUrl });
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
   try {
@@ -59,6 +78,8 @@ Deno.serve(async (req) => {
     if (!role) return json({ error: "Not allowed" }, 403);
     const body = await req.json();
     if (body?.kind === "invite") return await invite(role, body.email);
+    if (body?.kind === "client_file") return await clientFile(sb, role, body.doc, body.url);
+    if (role === "client") return json({ error: "Not allowed" }, 403);
     const key = Deno.env.get("ANTHROPIC_API_KEY");
     if (!key) return json({ error: "ANTHROPIC_API_KEY is not set" }, 500);
     const { images, kind = "aadhaar", hints = [], texts } = body;
