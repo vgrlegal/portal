@@ -1357,37 +1357,177 @@ def upload_only(page, job, case):
     return tp
 
 
+GEO = {}
+
+
+def geo_sro(name):
+    """(zone id, district id, sro id, sro name) from our SRO list (same ids TNREGINET uses)."""
+    if not GEO:
+        try:
+            GEO.update(HTTP.get("https://raw.githubusercontent.com/vgrlegal/portal/main/sro/geo_en.json", timeout=60).json())
+        except Exception:
+            return None
+    n = re.sub(r"[^a-z]", "", (name or "").lower())
+    rows = GEO.get("t", [])
+    r = next((x for x in rows if re.sub(r"[^a-z]", "", x[5].lower()) == n), None) or \
+        next((x for x in rows if n and (n in re.sub(r"[^a-z]", "", x[5].lower()) or re.sub(r"[^a-z]", "", x[5].lower()) in n)), None)
+    return (r[0], r[2], r[4], r[5]) if r else None
+
+
+def survey_list(t):
+    """'123/1A, 124/2B' (old and new) -> [('123','1A'), ('124','2B')]"""
+    raw = " , ".join(x for x in (g(t, "Survey number"), g(t, "Old survey no"), g(t, "New survey no")) if x)
+    out = []
+    for tok in re.split(r"[,;&]|\band\b|\bold\b|\bnew\b|S\.?\s*F\.?\s*No\.?|Survey\s*No\.?|R\.?S\.?\s*No\.?", raw, flags=re.I):
+        tok = tok.strip(" .:-()")
+        m = re.match(r"^(\d+[A-Za-z]?)(?:\s*/\s*([0-9A-Za-z]+(?:\s*/\s*[0-9A-Za-z]+)*))?", tok)
+        if m:
+            pair = (m.group(1), (m.group(2) or "").replace(" ", ""))
+            if pair not in out:
+                out.append(pair)
+    return out
+
+
+def ask_captcha(page, job, img_sel, label):
+    """Show a captcha image in the portal and wait for the person to type it."""
+    img = page.locator(img_sel).first
+    img.scroll_into_view_if_needed()
+    job.upd(status="captcha", captchaImg="data:image/png;base64," + base64.b64encode(img.screenshot()).decode(),
+            captcha="", step=label, at=now())
+    t0 = time.time()
+    while True:
+        d = job.fresh()
+        if d.get("status") == "cancel":
+            raise Stop("Stopped from the portal")
+        if d.get("status") == "captcha_sent" and d.get("captcha"):
+            job.upd(status="filling", captchaImg="")
+            return d["captcha"].strip()
+        if time.time() - t0 > CAPTCHA_WAIT:
+            raise Stop("Nobody typed the captcha for 10 minutes")
+        time.sleep(1.5)
+
+
 def run_ec(page, job, case):
-    """EC (encumbrance certificate) for the MODT property: period 1 January of the MODT year → yesterday.
-    First version: opens TNREGINET's EC search and fills what it can recognise; records the page so the
-    rest can be mapped exactly. Never pays."""
+    """Free EC from TNREGINET's home page (no login): View EC → Survey wise → zone / district / SRO from our list →
+    period 1 January of the MODT year to yesterday → each survey number (village, S.No, subdivision) Add →
+    captcha typed by the person → Search → 'Click here' PDF → saved in the case."""
     t = case.get("tp") or {}
     P = Portal(page, job)
-    to_english(page)
     y = re.sub(r"\D", "", g(t, "Year"))[:4] or time.strftime("%Y")
-    frm = f"01-01-{y}"
     yd = time.localtime(time.time() - 86400)
-    to = time.strftime("%d-%m-%Y", yd)
+    frm, to = f"01-01-{y}", time.strftime("%d-%m-%Y", yd)
+    sro_name = g(t, "Property SRO") or g(t, "SRO")
+    geo = geo_sro(sro_name)
+    if not geo:
+        raise Stop(f"SRO '{sro_name}' is not in our SRO list. Pick the Property SRO in Drafting.")
+    surveys = survey_list(t)
+    if not surveys:
+        raise Stop("No survey number in Drafting (Property · Survey number).")
+    village = g(t, "Village")
     job.upd(ecFrom=frm, ecTo=to)
-    job.step(f"EC · opening search ({frm} to {to})", page)
-    hit = page.evaluate("""()=>{const re=/view encumbrance|search ec|encumbrance certificate|வில்லங்க/i;
-        const a=[...document.querySelectorAll('a,button,li,span,div')].filter(e=>e.offsetParent&&re.test((e.textContent||'').trim())&&(e.textContent||'').trim().length<70)
-          .sort((x,y)=>x.textContent.length-y.textContent.length)[0];if(!a)return '';(a.closest('a,button,li')||a).click();return a.textContent.trim().slice(0,60)}""")
-    wait_loader(page); P.wait(4); P.popup_ok()
-    if len(page.context.pages) > 1:
-        page = page.context.pages[-1]
-        P = Portal(page, job)
-    job.step(f"EC · page opened ({hit or 'link not found'})", page)
-    # fill what we can recognise by label; the exact ids are recorded below for the next version
-    filled = []
-    for lab, val in ((r"Start Date|From Date|EC Start", frm), (r"End Date|To Date|EC End", to),
-                     (r"Survey|S\.?F", g(t, "Survey number")), (r"Village", g(t, "Village"))):
-        if val and label_fill(page, lab, val):
-            filled.append(lab.split("|")[0])
-    job.upd(status="review", ecFields=page.evaluate(FIELDS_JS), message=(
-        f"EC page opened and recorded (period {frm} to {to}; filled: {', '.join(filled) or 'none'}). "
-        "Claude will finish mapping this page; nothing was submitted."))
-    job.step("EC · page recorded for mapping", page)
+    job.step(f"EC · {geo[3]} · {village} · {', '.join(a + ('/' + b if b else '') for a, b in surveys)} · {frm} to {to}")
+    page.goto("https://tnreginet.gov.in/portal/", wait_until="domcontentloaded", timeout=90000)
+    to_english(page)
+    page.wait_for_timeout(2000)
+    page.evaluate("""()=>document.querySelectorAll('.modal').forEach(m=>{const x=m.querySelector('.close,[data-dismiss]');if(x)x.click()})""")
+    page.evaluate("""()=>{const a=[...document.querySelectorAll('a')].find(a=>/View.*Encumbrance|வில்லங்கச் சான்று விவரம் பார்வை/i.test(a.textContent));if(a)a.click()}""")
+    if not wait_for(P, "()=>{const e=document.getElementById('cmb_Zone');return !!(e&&e.offsetParent)}", 40):
+        job.step("EC page did not open", page)
+        raise Stop("TNREGINET's View EC page did not open. Try again in a minute.")
+    P.js("(()=>{const r=document.getElementById('YEAR_WISE');if(r&&!r.checked)r.click();const g=document.getElementById('REGISTRATION_VILLAGE');if(g&&!g.checked)g.click()})()")
+    P.wait(1.5)
+
+    def pick(sel_id, val_prefix, wait_next=None):
+        ok = page.evaluate("""([id,v])=>{const s=document.getElementById(id);const o=[...s.options].find(o=>o.value===v||o.value.split(':')[0]===v);
+            if(!o)return false;s.value=o.value;try{s.dispatchEvent(new Event('change',{bubbles:true}))}catch(e){}return true}""", [sel_id, str(val_prefix)])
+        if wait_next:
+            wait_for(P, f"()=>document.getElementById('{wait_next}').options.length>1", 25)
+        return ok
+    if not (pick("cmb_Zone", geo[0], "cmb_District") and pick("cmb_District", geo[1], "cmb_SroName") and pick("cmb_SroName", geo[2], "cmb_Village")):
+        job.step("EC · zone / district / SRO not accepted", page)
+        raise Stop(f"TNREGINET did not accept SRO {geo[3]} on the EC page.")
+    page.evaluate("""([a,b])=>{const p=s=>{const [d,m,y]=s.split('-').map(Number);return new Date(y,m-1,d)};
+        jQuery('#txt_PeriodStartDt').datepick('setDate',p(a));jQuery('#txt_PeriodEndDt').datepick('setDate',p(b))}""", [frm, to])
+    vopt = page.evaluate("""(v)=>{const s=document.getElementById('cmb_Village');const nz=x=>String(x).toLowerCase().replace(/[^a-z]/g,'');const w=nz(v);
+        let o=[...s.options].find(o=>nz(o.text)===w)||[...s.options].find(o=>w&&nz(o.text)&&(nz(o.text).startsWith(w)||w.startsWith(nz(o.text))&&nz(o.text).length>3))||[...s.options].find(o=>w&&nz(o.text).includes(w));
+        return o&&o.value!=='-1'&&o.value!==''?o.value+'|'+o.text:''}""", village)
+    if not vopt:
+        job.step("EC · village not in TNREGINET list", page)
+        raise Stop(f"Village '{village}' is not in TNREGINET's list for {geo[3]}. Correct the Village in Drafting.")
+    vval, vtext = vopt.split("|", 1)
+    added = []
+    for sno, sub in surveys:
+        page.evaluate("""([v,a,b])=>{const s=document.getElementById('cmb_Village');s.value=v;try{s.dispatchEvent(new Event('change',{bubbles:true}))}catch(e){}
+            const f=(id,x)=>{const e=document.getElementById(id);e.value=x;['input','change'].forEach(t=>{try{e.dispatchEvent(new Event(t,{bubbles:true}))}catch(_){}})};
+            f('txt_SurveyNo',a);f('txt_SubDivisionNo',b);try{document.getElementById('btn_AddSurvey').click()}catch(e){}}""", [vval, sno, sub])
+        P.wait(1.5); m = P.popup_ok()
+        if page.evaluate("(a)=>{const t=document.getElementById('multiAddSurvey');return !!(t&&t.innerText.includes(a))}", sno):
+            added.append(sno + ("/" + sub if sub else ""))
+        else:
+            P.warn.append(f"Survey {sno}/{sub} not added ({m[:80]})")
+    if not added:
+        job.step("EC · no survey number added", page)
+        raise Stop("TNREGINET did not take any survey number. Check the survey numbers in Drafting.")
+    job.step(f"EC · added {', '.join(added)} ({vtext})", page)
+    # captcha typed by the person, then Search (one retry with a fresh captcha if it was wrong)
+    for attempt in range(3):
+        code = ask_captcha(page, job, "#captcha", "Type the EC captcha")
+        page.fill("#txt_Captcha", code)
+        DLG.clear()
+        page.evaluate("()=>document.getElementById('btn_SearchDoc').click()")
+        wait_loader(page); P.wait(4)
+        said = " ".join(DLG) + " " + P.popup_ok()
+        if re.search(r"captcha", said, re.I) and attempt < 2:
+            page.evaluate("()=>{const r=document.getElementById('refresh');if(r)r.click();else{const i=document.getElementById('captcha');i.src=i.src.split('?')[0]+'?'+Date.now()}}")
+            P.wait(2)
+            continue
+        break
+    job.step("EC · searched", page)
+    # result: either a PDF link straight away, or a result list with a View/Print/Download button first
+    if not page.evaluate("()=>[...document.querySelectorAll('a')].some(a=>a.offsetParent&&/^\\s*click here\\s*$/i.test(a.innerText))"):
+        page.evaluate("""()=>{const b=[...document.querySelectorAll('button,input[type=button],a.btn,a')].find(x=>x.offsetParent&&/^(view( ec)?|print|download|generate( pdf)?|view & download)$/i.test((x.value||x.innerText||'').trim()));if(b)b.click()}""")
+        wait_loader(page); P.wait(4); P.popup_ok()
+    if not wait_for(P, "()=>[...document.querySelectorAll('a')].some(a=>a.offsetParent&&/^\\s*click here\\s*$/i.test(a.innerText))", 60):
+        txt = page.evaluate("()=>document.body.innerText.replace(/\\s+/g,' ')")
+        nil = re.search(r"no (records|documents|transactions)|nil", txt, re.I)
+        job.upd(ecFields=page.evaluate(FIELDS_JS))
+        job.step("EC · result (no PDF link)", page)
+        job.upd(status="review", message=("EC search done: TNREGINET shows no transactions for this period. " if nil else
+                                          "EC searched but the PDF link did not appear; the result screen is recorded for Claude. ")
+                + f"Survey {', '.join(added)}, {vtext}, {frm} to {to}." + (" Warnings: " + "; ".join(P.warn) if P.warn else ""))
+        return
+    href = page.evaluate("()=>{const a=[...document.querySelectorAll('a')].find(a=>a.offsetParent&&/^\\s*click here\\s*$/i.test(a.innerText));return a?a.href:''}")
+    body = page.context.request.get(href, timeout=90000, headers={"Referer": page.url}).body()
+    if body[:4] != b"%PDF":
+        got = {}
+        page.context.on("page", lambda pg: pg.on("download", lambda d: got.setdefault("dl", d)))
+        page.on("download", lambda d: got.setdefault("dl", d))
+        page.evaluate("()=>{const a=[...document.querySelectorAll('a')].find(a=>a.offsetParent&&/^\\s*click here\\s*$/i.test(a.innerText));if(a)a.click()}")
+        for _ in range(40):
+            time.sleep(1)
+            if got.get("dl"):
+                break
+        if not got.get("dl"):
+            job.step("EC PDF did not download", page)
+            raise Stop("The EC PDF did not download.")
+        folder = os.path.join(os.path.dirname(os.path.abspath(__file__)), "files", job.id[:8])
+        os.makedirs(folder, exist_ok=True)
+        tmp = os.path.join(folder, "ec.pdf")
+        got["dl"].save_as(tmp)
+        body = open(tmp, "rb").read()
+    folder = os.path.join(os.path.dirname(os.path.abspath(__file__)), "files", job.id[:8])
+    os.makedirs(folder, exist_ok=True)
+    out = os.path.join(folder, f"EC_{geo[3]}_{added[0].replace('/', '-')}.pdf")
+    open(out, "wb").write(body)
+    path = f"ec/{time.strftime('%Y-%m')}/{job.id[:8]}_{os.path.basename(out).replace(' ', '_')}"
+    url = sb_upload(out, path)
+    c = kv_get("cases", job.d.get("case", "")) or {}
+    docs = c.get("docs") or {}
+    docs["ec"] = (docs.get("ec") or []) + [{"name": f"EC {geo[3]} {', '.join(added)} ({frm} to {to}).pdf", "url": url, "at": now()}]
+    kv_merge("cases", job.d.get("case", ""), {"docs": docs})
+    job.step("EC saved in the case", page)
+    job.upd(status="done", message=f"EC saved in the case: {geo[3]}, {vtext}, survey {', '.join(added)}, {frm} to {to}."
+            + (" Warnings: " + "; ".join(P.warn) if P.warn else ""))
 
 
 def finish_dor(P, job, page, t, case, comments):
@@ -1412,7 +1552,7 @@ def handle(pw, jid, data):
     case = kv_get("cases", data.get("case", ""))
     if not case:
         raise Stop("Case not found")
-    acc = login_of(data.get("login", ""))
+    acc = login_of(data.get("login", "")) if data.get("kind") != "ec" else {"username": ""}
     if not acc:
         raise Stop("Login ID not found. Add it in Clients & Staff → TNREGINET login IDs.")
     browser = pw.chromium.launch(headless=True, args=["--no-sandbox"])
@@ -1421,6 +1561,13 @@ def handle(pw, jid, data):
     page = ctx.new_page()
     page.on("dialog", lambda d: (DLG.append(d.message[:150]), d.accept()))
     try:
+        if data.get("kind") == "ec":
+            try:
+                run_ec(page, job, case)
+            except Exception:
+                job.step("Stopped here", page)
+                raise
+            return
         try:
             do_login(page, job, acc)
         except Exception:
@@ -1428,9 +1575,6 @@ def handle(pw, jid, data):
             raise
         if data.get("kind") == "dor_upload":
             upload_only(page, job, case)
-            return
-        if data.get("kind") == "ec":
-            run_ec(page, job, case)
             return
         if data.get("kind", "dor") != "dor":
             raise Stop("Only Deed of Receipt is automated so far")

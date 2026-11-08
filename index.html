@@ -574,7 +574,7 @@ ready.then(()=>{const hdr=document.body;const d=document.createElement("div");d.
 <script>
 /* ================= constants ================= */
 const HOST="host:vgr_tnreg";
-const MD_NAME="V. Vinoth (MD)";
+const MD_NAME="V. Vinoth",MD_OLD="V. Vinoth (MD)";
 const DEFAULT_TYPES=["MODT","Deed of Receipt","Legal Report"];
 const TAB_KEYS=[["MODT","MODT"],["Deed of Receipt","Deed of Receipt"],["Legal Report","Legal Report"],["__sro","Village Finder"]];
 const isRD=t=>/receipt/i.test(t||"");
@@ -621,7 +621,7 @@ const BANK_SHEETS=["VISTAAR","Manapuram","Digimoney","CA Grameen-Rep","Chola HL-
 /* ================= state & utils ================= */
 let isAdmin=false,isMD=false,db=null,user=null,cases=[],cfg={banks:[],staff:[],types:DEFAULT_TYPES.slice(),pay:{},profiles:{},wit:[]},tab="dash",range="7d",tat="all",asg="all",page=0,editing=null,canWrite=true,me="",myStaff=null;
 const $=id=>document.getElementById(id);
-const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const esc=s=>String(s??"").replace(/V\. Vinoth \(MD\)/g,"V. Vinoth").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 const lsGet=k=>{try{return localStorage.getItem(k)}catch(e){return null}};const lsSet=(k,v)=>{try{localStorage.setItem(k,v)}catch(e){}};
 function toast(m){const t=$("toast");t.textContent=m;t.hidden=false;clearTimeout(toast.t);toast.t=setTimeout(()=>t.hidden=true,2600)}
 function banner(m){$("banner").textContent=m||"";$("banner").hidden=!m}
@@ -1257,7 +1257,7 @@ function renderDash(){
   const laneHtml=lanes.map(L=>{const x=open.filter(L.f).sort((a,b)=>days(b)-days(a));return`<section class="lane" style="--lc:${L.c}"><h3>${esc(L.t)}<span class="ct">${x.length}</span></h3><div class="hint">${esc(L.h)}</div>${x.length?`<ul>${x.slice(0,6).map(item).join("")}</ul>${x.length>6?`<button type="button" class="btn more" data-jump="__all">+${x.length-6} more · All Cases</button>`:""}`:`<div class="none">Nothing here ✓</div>`}</section>`}).join("");
   const done=cs.filter(c=>FINAL.has(c.stage)).length;
   const num=(n,l,bad)=>`<div class="${bad&&n?"bad":""}"><b>${n}</b><span>${l}</span></div>`;
-  let h=`<div class="vgrband"><div><div class="when">${esc(now.toLocaleDateString("en-IN",{weekday:"long",day:"numeric",month:"long",year:"numeric"}))}</div><h1>${greet}${(isMD?MD_NAME:(myStaff&&myStaff.name))?", "+esc((isMD?MD_NAME:myStaff.name).replace(/\s*\(MD\)/,"")):""} <span class="gold">·</span> VGR Legal desk</h1></div><span class="sp"></span>
+  let h=`<div class="vgrband"><div><div class="when">${esc(now.toLocaleDateString("en-IN",{weekday:"long",day:"numeric",month:"long",year:"numeric"}))}</div><h1>${greet}${(isMD?MD_NAME:(myStaff&&myStaff.name))?", "+esc(isMD?MD_NAME:myStaff.name):""} <span class="gold">·</span> VGR Legal desk</h1></div><span class="sp"></span>
     <span class="rb" id="dashRobot"><i></i>TP robot…</span>
     <div class="jump">${types.map((t,i)=>`<button type="button" class="${i===0?"g":""}" data-jump="${esc(t)}">${esc(t)}</button>`).join("")}<button type="button" data-jump="__all">All Cases</button></div></div>
   <div class="nums">${num(open.length,"Open cases")}${num(open.filter(c=>days(c)>5).length,"Over 5 days",1)}${num(open.filter(c=>isTp(c)).length,"TP created, not registered")}${num(cs.length,"New in range")}${num(done,"Completed in range")}</div>
@@ -1983,7 +1983,7 @@ setInterval(()=>{if(!$("v-list").hidden||!$("v-dash").hidden)render()},60000);
   if(user){const w=await user.can("data.write");if(w===false){canWrite=false;banner("You can view this portal but not change it. Ask the MD for Contributor access.")}
     try{isAdmin=await user.canEdit();isMD=await user.isOwner()}catch(e){}
     try{const p=await user.me();SELF_EMAIL=String(p&&p.email||"").toLowerCase()}catch(e){}
-    if(isMD){$("mdBadge").hidden=false;if(!me){me=MD_NAME;lsSet("vgr.me",me)}}}
+    if(isMD){$("mdBadge").hidden=false;if(!me||me===MD_OLD){me=MD_NAME;lsSet("vgr.me",me)}}}
   const timer=setTimeout(()=>{if(!cases.length)$("empty").innerHTML="<h2>Can't reach the case list yet</h2>Check your internet connection. It will load on its own once connected."},10000);
   db.doc("config/lists").onSnapshot(s=>{const d=s.exists?s.data():{};
     cfg={banks:d.banks||[],staff:(d.staff||[]).map(staffObj),types:(d.types&&d.types.length)?d.types:DEFAULT_TYPES.slice(),pay:d.pay||{},profiles:d.profiles||{},wit:d.wit||[]};
