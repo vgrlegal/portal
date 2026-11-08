@@ -1128,13 +1128,14 @@ async function cloudTp(c,fresh){const box=$("rvLogin");box.innerHTML=`<div class
   const on=W.at&&Date.now()-new Date(W.at).getTime()<120000,hasTp=/^TP\//.test(c.tpNo||"");
   box.innerHTML=`<div class="sect">${hasTp?"Upload documents to TNREGINET":"Generate TP on TNREGINET"}</div>${on?"":`<p class="banner">The TP computer is offline right now. The job will wait and start when it comes online.</p>`}
     <div class="fgrid"><label>Login ID${mine.length?"":" (no ID saved for this company, showing all)"}<select id="rvUser">${list.map(x=>`<option value="${x.id}">${esc(x.username)} · ${esc(x.client)}</option>`).join("")}</select></label>
-    <div style="display:flex;align-items:flex-end;gap:6px">${hasTp?`<button type="button" class="btn primary" id="rvUpOnly">Upload documents only</button>`:`<button type="button" class="btn primary" id="rvStart">Start TP</button>`}</div></div>
+    <div style="display:flex;align-items:flex-end;gap:6px">${hasTp?`<button type="button" class="btn primary" id="rvUpOnly">Upload documents only</button>`:`<button type="button" class="btn primary" id="rvStart">Start TP</button>`}<button type="button" class="btn" id="rvEc" title="Encumbrance certificate for the MODT property, 1 January of the MODT year to yesterday">Get EC</button></div></div>
     ${hasTp?`<p class="sf-note">TP already created: <b>${esc(c.tpNo)}</b>. A new TP will not be made. This only uploads the 5 documents and saves the TP print.</p>`:""}<div id="rvJob"></div>`;
   const go=async(kind,btn)=>{const sel=$("rvUser"),id=crypto.randomUUID(),u=sel.options[sel.selectedIndex].text.split(" · ")[0];btn.disabled=true;
     try{await db.doc("tp_jobs/"+id).set({kind,case:c._doc,caseId:c.id,login:sel.value,loginUser:u,status:"queued",by:who(),at:nowISO(),log:[]});
-      await patch(c,{tpJob:id,tpLogin:u},kind==="dor_upload"?`Upload documents started (${u})`:`TP Generate started (${u})`);watchJob(c,id)}catch(e){fail(e);btn.disabled=false}};
+      await patch(c,{tpJob:id,tpLogin:u},kind==="dor_upload"?`Upload documents started (${u})`:kind==="ec"?`EC request started (${u})`:`TP Generate started (${u})`);watchJob(c,id)}catch(e){fail(e);btn.disabled=false}};
   if($("rvStart"))$("rvStart").onclick=()=>go(isRD(c.type)?"dor":"modt",$("rvStart"));
-  if($("rvUpOnly"))$("rvUpOnly").onclick=()=>go("dor_upload",$("rvUpOnly"))}
+  if($("rvUpOnly"))$("rvUpOnly").onclick=()=>go("dor_upload",$("rvUpOnly"));
+  if($("rvEc"))$("rvEc").onclick=()=>go("ec",$("rvEc"))}
 function watchJob(c,id){if(W.unsub)W.unsub();const box=$("rvJob")||$("rvLogin");
   W.unsub=db.doc("tp_jobs/"+id).onSnapshot(s=>{const j=s.exists?s.data():{};if(!$("rvLogin")){W.unsub&&W.unsub();W.unsub=null;return}
     if(j.status==="translate"&&j.toEnglish&&!j.english&&W.trReq!==j.trId){W.trReq=j.trId;

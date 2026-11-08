@@ -1357,6 +1357,39 @@ def upload_only(page, job, case):
     return tp
 
 
+def run_ec(page, job, case):
+    """EC (encumbrance certificate) for the MODT property: period 1 January of the MODT year → yesterday.
+    First version: opens TNREGINET's EC search and fills what it can recognise; records the page so the
+    rest can be mapped exactly. Never pays."""
+    t = case.get("tp") or {}
+    P = Portal(page, job)
+    to_english(page)
+    y = re.sub(r"\D", "", g(t, "Year"))[:4] or time.strftime("%Y")
+    frm = f"01-01-{y}"
+    yd = time.localtime(time.time() - 86400)
+    to = time.strftime("%d-%m-%Y", yd)
+    job.upd(ecFrom=frm, ecTo=to)
+    job.step(f"EC · opening search ({frm} to {to})", page)
+    hit = page.evaluate("""()=>{const re=/view encumbrance|search ec|encumbrance certificate|வில்லங்க/i;
+        const a=[...document.querySelectorAll('a,button,li,span,div')].filter(e=>e.offsetParent&&re.test((e.textContent||'').trim())&&(e.textContent||'').trim().length<70)
+          .sort((x,y)=>x.textContent.length-y.textContent.length)[0];if(!a)return '';(a.closest('a,button,li')||a).click();return a.textContent.trim().slice(0,60)}""")
+    wait_loader(page); P.wait(4); P.popup_ok()
+    if len(page.context.pages) > 1:
+        page = page.context.pages[-1]
+        P = Portal(page, job)
+    job.step(f"EC · page opened ({hit or 'link not found'})", page)
+    # fill what we can recognise by label; the exact ids are recorded below for the next version
+    filled = []
+    for lab, val in ((r"Start Date|From Date|EC Start", frm), (r"End Date|To Date|EC End", to),
+                     (r"Survey|S\.?F", g(t, "Survey number")), (r"Village", g(t, "Village"))):
+        if val and label_fill(page, lab, val):
+            filled.append(lab.split("|")[0])
+    job.upd(status="review", ecFields=page.evaluate(FIELDS_JS), message=(
+        f"EC page opened and recorded (period {frm} to {to}; filled: {', '.join(filled) or 'none'}). "
+        "Claude will finish mapping this page; nothing was submitted."))
+    job.step("EC · page recorded for mapping", page)
+
+
 def finish_dor(P, job, page, t, case, comments):
     tp = loan_to_create(P, job, page, t, case, comments)
     done = upload_docs(P, job, page, t, case, comments)
@@ -1395,6 +1428,9 @@ def handle(pw, jid, data):
             raise
         if data.get("kind") == "dor_upload":
             upload_only(page, job, case)
+            return
+        if data.get("kind") == "ec":
+            run_ec(page, job, case)
             return
         if data.get("kind", "dor") != "dor":
             raise Stop("Only Deed of Receipt is automated so far")
