@@ -28,6 +28,28 @@ Rules:
 - If a value is already English, return it unchanged. Do not add anything that is not in the Tamil text.`,
 };
 
+// Admin invites a staff member: Supabase emails a link and they set their own password.
+// Only the Admin (my_role = 'md'), and only for an email already saved in Clients & Staff.
+async function invite(role: unknown, email: unknown) {
+  if (role !== "md") return json({ error: "Only the Admin can invite staff" }, 403);
+  const em = String(email ?? "").trim().toLowerCase();
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(em)) return json({ error: "Not a valid email" }, 400);
+  const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+  const { data: cfg } = await admin.from("kv").select("data").eq("collection", "config").eq("id", "lists").maybeSingle();
+  const staff = ((cfg?.data as { staff?: unknown[] })?.staff ?? []) as { email?: string }[];
+  if (!staff.some((x) => typeof x === "object" && String(x.email ?? "").toLowerCase() === em)) return json({ error: "Save this email in Clients & Staff first" }, 400);
+  const { error } = await admin.auth.admin.inviteUserByEmail(em, { redirectTo: "https://portal.vgrlegal.in/?invite=1" });
+  if (error) {
+    if (/already/i.test(error.message)) {
+      const r = await admin.auth.resetPasswordForEmail(em, { redirectTo: "https://portal.vgrlegal.in/" });
+      if (r.error) return json({ error: r.error.message }, 400);
+      return json({ ok: true, sent: "reset" });
+    }
+    return json({ error: error.message }, 400);
+  }
+  return json({ ok: true, sent: "invite" });
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
   try {
@@ -35,9 +57,11 @@ Deno.serve(async (req) => {
     const sb = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_ANON_KEY")!, { global: { headers: { Authorization: auth } } });
     const { data: role } = await sb.rpc("my_role");
     if (!role) return json({ error: "Not allowed" }, 403);
+    const body = await req.json();
+    if (body?.kind === "invite") return await invite(role, body.email);
     const key = Deno.env.get("ANTHROPIC_API_KEY");
     if (!key) return json({ error: "ANTHROPIC_API_KEY is not set" }, 500);
-    const { images, kind = "aadhaar", hints = [], texts } = await req.json();
+    const { images, kind = "aadhaar", hints = [], texts } = body;
     let PROMPT = PROMPTS[kind];
     if (!PROMPT) return json({ error: "Unknown kind" }, 400);
     if (Array.isArray(hints) && hints.length) {
