@@ -854,7 +854,7 @@ let draftDocs={},infoMode="view";
 function opts(sel,list,first){const v=sel.value;sel.innerHTML=(first!==undefined?`<option value="">${esc(first)}</option>`:"")+list.map(x=>`<option>${esc(x)}</option>`).join("");if([...sel.options].some(o=>o.value===v))sel.value=v}
 function newId(){const d=localDT(new Date()).slice(0,10).replace(/-/g,"");const n=cases.filter(c=>(c.id||"").startsWith("VGR-"+d)).map(c=>+c.id.split("-")[2]||0);return`VGR-${d}-${String((n.length?Math.max(...n):0)+1).padStart(3,"0")}`}
 const FF=["type","bank","branch","loanNo","applicant","phone","loanAmount","assignee","rep","w1","w2"];
-function openInfo(c){editing=c;infoMode="view";draftDocs={...(c.docs||{})};paintInfo();showDrawer()}
+function openInfo(c){window.__showSupp=0;editing=c;infoMode="view";draftDocs={...(c.docs||{})};paintInfo();showDrawer()}
 function openNew(){modtAuto=null;
   if(!cfg.banks.length&&!isMD){toast("Ask the MD to add clients first");return}
   editing=null;infoMode="edit";draftDocs={};paintInfo();showDrawer();
@@ -919,7 +919,8 @@ function applyMasters(force){
 }
 const RD_AUTO=new Set(["rep_kyc","rep_id","w1_kyc","w2_kyc","letter"]);
 function renderDocs(type){
-  const list=docsFor(type).filter(d=>!(isRD(type)&&RD_AUTO.has(d.k)));
+  const tpS=(editing&&editing.tp)||{},suppOn=(draftDocs.modt2||[]).length||tpS["Supp MODT Doc No"]||window.__showSupp;
+  const list=docsFor(type).filter(d=>!(isRD(type)&&RD_AUTO.has(d.k))&&!(d.k==="modt2"&&!suppOn));
   if(isRD(type)){const has=k=>(draftDocs[k]||[]).length>0,rep=fv("f_rep")||(editing&&editing.rep)||"",w=[fv("f_w1")||(editing&&editing.w1)||"",fv("f_w2")||(editing&&editing.w2)||""];
     setTimeout(()=>{const el=$("docList");if(!el||el.querySelector(".rdauto"))return;el.insertAdjacentHTML("afterbegin",`<div class="docrow rdauto"><div class="docl"><b>From KYC Master (automatic)</b><span class="sub">Bank rep${rep?": "+esc(rep):""} · ${has("rep_kyc")?"✓":"○"} KYC · ${has("rep_id")?"✓":"○"} ID card</span>${w.filter(Boolean).length?`<span class="sub">Witnesses: ${w.map((n,i)=>n?`${esc(n)} ${has("w"+(i+1)+"_kyc")?"✓":"○"}`:"").filter(Boolean).join(" · ")}</span>`:""}${!has("rep_kyc")||!has("rep_id")?`<span class="sub">Missing items: add them once in KYC Master.</span>`:""}</div></div>`)},0)}
   const MASTER={rep_kyc:["f_rep","Bank representative","KYC"],rep_id:["f_rep","Bank representative","ID card"],w1_kyc:["f_w1","Witness 1","KYC"],w2_kyc:["f_w2","Witness 2","KYC"]};
@@ -931,7 +932,9 @@ function renderDocs(type){
     return`<div class="docrow"><div class="docl"><b>${esc(d.l)}${d.req?" *":""}${d.grp?" †":""}</b>${d.h?`<span class="sub">${esc(d.h)}</span>`:""}
       ${files.map((f,i)=>`<span class="docf"><a href="${esc(f.url)}" target="_blank" rel="noopener" title="View">${f.kyc?"🗂 ":""}${esc(f.name)}</a><button type="button" class="xbtn" data-dl="${esc(f.url)}" data-name="${esc(f.name)}" title="Download" aria-label="Download ${esc(f.name)}">⬇</button>${canWrite&&!d.auto?`<button type="button" class="xbtn" data-rmk="${d.k}" data-rmi="${i}" title="Remove this file" aria-label="Remove ${esc(f.name)}">×</button>`:""}</span>${f.from?`<span class="sub">auto · saved ${f.from==="rep"?"bank rep":"witness"}</span>`:""}`).join("")||`<span class="sub">${d.auto?"Added automatically":"Not uploaded"}</span>`}</div>
       ${canWrite&&!d.auto?`<label class="btn" for="up_${d.k}">${files.length?(d.multi?"Add more":"Replace"):"Upload"}</label><input type="file" id="up_${d.k}" data-k="${d.k}" ${d.kyc||d.multi?"multiple":""} accept="${d.k==="photos"?"image/*":"image/*,application/pdf,.pdf"}" hidden>`:""}</div>`}).join("")+
+    (isRD(type)&&!suppOn&&canWrite?`<div class="docrow"><button type="button" class="btn" id="addSupp">+ Supplementary MODT</button><span class="sub" style="margin-left:8px">Only if this case has a second (supplementary) MODT</span></div>`:"")+
     (list.some(d=>d.grp)?`<p class="sf-note">† Title deed or legal report: one of the two is enough to create the case.</p>`:"");
+  if($("addSupp"))$("addSupp").onclick=()=>{window.__showSupp=1;renderDocs(type)};
   list.forEach(d=>{const el=$("up_"+d.k);if(el)el.onchange=e=>addDocs(d,[...e.target.files],type)});
   document.querySelectorAll("#docList [data-rmk]").forEach(b=>b.onclick=()=>removeDoc(b.dataset.rmk,+b.dataset.rmi,type));
 }
@@ -998,7 +1001,8 @@ function openReview(c,gen){
   $("rvTitle").textContent=(gen?"TP Generate · ":"Drafting · ")+c.applicant;
   let h=`<p class="sf-note">${dor?"Pages 1–10 in the same order as TNREGINET's Deed of Receipt. Company, representative and witnesses come from the saved details; borrower and property from the MODT and NOC. Correct anything wrong, then save.":"Laid out like TNREGINET's MODT screens. Check and correct every field before generating the TP."}</p>`;
   if(c.tpNotes)h+=`<p class="banner">OCR check: ${esc(c.tpNotes)}</p>`;
-  sections.forEach(([sec,fields])=>{h+=`<div class="rvsec"><div class="sect">${esc(sec)}</div><div class="fgrid">`+fields.map(ff=>{const [f,t,o]=Array.isArray(ff)?ff:[ff],id="rv_"+f.replace(/\W+/g,"_");
+  const suppUsed=dor&&(data["Supp MODT Doc No"]||((c.docs||{}).modt2||[]).length);
+  sections.forEach(([sec,fields])=>{if(dor&&!suppUsed)fields=fields.filter(ff=>!/^Supp /.test(Array.isArray(ff)?ff[0]:ff));h+=`<div class="rvsec"><div class="sect">${esc(sec)}</div><div class="fgrid">`+fields.map(ff=>{const [f,t,o]=Array.isArray(ff)?ff:[ff],id="rv_"+f.replace(/\W+/g,"_");
       if(t==="s")return`<label>${esc(f)}${dor&&DOR_REQ.includes(f)?" *":""}<select id="${id}"><option value=""></option>${[...new Set([...o,data[f]].filter(Boolean))].map(x=>`<option${x===data[f]?" selected":""}>${esc(x)}</option>`).join("")}</select></label>`;
       if(t==="ro")return`<label>${esc(f)}<input id="${id}" value="${esc(data[f]||"")}" readonly></label>`;
       const req=dor&&DOR_REQ.includes(f)?" *":"";
@@ -1903,6 +1907,7 @@ async function claudeModt(file){if(!window.__sb)return null;const{canvases}=awai
    if(ca||ba)put("Company address",[ca,ba&&ba!==ca?"Branch: "+ba:""].filter(Boolean).join(", "));
    if(cat||bat)put("Company address (Tamil)",[cat,bat&&bat!==cat?"கிளை: "+bat:""].filter(Boolean).join(", "));
    put("Company state",f.bank_state);put("Company district",f.bank_district);put("Company pincode",String(f.bank_pincode||"").replace(/\D/g,"").slice(0,6))}
+  if(f.earlier_doc_no){put("Supp MODT SRO",f.earlier_sro||f.sro);put("Supp MODT Book",f.earlier_book||"1");put("Supp MODT Doc No",String(f.earlier_doc_no).replace(/\D/g,""));put("Supp MODT Year",String(f.earlier_year||"").replace(/\D/g,""));put("Supp loan amount",String(f.earlier_loan_amount||"").replace(/[^\d]/g,""))}
   put("SRO",f.sro);put("SRO Tamil",f.sro_ta);put("Execution SRO",f.sro);put("Book",f.book);put("Doc No",f.doc_no);put("Year",f.year);
   if(f.mortgagor_sal)put("Mortgagor salutation",salNorm(f.mortgagor_sal));put("Mortgagor",String(f.mortgagor||"").toUpperCase());put("Mortgagor name (Tamil)",f.mortgagor_ta);
   if(f.age){const y=+f.year||new Date().getFullYear();put("Mortgagor Age",String(+String(f.age).replace(/\D/g,"")+(new Date().getFullYear()-y)))}
