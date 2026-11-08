@@ -89,6 +89,25 @@ tr:last-child td{border-bottom:0}
 .banner{background:var(--warn-soft);color:var(--warn);border-radius:8px;padding:10px 14px;margin-bottom:12px;font-size:13px}
 /* dashboard */
 .dash{display:grid;gap:16px}
+/* ---------- bank (client) portal ---------- */
+body.client #modal{z-index:5300;max-height:90vh;overflow:auto}body.client #mscrim{z-index:5250}body.client #toast{z-index:5400}
+#clientApp{position:fixed;inset:0;z-index:5000;background:var(--bg);overflow:auto;color:var(--ink)}
+#clientApp .ch{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:12px 18px;background:var(--surface);border-bottom:1px solid var(--line)}
+#clientApp .ch img{height:42px}#clientApp .ch .co{font-weight:700}#clientApp .ch .sp{flex:1}
+#clientApp main{max-width:1200px;margin:0 auto;padding:16px}
+#clientApp .band{display:flex;gap:12px;align-items:center;flex-wrap:wrap;padding:16px 18px;border-radius:14px;background:linear-gradient(120deg,#13284d,#1f3c88);color:#fff;margin-bottom:14px}
+#clientApp .band h1{margin:0;font:700 20px var(--display);flex:1}#clientApp .band .new{background:#e6c46a;color:#13284d;border:0;border-radius:10px;padding:11px 18px;font:700 15px var(--body);cursor:pointer}
+#clientApp .nums{margin-bottom:14px}#clientApp table{width:100%;border-collapse:collapse;font-size:14px;background:var(--surface);border:1px solid var(--line);border-radius:12px;overflow:hidden}
+#clientApp th,#clientApp td{padding:10px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}#clientApp th{background:var(--panel);font-size:12.5px;color:var(--muted)}
+#clientApp .q{display:inline-block;background:#fde0dc;color:#9b2a1a;border-radius:999px;padding:2px 8px;font-size:12px;font-weight:700}
+#clientApp .tools{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px}#clientApp .tools input,#clientApp .tools select{padding:9px;border:1px solid var(--line);border-radius:9px;background:var(--surface);color:var(--ink)}
+#cDrawer{position:fixed;top:0;right:0;bottom:0;width:min(640px,100%);background:var(--surface);z-index:5100;box-shadow:-8px 0 30px rgba(0,0,0,.15);overflow:auto;padding:18px}
+#cDrawer[hidden]{display:none}#cDrawer h2{margin:0 0 6px}#cDrawer .sect{margin:16px 0 6px;font-weight:700}
+#cDrawer .msgs .m{border:1px solid var(--line);border-radius:10px;padding:8px 10px;margin-bottom:6px}#cDrawer .msgs .m.me{background:#eef3ff}
+#cDrawer textarea,#cDrawer input[type=text],#cDrawer select{width:100%;box-sizing:border-box;padding:9px;border:1px solid var(--line);border-radius:9px;background:var(--bg);color:var(--ink);font:inherit}
+#cDrawer .qbox{border:2px solid #b4321f;border-radius:12px;padding:10px;margin-bottom:8px;background:#fff6f4}
+.cstep{display:flex;gap:6px;flex-wrap:wrap;margin:8px 0}.cstep span{padding:4px 10px;border-radius:999px;background:var(--panel);font-size:12.5px}.cstep span.on{background:#1f3c88;color:#fff}.cstep span.bad{background:#b4321f;color:#fff}
+
 .drawer.review.wide{width:100vw}
 #review .dhead{display:flex;align-items:center;gap:8px}#review .dhead h2{flex:1}
 .bulkbar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;padding:10px 14px;margin:0 0 10px;border:2px solid #1f3c88;border-radius:12px;background:linear-gradient(90deg,rgba(31,60,136,.07),rgba(214,170,64,.10))}
@@ -450,6 +469,9 @@ tr.hf input,tr.hf select{font-size:12.5px;padding:5px 7px;margin:2px 0}
     <div class="card" style="margin-top:16px"><h2>Staff</h2><p>Tick the work each person can open. Staff sign in with this email. Save, then press <b>Invite</b>: they get an email link and set their own password. They see only the work you tick.</p>
       <div style="overflow-x:auto"><table class="mini stafft" id="staffTbl"></table></div>
       <div style="display:flex;gap:8px;margin-top:10px"><button class="btn" id="staffAdd" type="button">+ Add staff</button><button class="btn primary" id="staffSave" type="button">Save staff</button></div></div>
+    <div class="card" style="margin-top:16px" id="clientCard"><h2>Client logins (banks)</h2><p>A bank person signs in and sees only their company's Deed of Receipt cases (all branches, or one branch): stage, TP copy, their documents, queries and messages. They can file new cases with the MODT and NOC; those land in Drafting. Internal comments, staff and settings are never shown to them.</p>
+      <div style="overflow-x:auto"><table class="mini" id="clientTbl"></table></div>
+      <div style="display:flex;gap:8px;margin-top:10px"><button class="btn" id="clientAdd" type="button">+ Add client login</button><button class="btn primary" id="clientSave" type="button">Save client logins</button></div></div>
   </section>
 </main>
 
@@ -514,7 +536,7 @@ async function loadRole(){const{data,error}=await sb.rpc("my_role");if(error)thr
 async function afterLogin(s){session=s;
   try{role=await loadRole()}catch(e){role=null}
   if(!role){msg("This email is not on the staff list yet. Ask the Admin to add it.");gate.hidden=false;await sb.auth.signOut();session=null;return}
-  gate.hidden=true;readyResolve(true)}
+  window.__role=role;gate.hidden=true;readyResolve(true)}
 
 document.getElementById("agForm").onsubmit=async e=>{e.preventDefault();msg("");const b=document.getElementById("agBtn");b.disabled=true;
   const{data,error}=await sb.auth.signInWithPassword({email:document.getElementById("agEmail").value.trim(),password:document.getElementById("agPass").value});
@@ -574,6 +596,9 @@ document.addEventListener("DOMContentLoaded",()=>document.body.appendChild(fv));
 const fname=(a,u)=>(a&&(a.getAttribute("download")||a.textContent||"").replace(/^🗂\s*/,"").trim())||decodeURIComponent(String(u).split("/").pop()||"file");
 async function dlFile(u,name){try{const s=await signed(u);const b=await (await nf(s)).blob();const o=URL.createObjectURL(b),x=document.createElement("a");x.href=o;x.download=name||"file";document.body.appendChild(x);x.click();x.remove();setTimeout(()=>URL.revokeObjectURL(o),4000)}catch(err){alert("Could not download: "+err.message)}}
 window.__dlFile=dlFile;
+window.__viewUrl=(s,name)=>{fv.hidden=false;document.getElementById("fvName").textContent=name||"";document.getElementById("fvNew").href=s;
+  document.getElementById("fvDl").onclick=async()=>{try{const b=await (await nf(s)).blob();const o=URL.createObjectURL(b),x=document.createElement("a");x.href=o;x.download=name||"file";document.body.appendChild(x);x.click();x.remove();setTimeout(()=>URL.revokeObjectURL(o),4000)}catch(e){alert("Could not download")}};
+  document.getElementById("fvBody").innerHTML=/\.(png|jpe?g|gif|webp)$/i.test(name||"")?`<img src="${s}" alt="">`:`<iframe src="${s}#view=FitH"></iframe>`};
 window.__viewFile=async(u,name)=>{fv.hidden=false;document.getElementById("fvName").textContent=name||"";const body=document.getElementById("fvBody");body.innerHTML='<p style="color:#fff">Loading…</p>';
   try{const s=await signed(u);document.getElementById("fvNew").href=s;document.getElementById("fvDl").onclick=()=>dlFile(u,name);
     body.innerHTML=/\.(png|jpe?g|gif|webp)$/i.test(name||u)?`<img src="${s}" alt="">`:`<iframe src="${s}#view=FitH"></iframe>`}catch(err){body.innerHTML='<p style="color:#fff">Could not open: '+err.message+'</p>'}};
@@ -612,7 +637,7 @@ const FLOWS={
   reg:["Draft Pending","TP Creation","Photo/Biometric","Payment","Submitted Online","Under Verification","Under Processing","Registered"],
   legal:["Docs Received","Drafting","Report Sent","Completed"]
 };
-const SIDE={reg:["TP On Hold","Returned"],legal:["Query Raised"]};
+const SIDE={reg:["TP On Hold","Returned","Refused"],legal:["Query Raised"]};
 const FINAL=new Set(["Registered","Completed"]);
 const TRACKED=new Set(["Submitted Online","Under Verification","Under Processing","Returned"]);
 const tone=s=>({"Draft Pending":"p-info","TP Creation":"p-info","Docs Received":"p-info","Drafting":"p-info","Photo/Biometric":"p-warn","Payment":"p-warn","Submitted Online":"p-warn","Under Verification":"p-warn","Under Processing":"p-warn","Report Sent":"p-warn","TP On Hold":"p-bad","Returned":"p-bad","Query Raised":"p-bad","Registered":"p-ok","Completed":"p-ok"}[s]||"p-info");
@@ -770,6 +795,8 @@ function actionsFor0(c){
   if(s==="Payment"){a.push(["paylink","Send Payment"]);if(!c.paid)a.push(["paid","Payment Received"]);else a.push(["sropaid","SRO Payment Done"])}
   if(TRACKED.has(s)){if(isMD&&H.ok&&c.tpNo)a.push(["check","Check Status"]);a.push(["setst","Update Status"])}
   if(s==="Returned")a.push(["mv:Submitted Online","Resubmitted"]);
+  if(["Submitted Online","Under Verification","Under Processing"].includes(s))a.push(["refused","Refused"]);
+  if(s==="Refused")a.push(["resubmit","Fixed + biometric again → Resubmit"]);
   if(s==="Registered"&&!c.docNo)a.push(["docno","Add Doc No."]);
   return a;
 }
@@ -885,6 +912,81 @@ function bulkWatch(b){if(BV.unsub)BV.unsub();
     const done=jobs.filter(j=>j.status==="done").length;v.querySelector(".bh h2").textContent=`⚡ Bulk Run TP · ${done}/${jobs.length} TP created`;
   },()=>{})}
 
+
+/* ================= Bank (client) portal: own company's Deed of Receipt cases only ================= */
+const C_STAGES=[["Draft Pending","Received"],["TP Creation","Drafting"],["Photo/Biometric","TP created · biometric"],["Payment","Payment"],["Submitted Online","Submitted"],["Under Verification","With SRO"],["Under Processing","With SRO"],["Registered","Registered"]];
+const cStage=s=>s==="Refused"?"Refused by SRO":s==="Returned"?"Returned by SRO":s==="TP On Hold"?"Drafting":(C_STAGES.find(x=>x[0]===s)||[0,s])[1];
+const C_DOCS=[["modt","MODT copy",1],["noc","NOC",1],["modt2","Supplementary MODT (if any)",0],["revenue","Revenue documents (if asked)",0]];
+const CA={me:null,key:"",list:[],q:"",st:"",br:""};
+async function clientApp(){
+  document.body.classList.add("client");const sb=window.__sb;const root=document.createElement("div");root.id="clientApp";document.body.appendChild(root);
+  const dr=document.createElement("aside");dr.id="cDrawer";dr.hidden=true;document.body.appendChild(dr);
+  try{CA.me=(await sb.rpc("client_me")).data||{};CA.key=(await sb.rpc("client_key")).data||""}catch(e){}
+  const me=CA.me||{};
+  root.innerHTML=`<div class="ch"><img src="logo.webp" alt="VGR Legal"><div><div class="co">${esc(me.company||"")}</div><div class="sub">${esc(me.branch?me.branch+" branch":"All branches")} · ${esc(me.name||"")}</div></div><span class="sp"></span><button class="btn" id="cOut">Sign out</button></div>
+    <main><div class="band"><h1>Deed of Receipt · VGR Legal</h1><button class="new" id="cNew">+ New case</button></div>
+    <div class="nums" id="cNums"></div>
+    <div class="tools"><input id="cQ" placeholder="Search customer or loan no."><select id="cSt"><option value="">All stages</option>${[...new Set(C_STAGES.map(x=>x[1])),"Refused by SRO"].map(x=>`<option>${esc(x)}</option>`).join("")}</select>${me.branch?"":`<select id="cBr"><option value="">All branches</option></select>`}</div>
+    <div id="cBranchTbl"></div><div style="overflow-x:auto"><table><thead><tr><th>Customer / Loan</th><th>Branch</th><th>Filed</th><th>Stage</th><th>TP number</th><th></th></tr></thead><tbody id="cRows"></tbody></table></div>
+    <p class="sub" style="margin-top:10px">Need help? Message us inside any case.</p></main>`;
+  $("cOut").onclick=async()=>{await sb.auth.signOut();location.reload()};
+  $("cNew").onclick=cNewCase;$("cQ").oninput=e=>{CA.q=e.target.value.toLowerCase();cPaint()};$("cSt").onchange=e=>{CA.st=e.target.value;cPaint()};if($("cBr"))$("cBr").onchange=e=>{CA.br=e.target.value;cPaint()};
+  await cLoad();setInterval(cLoad,60000);
+}
+async function cLoad(){const{data,error}=await window.__sb.rpc("client_cases");if(error){toast("Could not load cases: "+error.message);return}CA.list=data||[];
+  if($("cBr")){const cur=$("cBr").value;$("cBr").innerHTML=`<option value="">All branches</option>`+[...new Set(CA.list.map(c=>c.branch).filter(Boolean))].sort().map(b=>`<option${b===cur?" selected":""}>${esc(b)}</option>`).join("")}
+  cPaint();const o=$("cDrawer");if(!o.hidden&&o.dataset.doc){const c=CA.list.find(x=>x.doc===o.dataset.doc);if(c)cOpen(c,true)}}
+function cPaint(){const L=CA.list,now=new Date(),mo=c=>{const d=new Date(c.requestedAt||c.createdAt);return d.getMonth()===now.getMonth()&&d.getFullYear()===now.getFullYear()};
+  const openQ=c=>(c.queries||[]).filter(q=>q.status==="open").length;
+  const n=(x,l,bad)=>`<div class="${bad&&x?"bad":""}"><b>${x}</b><span>${l}</span></div>`;
+  $("cNums").innerHTML=n(L.length,"Cases given to us")+n(L.filter(mo).length,"This month")+n(L.filter(c=>c.stage!=="Registered").length,"In progress")+n(L.filter(c=>c.stage==="Registered").length,"Registered")+n(L.filter(c=>openQ(c)).length,"Need your reply",1);
+  if(!(CA.me||{}).branch){const by={};L.forEach(c=>{const b=c.branch||"—";by[b]=by[b]||{t:0,d:0};by[b].t++;if(c.stage==="Registered")by[b].d++});const ks=Object.keys(by).sort();
+    $("cBranchTbl").innerHTML=ks.length>1?`<details style="margin-bottom:10px"><summary style="cursor:pointer;font-weight:600">Branch-wise counts</summary><table style="margin-top:6px"><tr><th>Branch</th><th>Cases</th><th>Registered</th><th>In progress</th></tr>${ks.map(k=>`<tr><td>${esc(k)}</td><td>${by[k].t}</td><td>${by[k].d}</td><td>${by[k].t-by[k].d}</td></tr>`).join("")}</table></details>`:""}
+  const rows=L.filter(c=>(!CA.q||[c.applicant,c.loanNo,c.id].join(" ").toLowerCase().includes(CA.q))&&(!CA.st||cStage(c.stage)===CA.st)&&(!CA.br||c.branch===CA.br));
+  $("cRows").innerHTML=rows.map(c=>`<tr><td><b>${esc(c.applicant)}</b>${c.loanNo?`<div class="sub mono">Loan ${esc(c.loanNo)}</div>`:""}<div class="sub mono">${esc(c.id)}</div></td><td>${esc(c.branch||"")}</td><td>${esc(fmtD(c.requestedAt||c.createdAt))}</td>
+    <td>${esc(cStage(c.stage))}${openQ(c)?` <span class="q">${openQ(c)} query</span>`:""}</td><td class="mono">${esc(c.tpNo||"")}</td><td><button class="btn primary" data-co="${esc(c.doc)}">Open</button></td></tr>`).join("")||`<tr><td colspan="6" class="sub">No cases yet. Press “+ New case”.</td></tr>`;
+  $("cRows").querySelectorAll("[data-co]").forEach(b=>b.onclick=()=>cOpen(CA.list.find(x=>x.doc===b.dataset.co)))}
+async function cUpload(file){const safe=(file.name||"file").replace(/[^\w.\- ]+/g,"_").slice(-120);const path=`client/${CA.key}/${new Date().toISOString().slice(0,7)}/${crypto.randomUUID()}/${safe}`;
+  const{error}=await window.__sb.storage.from("docs").upload(path,file,{contentType:file.type||"application/octet-stream",upsert:false});if(error)throw error;return{name:file.name,url:"sb:"+path}}
+function cNewCase(){const me=CA.me||{};
+  ask("New Deed of Receipt case",`<label>Customer name *<input id="cn_a" required></label><label>Loan number<input id="cn_l"></label><label>Customer phone<input id="cn_p" inputmode="tel"></label>
+    ${me.branch?"":`<label>Branch *<input id="cn_b" list="cn_bl" required><datalist id="cn_bl">${[...new Set(CA.list.map(c=>c.branch).filter(Boolean))].map(b=>`<option value="${esc(b)}">`).join("")}</datalist></label>`}
+    ${C_DOCS.map(([k,l,r])=>`<label>${esc(l)}${r===1&&k==="modt"?" *":""}<input type="file" id="cn_${k}" accept=".pdf,image/*" ${k==="revenue"?"multiple":""}></label>`).join("")}
+    <p class="sf-note">The MODT is needed. Company and representative details are already with us; you don't need to send them.</p>`,
+    async()=>{const a=fv("cn_a"),br=me.branch||fv("cn_b");if(!a||!br){toast("Customer name and branch are needed");return false}if(!$("cn_modt").files.length){toast("Attach the MODT copy");return false}
+      const files=C_DOCS.flatMap(([k])=>[...$("cn_"+k).files].map(f=>[k,f]));
+      const{data:doc,error}=await window.__sb.rpc("client_new_case",{p:{applicant:a,loanNo:fv("cn_l"),phone:fv("cn_p"),branch:br}});if(error){toast(error.message);return false}
+      for(const [k,f] of files){try{const up=await cUpload(f);const r=await window.__sb.rpc("client_add_doc",{doc,k,f:up});if(r.error)throw r.error}catch(e){toast("Upload failed for "+f.name+": "+(e.message||e))}}
+      toast("Case filed. We'll start the drafting.");await cLoad()},"File the case")}
+async function cView(c,f){const{data,error}=await window.__sb.functions.invoke("read-aadhaar",{body:{kind:"client_file",doc:c.doc,url:f.url}});if(error||!data||!data.url){toast("Could not open the file");return}window.__viewUrl(data.url,f.name)}
+function cOpen(c,keep){const o=$("cDrawer");o.hidden=false;o.dataset.doc=c.doc;const st=c.stage,idx=C_STAGES.findIndex(x=>x[0]===st);
+  const files=Object.entries(c.docs||{}).flatMap(([k,a])=>(a||[]).map(f=>({...f,k})));
+  const lbl=k=>({modt:"MODT",modt2:"Supplementary MODT",noc:"NOC",revenue:"Revenue",tpcopy:"TP copy (draft, before biometric)",regcopy:"Registered document"})[k]||k;
+  const oq=(c.queries||[]).filter(q=>q.status==="open");
+  o.innerHTML=`<div style="display:flex;gap:8px;align-items:center"><h2 style="flex:1">${esc(c.applicant)}</h2><button class="btn" id="cdX">✕ Close</button></div>
+    <div class="sub mono">${esc(c.id)}${c.loanNo?" · Loan "+esc(c.loanNo):""} · ${esc(c.branch||"")}</div>
+    <div class="cstep">${C_STAGES.filter((x,i,a)=>a.findIndex(y=>y[1]===x[1])===i).map((x,i)=>`<span class="${st==="Refused"?"":C_STAGES.findIndex(y=>y[1]===x[1])<=idx?"on":""}">${esc(x[1])}</span>`).join("")}${st==="Refused"?`<span class="bad">Refused by SRO</span>`:""}</div>
+    ${c.tpNo?`<p><b>TP number:</b> <span class="mono">${esc(c.tpNo)}</span></p>`:""}${st==="Refused"&&c.refuseReason?`<p class="banner">Refused: ${esc(c.refuseReason)}. We are correcting it and resubmitting with the same TP.</p>`:""}
+    ${oq.length?`<div class="sect">Our queries · please reply</div>${oq.map(q=>`<div class="qbox"><b>${esc(q.text)}</b><div class="sub">${esc(fmtD(q.at))}</div><textarea rows="2" data-qa="${esc(q.id)}" placeholder="Your reply (e.g. uploaded / not needed for this case)"></textarea>
+      <div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap"><select data-qk="${esc(q.id)}" style="width:auto">${C_DOCS.map(([k,l])=>`<option value="${k}">${esc(l)}</option>`).join("")}</select><input type="file" data-qf="${esc(q.id)}" accept=".pdf,image/*"><button class="btn primary" data-qs="${esc(q.id)}">Send reply</button></div></div>`).join("")}`:""}
+    <div class="sect">Documents</div>${files.length?files.map((f,i)=>`<div style="display:flex;gap:8px;align-items:center;margin-bottom:4px"><span class="sub" style="min-width:150px">${esc(lbl(f.k))}</span><button class="btn" data-cv="${i}">View</button><span class="sub">${esc(f.name)}</span></div>`).join(""):`<p class="sub">None yet.</p>`}
+    <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap"><select id="cdK" style="width:auto">${C_DOCS.map(([k,l])=>`<option value="${k}">${esc(l)}</option>`).join("")}</select><input type="file" id="cdF" accept=".pdf,image/*"><button class="btn" id="cdUp">Upload</button></div>
+    <div class="sect">Messages with VGR Legal</div><div class="msgs">${(c.comments||[]).slice().reverse().map(m=>`<div class="m ${m.from==="client"?"me":""}"><small class="sub">${esc(fmtD(m.at))} ${esc(fmtT(m.at))} · ${esc(m.by)}</small><div>${esc(m.text)}</div></div>`).join("")||`<p class="sub">No messages.</p>`}</div>
+    <textarea id="cdMsg" rows="2" placeholder="Write to VGR Legal…"></textarea><button class="btn primary" id="cdSend" style="margin-top:6px">Send</button>`;
+  $("cdX").onclick=()=>{o.hidden=true;o.dataset.doc=""};
+  o.querySelectorAll("[data-cv]").forEach(b=>b.onclick=()=>cView(c,files[+b.dataset.cv]));
+  $("cdUp").onclick=async()=>{const f=$("cdF").files[0];if(!f){toast("Choose a file");return}$("cdUp").disabled=true;try{const up=await cUpload(f);const r=await window.__sb.rpc("client_add_doc",{doc:c.doc,k:$("cdK").value,f:up});if(r.error)throw r.error;toast("Uploaded");await cLoad()}catch(e){toast("Upload failed: "+(e.message||e))}$("cdUp").disabled=false};
+  $("cdSend").onclick=async()=>{const t=$("cdMsg").value.trim();if(!t)return;const r=await window.__sb.rpc("client_comment",{doc:c.doc,msg:t,qid:null});if(r.error){toast(r.error.message);return}toast("Sent");await cLoad()};
+  o.querySelectorAll("[data-qs]").forEach(b=>b.onclick=async()=>{const id=b.dataset.qs,t=o.querySelector(`[data-qa="${id}"]`).value.trim(),f=o.querySelector(`[data-qf="${id}"]`).files[0];if(!t&&!f){toast("Write a reply or attach a file");return}b.disabled=true;
+    try{if(f){const up=await cUpload(f);const r=await window.__sb.rpc("client_add_doc",{doc:c.doc,k:o.querySelector(`[data-qk="${id}"]`).value,f:up});if(r.error)throw r.error}
+      const r2=await window.__sb.rpc("client_comment",{doc:c.doc,msg:t||("Uploaded "+f.name),qid:id});if(r2.error)throw r2.error;toast("Reply sent");await cLoad()}catch(e){toast("Not sent: "+(e.message||e));b.disabled=false}});
+}
+
+/* ================= bank (client) uploads: read MODT / supplementary MODT once ================= */
+const BR=new Set();
+async function bankReads(){if(!(isMD||isAdmin)||!canWrite)return;for(const c of cases.filter(x=>x.needsRead&&!BR.has(x._doc))){BR.add(c._doc);
+  try{if(c.needsRead==="modt2")await readSuppModt(c);else await rereadModt(c,false);await db.collection("cases").doc(c._doc).update({needsRead:null})}catch(e){BR.delete(c._doc)}}}
+
 /* ================= writes ================= */
 async function patch(c,changes,logText){
   if(!db){toast("Sign in to update cases");return false}
@@ -909,6 +1011,10 @@ const fv=id=>($(id)?$(id).value.trim():"");
 function runAction(c,k){
   if(k==="info")return openInfo(c);
   if(k.startsWith("mv:"))return move(c,k.slice(3));
+  if(k==="refused")return ask("Refused by the SRO",`<label>Reason (the bank will see this)<textarea id="m_rr" rows="3" placeholder="Reason given by the SRO"></textarea></label><p class="sf-note">Same TP and same payment: correct the mistake by hand, take the biometric again and resubmit.</p>`,
+    ()=>{const r=fv("m_rr");if(!r)return false;return patch(c,{stage:"Refused",refuseReason:r,comments:[...(c.comments||[]),{at:nowISO(),by:who(),text:"Refused by the SRO: "+r,internal:"false"}].slice(-100)},"Refused: "+r)},"Mark refused");
+  if(k==="resubmit")return ask("Resubmit after refusal?",`<p class="sf-note">Confirm the mistake is corrected by hand and the biometric is taken again. The same TP (${esc(c.tpNo||"")}) and payment are used.</p>`,
+    ()=>patch(c,{stage:"Submitted Online",comments:[...(c.comments||[]),{at:nowISO(),by:who(),text:"Resubmitted after correction (same TP)",internal:"false"}].slice(-100)},"Resubmitted after refusal (same TP)"),"Resubmit");
   if(k==="undo"){const p=prevStage(c);if(!p||!isMD)return;return ask("Move back a stage?",`<p class="sf-note">${esc(c.applicant||c.id)}: <b>${esc(c.stage)}</b> → <b>${esc(p)}</b>. This is recorded in the case history.</p>`,()=>patch(c,{stage:p},`Stage moved back: ${c.stage} → ${p} (Admin)`),"Move back")}
   if(k==="draft")return openReview(c,false);
   if(k==="tpgen")return openReview(c,true);
@@ -1000,7 +1106,9 @@ function paintInfo(){
       ${canWrite?`<button type="button" class="btn" id="editInfo">Edit details</button>`:""}`;
   }
   h+=`<div class="sect">Documents ${edit?`<span class="sf-note">· * needed to create the case. The rest can be added before TP Generate.</span>`:""}</div><div class="docs" id="docList"></div>`;
-  if(c)h+=`<div class="sect">Comments &amp; history</div><div class="addline" style="margin-bottom:12px"><input id="cmIn" placeholder="Add a comment…"><button type="button" class="btn primary" id="cmAdd">Post</button></div><div class="timeline" id="timeline"></div>`;
+  if(c&&isRD(c.type)){const Q=c.queries||[];h+=`<div class="sect">Queries to the bank</div>${Q.length?Q.map(q=>`<div class="ev ${q.status==="open"?"cm":""}" style="margin-bottom:6px"><small>${fmtD(q.at)} · ${esc(q.by)} · <b>${q.status==="open"?"Open":q.status==="answered"?"Answered":"Closed"}</b></small>${esc(q.text)}${q.answer?`<div style="margin-top:4px"><b>Bank:</b> ${esc(q.answer)}</div>`:""}${q.status!=="closed"&&canWrite?`<button type="button" class="btn" data-qclose="${esc(q.id)}" style="margin-top:4px">Close query</button>`:""}</div>`).join(""):`<p class="sub">No queries.</p>`}
+    ${canWrite?`<button type="button" class="btn" id="qRaise" style="margin-bottom:12px">+ Raise query to the bank</button>`:""}`}
+  if(c)h+=`<div class="sect">Comments &amp; history</div><div class="addline" style="margin-bottom:6px"><input id="cmIn" placeholder="Add a comment…"><button type="button" class="btn primary" id="cmAdd">Post</button></div><label style="display:flex;gap:6px;align-items:center;margin:0 0 12px;font-size:13px"><input type="checkbox" id="cmInt" checked> Internal (team only). Untick to send this to the bank.</label><div class="timeline" id="timeline"></div>`;
   h+=`<div class="err" id="ferr" hidden></div>`;
   $("dbody").innerHTML=h;
   $("dfoot").innerHTML=edit?`${c&&isAdmin?`<button type="button" class="btn danger" id="delBtn">Delete case</button>`:""}<span class="sp"></span><button type="button" class="btn" id="cancelEdit">Cancel</button><button type="button" class="btn primary" id="saveBtn">${c?"Save changes":"Create case"}</button>`
@@ -1017,6 +1125,10 @@ function paintInfo(){
   $("cancelEdit").onclick=()=>{if(c&&edit){infoMode="view";draftDocs={...(c.docs||{})};paintInfo()}else closeDrawer()};
   if($("saveBtn"))$("saveBtn").onclick=saveCase;
   if($("delBtn"))$("delBtn").onclick=()=>ask("Delete this case?",`<p class="sf-note">${esc(c.applicant)} · ${esc(c.id)} will be removed for everyone.</p>`,async()=>{try{await db.collection("cases").doc(c._doc).delete();toast("Deleted");closeDrawer()}catch(err){fail(err)}},"Delete");
+  if(c&&$("qRaise"))$("qRaise").onclick=()=>ask("Raise a query to the bank",`<label>What is needed?<textarea id="m_q" rows="3" placeholder="e.g. Please upload the NOC / revenue document, or reply if not needed"></textarea></label>`,async()=>{const t=fv("m_q");if(!t)return false;
+    const q={id:"Q"+Date.now().toString(36),at:nowISO(),by:who(),text:t,status:"open"};const cm={at:nowISO(),by:who(),text:"Query: "+t,internal:"false"};
+    await patch(c,{queries:[...(c.queries||[]),q],comments:[...(c.comments||[]),cm].slice(-100)},"Query raised to the bank");openInfo(cases.find(x=>x._doc===c._doc)||c)},"Send to bank");
+  if(c)document.querySelectorAll("[data-qclose]").forEach(b=>b.onclick=async()=>{const Q=(c.queries||[]).map(q=>q.id===b.dataset.qclose?{...q,status:"closed",closedAt:nowISO(),closedBy:who()}:q);await patch(c,{queries:Q},"Query closed");openInfo(cases.find(x=>x._doc===c._doc)||c)});
   if(c){renderTimeline(c);$("cmAdd").onclick=addComment;$("cmIn").addEventListener("keydown",e=>{if(e.key==="Enter"){e.preventDefault();addComment()}})}
 }
 function applyMasters(force){
@@ -1096,9 +1208,9 @@ async function saveCase(){
 }
 function renderTimeline(c){
   const ev=[...(c.comments||[]).map(x=>({...x,cm:1})),...(c.log||[])].sort((a,b)=>b.at.localeCompare(a.at));
-  $("timeline").innerHTML=ev.length?ev.map(x=>`<div class="ev ${x.cm?"cm":""}"><small>${fmtD(x.at)} ${fmtT(x.at)} · ${esc(x.by)}${x.cm?" · comment":""}</small>${esc(x.text)}</div>`).join(""):`<div style="color:var(--muted)">No comments yet.</div>`;
+  $("timeline").innerHTML=ev.length?ev.map(x=>`<div class="ev ${x.cm?"cm":""}"><small>${fmtD(x.at)} ${fmtT(x.at)} · ${esc(x.by)}${x.cm?(x.from==="client"?' · <b style="color:#1f3c88">From bank</b>':x.internal==="false"?' · <b style="color:#1e6b34">To bank</b>':" · Internal"):""}</small>${esc(x.text)}</div>`).join(""):`<div style="color:var(--muted)">No comments yet.</div>`;
 }
-async function addComment(){const t=fv("cmIn");if(!t||!editing)return;const c=editing;const comments=[...(c.comments||[]),{at:nowISO(),by:who(),text:t}].slice(-100);
+async function addComment(){const t=fv("cmIn");if(!t||!editing)return;const c=editing;const internal=!$("cmInt")||$("cmInt").checked;const comments=[...(c.comments||[]),{at:nowISO(),by:who(),text:t,internal:internal?"true":"false"}].slice(-100);
   try{await db.collection("cases").doc(c._doc).update({comments});$("cmIn").value="";c.comments=comments;renderTimeline(c)}catch(err){fail(err)}}
 
 /* ================= Review panel (Drafting / TP Generate) ================= */
@@ -1369,7 +1481,7 @@ function renderDash(){
     {k:"draft",t:"Drafting & TP",h:"MODT read, check Drafting, start TP",c:"#1f3c88",f:c=>!isTp(c)&&["Draft Pending","TP Creation","Docs Received","Drafting"].includes(c.stage)},
     {k:"bio",t:"Biometric",h:"TP ready · photo & fingerprint pending",c:"#c08a1e",f:c=>c.stage==="Photo/Biometric"||(isTp(c)&&["Draft Pending","TP Creation"].includes(c.stage))},
     {k:"pay",t:"Payment",h:"Biometric done · pay & submit",c:"#2b7a3a",f:c=>c.stage==="Payment"&&!c.paid},
-    {k:"hold",t:"Returned / on hold",h:"SRO query, return or hold",c:"#b4321f",f:c=>/Returned|On Hold|Query/.test(c.stage)},
+    {k:"hold",t:"Returned / on hold",h:"SRO query, return or hold",c:"#b4321f",f:c=>/Returned|On Hold|Query|Refused/.test(c.stage)},
   ];
   const item=c=>{const d=Math.floor(days(c));return`<li><button type="button" data-open="${esc(c._doc)}"><b>${esc(c.applicant||c.id)}</b><span><span>${esc(c.bank||c.type)}</span><span class="${d>5?"late":""}">${d}d</span></span>${isTp(c)?`<span><span class="mono">${esc(c.tpNo)}</span></span>`:""}</button></li>`};
   const laneHtml=lanes.map(L=>{const x=open.filter(L.f).sort((a,b)=>days(b)-days(a));return`<section class="lane" style="--lc:${L.c}"><h3>${esc(L.t)}<span class="ct">${x.length}</span></h3><div class="hint">${esc(L.h)}</div>${x.length?`<ul>${x.slice(0,6).map(item).join("")}</ul>${x.length>6?`<button type="button" class="btn more" data-jump="__all">+${x.length-6} more · All Cases</button>`:""}`:`<div class="none">Nothing here ✓</div>`}</section>`}).join("");
@@ -1410,6 +1522,7 @@ function renderSettings(){
       ${TAB_KEYS.map(t=>`<td class="c"><input type="checkbox" class="st" data-t="${esc(t[0])}" ${s.tabs.includes(t[0])?"checked":""} ${ro?"disabled":""} aria-label="${esc(s.name)} can use ${esc(t[1])}"></td>`).join("")}
       <td style="white-space:nowrap">${ro||s.name===MD_NAME?"":`${s.email?`<button class="btn sinv" type="button" data-em="${esc(s.email)}">Invite</button> `:""}<button class="btn danger sdel" type="button">Remove</button>`}</td></tr>`).join("");
   $("staffAdd").hidden=ro;$("staffSave").hidden=ro;renderMasters(ro);
+  renderClients(ro);
   const p=cfg.pay||{};["account","upi","link","service"].forEach(k=>{$("pay_"+k).value=p[k]||"";$("pay_"+k).disabled=ro});$("paySave").hidden=ro;
   tnRender(ro);
 }
@@ -1426,9 +1539,24 @@ function upBtn(id,label,ro,multi){return ro?"":`<label class="btn" for="${id}">$
 function readStaff(){return[...$("staffTbl").querySelectorAll("tr[data-i]")].map(tr=>({name:tr.querySelector('[data-f="name"]').value.trim(),email:tr.querySelector('[data-f="email"]').value.trim().toLowerCase(),phone:tr.querySelector('[data-f="phone"]').value.trim(),tabs:[...tr.querySelectorAll(".st:checked")].map(x=>x.dataset.t)})).filter(s=>s.name)}
 $("staffAdd").onclick=()=>{const s=readStaff();s.push({name:"New staff",email:"",phone:"",tabs:["MODT"]});cfg={...cfg,staff:s};renderSettings()};
 $("staffSave").onclick=()=>saveCfg({...cfg,staff:readStaff()});
+function branchesOf(co){return [...new Set(cases.filter(c=>c.bank===co&&c.branch).map(c=>c.branch))].sort()}
+function renderClients(ro){const t=$("clientTbl");if(!t)return;$("clientCard").hidden=!isMD;const L=cfg.clients||[];
+  t.innerHTML=`<tr><th>Name</th><th>Email</th><th>Company</th><th>Branch</th><th></th></tr>`+L.map((c,i)=>`<tr data-i="${i}">
+    <td><input class="cl_n" value="${esc(c.name||"")}" placeholder="Name"${ro?" disabled":""}></td><td><input class="cl_e" type="email" value="${esc(c.email||"")}" placeholder="name@bank.com"${ro?" disabled":""}></td>
+    <td><select class="cl_c"${ro?" disabled":""}><option value="">— company —</option>${cfg.banks.map(b=>`<option${b===c.company?" selected":""}>${esc(b)}</option>`).join("")}</select></td>
+    <td><input class="cl_b" list="clBr${i}" value="${esc(c.branch||"")}" placeholder="All branches"${ro?" disabled":""}><datalist id="clBr${i}">${branchesOf(c.company).map(b=>`<option value="${esc(b)}">`).join("")}</datalist><span class="sub">Empty = all branches (in-charge)</span></td>
+    <td style="white-space:nowrap">${ro?"":`${c.email?`<button class="btn sinv" type="button" data-em="${esc(c.email)}">Invite</button> `:""}<button class="btn danger cl_del" type="button">Remove</button>`}</td></tr>`).join("")+
+    (L.length?"":`<tr><td colspan="5" class="sub">No client logins yet.</td></tr>`);
+  $("clientAdd").hidden=ro;$("clientSave").hidden=ro;
+  t.querySelectorAll(".cl_del").forEach(b=>b.onclick=()=>{const cur=readClients();cur.splice(+b.closest("tr").dataset.i,1);cfg.clients=cur;renderClients(ro)})}
+function readClients(){return [...document.querySelectorAll("#clientTbl tr[data-i]")].map(r=>({name:r.querySelector(".cl_n").value.trim(),email:r.querySelector(".cl_e").value.trim().toLowerCase(),company:r.querySelector(".cl_c").value,branch:r.querySelector(".cl_b").value.trim()})).filter(c=>c.name||c.email)}
+$("clientAdd").onclick=()=>{cfg.clients=[...readClients(),{name:"",email:"",company:"",branch:""}];renderClients(false)};
+$("clientSave").onclick=()=>{const L=readClients();const bad=L.find(c=>!c.email||!c.company);if(bad){toast("Each client login needs an email and a company");return}
+  const staffEm=new Set(cfg.staff.map(x=>(staffObj(x).email||"").toLowerCase()));if(L.some(c=>staffEm.has(c.email))){toast("That email is already a staff login");return}
+  saveCfg({...cfg,clients:L})};
 $("paySave").onclick=()=>saveCfg({...cfg,pay:{account:$("pay_account").value.trim(),upi:fv("pay_upi"),link:fv("pay_link"),service:fv("pay_service")}});
 async function saveCfg(n){if(!db){toast("Sign in to save");return}cfg=n;fillStatic();render();
-  try{await db.doc("config/lists").set({banks:n.banks,staff:n.staff.map(staffObj),types:n.types,pay:n.pay||{},profiles:n.profiles||{},wit:n.wit||[]});toast("Saved")}catch(err){fail(err)}}
+  try{await db.doc("config/lists").set({banks:n.banks,staff:n.staff.map(staffObj),types:n.types,pay:n.pay||{},profiles:n.profiles||{},wit:n.wit||[],clients:n.clients||[]});toast("Saved")}catch(err){fail(err)}}
 function fillStatic(){
   opts($("fClient"),cfg.banks,"All Clients");
   const names=[...(isMD?[MD_NAME]:[]),...cfg.staff.map(s=>staffObj(s).name).filter(n=>!(isMD&&n===MD_NAME))],mv=me;
@@ -2101,6 +2229,7 @@ fillStatic();render();
 setInterval(()=>{if(!$("v-list").hidden||!$("v-dash").hidden)render()},60000);
 (async()=>{
   db=await claude.use("db");
+  if(window.__role==="client"){clientApp();return}
   if(!db){$("empty").innerHTML="<h2>Sign in to see cases</h2>Reload and sign in again.";banner("Sign in to see and update cases.");return}
   user=await claude.use("user");
   if(user){const w=await user.can("data.write");if(w===false){canWrite=false;banner("You can view this portal but not change it. Ask the Admin for access.")}
@@ -2109,14 +2238,14 @@ setInterval(()=>{if(!$("v-list").hidden||!$("v-dash").hidden)render()},60000);
     if(isMD){$("mdBadge").hidden=false;if(!me||me===MD_OLD){me=MD_NAME;lsSet("vgr.me",me)}}}
   const timer=setTimeout(()=>{if(!cases.length)$("empty").innerHTML="<h2>Can't reach the case list yet</h2>Check your internet connection. It will load on its own once connected."},10000);
   db.doc("config/lists").onSnapshot(s=>{const d=s.exists?s.data():{};
-    cfg={banks:d.banks||[],staff:(d.staff||[]).map(staffObj),types:(d.types&&d.types.length)?d.types:DEFAULT_TYPES.slice(),pay:d.pay||{},profiles:d.profiles||{},wit:d.wit||[]};
+    cfg={banks:d.banks||[],staff:(d.staff||[]).map(staffObj),types:(d.types&&d.types.length)?d.types:DEFAULT_TYPES.slice(),pay:d.pay||{},profiles:d.profiles||{},wit:d.wit||[],clients:d.clients||[]};
     myStaff=!isMD&&SELF_EMAIL?cfg.staff.find(x=>x.email&&x.email.toLowerCase()===SELF_EMAIL)||null:null;if(myStaff)me=myStaff.name;
     if(!["dash","__all","__set","__sro","__ppl"].includes(tab)&&!cfg.types.includes(tab))tab="dash";fillStatic();render()},()=>{});
   db.doc("tp_jobs/_worker").onSnapshot(s=>{W.at=s.exists?(s.data()||{}).at:null;if(!$("tpbar").hidden)renderHelperChip()},()=>{});
   db.collection("cases").onSnapshot(s=>{if(!s.metadata.fromCache)clearTimeout(timer);cases=s.docs.map(d=>({...d.data(),_doc:d.id}));
     if(editing){const fresh=cases.find(c=>c._doc===editing._doc);if(fresh){editing=fresh;if($("timeline"))renderTimeline(fresh)}}
     if(rv.c){const f=cases.find(c=>c._doc===rv.c._doc);if(f)rv.c=f}
-    render();if(H.ok)autoCapture()},
+    render();if(H.ok)autoCapture();bankReads()},
     ()=>{clearTimeout(timer);$("empty").innerHTML="<h2>Case list unavailable</h2>Reload the page to try again."});
   render();helperInit();
 })();
