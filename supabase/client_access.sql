@@ -79,7 +79,7 @@ begin
   select data into d from kv where collection = 'cases' and id = doc for update;
   if d is null or not client_owns(d) then raise exception 'case not found'; end if;
   d := jsonb_set(d, array['docs'], coalesce(d->'docs','{}'::jsonb) || jsonb_build_object(k, coalesce(d->'docs'->k,'[]'::jsonb) ||
-        jsonb_build_array(jsonb_build_object('name', left(f->>'name',150), 'url', f->>'url', 'at', t, 'by', who)))));
+        jsonb_build_array(jsonb_build_object('name', left(f->>'name',150), 'url', f->>'url', 'at', t, 'by', who))));
   d := jsonb_set(d, array['comments'], coalesce(d->'comments','[]'::jsonb) || jsonb_build_array(jsonb_build_object('at',t,'by',who,
         'text','Uploaded ' || lbl || ': ' || left(f->>'name',150),'internal','false','from','client')));
   if k in ('modt','modt2') then d := d || jsonb_build_object('needsRead', k); end if;
