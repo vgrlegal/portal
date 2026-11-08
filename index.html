@@ -164,6 +164,7 @@ tr.hf input,tr.hf select{font-size:12.5px;padding:5px 7px;margin:2px 0}
 .lg{display:inline-block;width:max-content;align-self:flex-start;justify-self:start;font-size:10.5px;font-weight:600;padding:1px 6px;border-radius:999px;vertical-align:1px;margin-left:4px}.lg.ta{background:#fff1d6;color:#8a5300}.lg.en{background:#e6eefc;color:#1f3b63}
 #rvDocPane{position:fixed;left:0;top:0;bottom:0;width:50vw;z-index:23;background:var(--surface,#fff);border-right:1px solid var(--line);display:flex;flex-direction:column}
 #rvDocPane[hidden]{display:none}
+#rvDocPane.full{width:100vw;z-index:40}
 #rvDocPane .dph{display:flex;gap:6px;align-items:center;padding:8px 10px;border-bottom:1px solid var(--line);flex-wrap:wrap}
 #rvDocPane .dph select{flex:1;min-width:180px;padding:6px 8px;border:1px solid var(--line);border-radius:8px;font:inherit;background:var(--surface);color:var(--ink)}
 #rvDocPane .dpv{flex:1;min-height:0;background:#525659;display:flex;align-items:center;justify-content:center}
@@ -402,7 +403,7 @@ tr.hf input,tr.hf select{font-size:12.5px;padding:5px 7px;margin:2px 0}
 <div class="scrim" id="rvscrim" hidden></div>
 <div class="scrim" id="pescrim" hidden style="z-index:24"></div>
 <aside class="drawer review" id="prof" hidden aria-labelledby="peTitle" style="z-index:25"><div class="dhead"><h2 id="peTitle">Profile</h2><button class="btn" id="peClose" aria-label="Close">✕</button></div><div class="dbody" id="peBody"></div><div class="dfoot"><span class="sp"></span><button class="btn primary" id="peSave" type="button">Save</button></div></aside>
-<div id="rvDocPane" hidden><div class="dph"><select id="rvDocSel" aria-label="Document to view"></select><a class="btn" id="rvDocNew" target="_blank" rel="noopener">Open in new tab</a><button type="button" class="btn" id="rvDocClose">Hide</button></div><div class="dpv" id="rvDocView"></div></div>
+<div id="rvDocPane" hidden><div class="dph"><select id="rvDocSel" aria-label="Document to view"></select><button type="button" class="btn" id="rvDocSize" title="Half page / full page">⤢ Full page</button><a class="btn" id="rvDocNew" target="_blank" rel="noopener">Open in new tab</a><button type="button" class="btn" id="rvDocClose">Hide</button></div><div class="dpv" id="rvDocView"></div></div>
 <aside class="drawer review" id="review" hidden aria-labelledby="rvTitle">
   <div class="dhead"><h2 id="rvTitle">Drafting</h2></div>
   <div class="dbody" id="rvBody"></div>
@@ -499,8 +500,24 @@ const assets={async upload(f){const safe=(f.name||"file").replace(/[^\w.\- ]+/g,
 window.__signed=u=>signed(u);async function signed(u){const{data,error}=await sb.storage.from(BUCKET).createSignedUrl(u.slice(3),600);if(error)throw error;return data.signedUrl}
 const nf=window.fetch.bind(window);
 window.fetch=async(u,o)=>{if(typeof u==="string"&&u.startsWith("sb:"))return nf(await signed(u),o);return nf(u,o)};
-document.addEventListener("click",async e=>{const a=e.target.closest&&e.target.closest('a[href^="sb:"]');if(!a)return;e.preventDefault();
-  const w=window.open("about:blank","_blank");try{const s=await signed(a.getAttribute("href"));if(w)w.location=s;else location.href=s}catch(err){if(w)w.close();alert("Could not open the file: "+err.message)}},true);
+/* View on the same page (viewer) / Download - for every stored file */
+const vSt=document.createElement("style");vSt.textContent=`#fileViewer{position:fixed;inset:0;z-index:9000;background:rgba(15,20,30,.82);display:flex;flex-direction:column}
+#fileViewer[hidden]{display:none}#fileViewer .fvh{display:flex;gap:8px;align-items:center;padding:10px 14px;background:#111a2b;color:#fff;font:14px/1.3 system-ui,sans-serif}
+#fileViewer .fvh b{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}#fileViewer .fvh button,#fileViewer .fvh a{background:#fff;color:#111a2b;border:0;border-radius:8px;padding:7px 12px;font:600 13px system-ui,sans-serif;cursor:pointer;text-decoration:none}
+#fileViewer .fvb{flex:1;min-height:0;display:flex;align-items:center;justify-content:center}#fileViewer iframe{width:100%;height:100%;border:0;background:#fff}#fileViewer img{max-width:100%;max-height:100%;object-fit:contain}`;
+document.head.appendChild(vSt);
+const fv=document.createElement("div");fv.id="fileViewer";fv.hidden=true;fv.innerHTML=`<div class="fvh"><b id="fvName"></b><button type="button" id="fvDl">⬇ Download</button><a id="fvNew" target="_blank" rel="noopener">New tab</a><button type="button" id="fvClose">✕ Close</button></div><div class="fvb" id="fvBody"></div>`;
+document.addEventListener("DOMContentLoaded",()=>document.body.appendChild(fv));if(document.body)document.body.appendChild(fv);
+const fname=(a,u)=>(a&&(a.getAttribute("download")||a.textContent||"").replace(/^🗂\s*/,"").trim())||decodeURIComponent(String(u).split("/").pop()||"file");
+async function dlFile(u,name){try{const s=await signed(u);const b=await (await nf(s)).blob();const o=URL.createObjectURL(b),x=document.createElement("a");x.href=o;x.download=name||"file";document.body.appendChild(x);x.click();x.remove();setTimeout(()=>URL.revokeObjectURL(o),4000)}catch(err){alert("Could not download: "+err.message)}}
+window.__dlFile=dlFile;
+window.__viewFile=async(u,name)=>{fv.hidden=false;document.getElementById("fvName").textContent=name||"";const body=document.getElementById("fvBody");body.innerHTML='<p style="color:#fff">Loading…</p>';
+  try{const s=await signed(u);document.getElementById("fvNew").href=s;document.getElementById("fvDl").onclick=()=>dlFile(u,name);
+    body.innerHTML=/\.(png|jpe?g|gif|webp)$/i.test(name||u)?`<img src="${s}" alt="">`:`<iframe src="${s}#view=FitH"></iframe>`}catch(err){body.innerHTML='<p style="color:#fff">Could not open: '+err.message+'</p>'}};
+fv.addEventListener("click",e=>{if(e.target.id==="fvClose"||e.target===fv){fv.hidden=true;document.getElementById("fvBody").innerHTML=""}});
+document.addEventListener("keydown",e=>{if(e.key==="Escape"&&!fv.hidden){fv.hidden=true;document.getElementById("fvBody").innerHTML=""}});
+document.addEventListener("click",async e=>{const d=e.target.closest&&e.target.closest('[data-dl]');if(d){e.preventDefault();dlFile(d.getAttribute("data-dl"),d.getAttribute("data-name"));return}
+  const a=e.target.closest&&e.target.closest('a[href^="sb:"]');if(!a)return;e.preventDefault();const u=a.getAttribute("href");window.__viewFile(u,fname(a,u))},true);
 
 const downloads={async save({filename,data}){const b=data instanceof Blob?data:new Blob([data],{type:"text/plain;charset=utf-8"});
   const u=URL.createObjectURL(b),a=document.createElement("a");a.href=u;a.download=filename;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(u),4000)}};
@@ -878,7 +895,7 @@ function renderDocs(type){
   const hideK=new Set(Object.keys(MASTER).filter(fromM));
   $("docList").innerHTML=mrows.join("")+list.filter(d=>!hideK.has(d.k)).map(d=>{const files=draftDocs[d.k]||[];
     return`<div class="docrow"><div class="docl"><b>${esc(d.l)}${d.req?" *":""}${d.grp?" †":""}</b>${d.h?`<span class="sub">${esc(d.h)}</span>`:""}
-      ${files.map((f,i)=>`<span class="docf"><a href="${esc(f.url)}" target="_blank" rel="noopener">${f.kyc?"🗂 ":""}${esc(f.name)}</a>${canWrite&&!d.auto?`<button type="button" class="xbtn" data-rmk="${d.k}" data-rmi="${i}" title="Remove this file" aria-label="Remove ${esc(f.name)}">×</button>`:""}</span>${f.from?`<span class="sub">auto · saved ${f.from==="rep"?"bank rep":"witness"}</span>`:""}`).join("")||`<span class="sub">${d.auto?"Added automatically":"Not uploaded"}</span>`}</div>
+      ${files.map((f,i)=>`<span class="docf"><a href="${esc(f.url)}" target="_blank" rel="noopener" title="View">${f.kyc?"🗂 ":""}${esc(f.name)}</a><button type="button" class="xbtn" data-dl="${esc(f.url)}" data-name="${esc(f.name)}" title="Download" aria-label="Download ${esc(f.name)}">⬇</button>${canWrite&&!d.auto?`<button type="button" class="xbtn" data-rmk="${d.k}" data-rmi="${i}" title="Remove this file" aria-label="Remove ${esc(f.name)}">×</button>`:""}</span>${f.from?`<span class="sub">auto · saved ${f.from==="rep"?"bank rep":"witness"}</span>`:""}`).join("")||`<span class="sub">${d.auto?"Added automatically":"Not uploaded"}</span>`}</div>
       ${canWrite&&!d.auto?`<label class="btn" for="up_${d.k}">${files.length?(d.multi?"Add more":"Replace"):"Upload"}</label><input type="file" id="up_${d.k}" data-k="${d.k}" ${d.kyc||d.multi?"multiple":""} accept="${d.k==="photos"?"image/*":"image/*,application/pdf,.pdf"}" hidden>`:""}</div>`}).join("")+
     (list.some(d=>d.grp)?`<p class="sf-note">† Title deed or legal report: one of the two is enough to create the case.</p>`:"");
   list.forEach(d=>{const el=$("up_"+d.k);if(el)el.onchange=e=>addDocs(d,[...e.target.files],type)});
@@ -993,8 +1010,10 @@ async function showDoc(f){const v=$("rvDocView");v.innerHTML=`<p style="color:#f
 function openDocPane(c){const fs=caseFiles(c);if(!fs.length){toast("No documents uploaded for this case yet");return}
   $("rvDocSel").innerHTML=fs.map((f,i)=>`<option value="${i}">${esc(f.lab)} · ${esc(f.name)}</option>`).join("");
   $("rvDocSel").onchange=()=>showDoc(fs[+$("rvDocSel").value]);$("rvDocClose").onclick=closeDocPane;
-  $("rvDocPane").hidden=false;$("review").classList.add("split");if($("rvSplit"))$("rvSplit").textContent="📄 Hide documents";showDoc(fs[0])}
-function closeDocPane(){$("rvDocPane").hidden=true;$("rvDocView").innerHTML="";$("review").classList.remove("split");if($("rvSplit"))$("rvSplit").textContent="📄 Show documents side by side"}
+  $("rvDocPane").hidden=false;$("review").classList.add("split");if($("rvSplit"))$("rvSplit").textContent="📄 Hide documents";
+  const full=(()=>{try{return localStorage.getItem("vgrDocFull")==="1"}catch(e){return false}})(),setSize=f=>{$("rvDocPane").classList.toggle("full",f);$("rvDocSize").textContent=f?"⤡ Half page":"⤢ Full page";try{localStorage.setItem("vgrDocFull",f?"1":"0")}catch(e){}};
+  setSize(full);$("rvDocSize").onclick=()=>setSize(!$("rvDocPane").classList.contains("full"));showDoc(fs[0])}
+function closeDocPane(){$("rvDocPane").hidden=true;$("rvDocPane").classList.remove("full");$("rvDocView").innerHTML="";$("review").classList.remove("split");if($("rvSplit"))$("rvSplit").textContent="📄 Show documents side by side"}
 function closeReview(){closeDocPane();$("review").hidden=true;$("rvscrim").hidden=true;rv={c:null,gen:false}}
 $("rvscrim").onclick=closeReview;
 function readReview(){const c=rv.c,dor=isRD(c.type),sections=dor?DOR_PAGES:MODT_FIELDS,out={...(dor?c.tp:c.draft)||{}};
@@ -1826,6 +1845,10 @@ async function claudeModt(file){if(!window.__sb)return null;const{canvases}=awai
   if(error||!data||!data.fields){console.warn("Claude MODT",error||data);return null}
   const f=data.fields,d={},put=(k,v)=>{v=String(v??"").trim();if(v)d[k]=v};
   (Array.isArray(f.co_mortgagors)?f.co_mortgagors:[]).slice(0,4).forEach((m,i)=>{const n=i+2;put(`Mortgagor ${n} name`,String(m.name||"").toUpperCase());put(`Mortgagor ${n} name (Tamil)`,m.name_ta);put(`Mortgagor ${n} age`,m.age);put(`Mortgagor ${n} relation`,m.rel_type);put(`Mortgagor ${n} relative name`,String(m.rel_name||"").toUpperCase())});
+  {const ca=String(f.bank_address||"").trim(),ba=String(f.branch_address||"").trim(),cat=String(f.bank_address_ta||"").trim(),bat=String(f.branch_address_ta||"").trim();
+   if(ca||ba)put("Company address",[ca,ba&&ba!==ca?"Branch: "+ba:""].filter(Boolean).join(", "));
+   if(cat||bat)put("Company address (Tamil)",[cat,bat&&bat!==cat?"கிளை: "+bat:""].filter(Boolean).join(", "));
+   put("Company state",f.bank_state);put("Company district",f.bank_district);put("Company pincode",String(f.bank_pincode||"").replace(/\D/g,"").slice(0,6))}
   put("SRO",f.sro);put("SRO Tamil",f.sro_ta);put("Execution SRO",f.sro);put("Book",f.book);put("Doc No",f.doc_no);put("Year",f.year);
   if(f.mortgagor_sal)put("Mortgagor salutation",salNorm(f.mortgagor_sal));put("Mortgagor",String(f.mortgagor||"").toUpperCase());put("Mortgagor name (Tamil)",f.mortgagor_ta);
   if(f.age){const y=+f.year||new Date().getFullYear();put("Mortgagor Age",String(+String(f.age).replace(/\D/g,"")+(new Date().getFullYear()-y)))}
