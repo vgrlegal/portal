@@ -456,7 +456,7 @@ tr.hf input,tr.hf select{font-size:12.5px;padding:5px 7px;margin:2px 0}
       <div class="card"><h2>Payment details</h2><p>Used in the WhatsApp payment message to customers.</p>
         <div class="fgrid"><label class="full">Account details<textarea id="pay_account" placeholder="Account name, number, IFSC, bank"></textarea></label><label>UPI ID<input id="pay_upi"></label><label>Default service charge (₹)<input id="pay_service" type="number" min="0"></label><label class="full">Payment link (optional)<input id="pay_link" placeholder="https://"></label></div>
         <div style="margin-top:10px"><button class="btn primary" id="paySave" type="button">Save payment details</button></div></div>
-      <div class="card"><h2>TNREGINET login IDs</h2><p>One or more IDs per company. The password is saved but can never be shown again, not even to the MD; only the TP computer uses it.</p><div id="tnList"></div>
+      <div class="card"><h2>TNREGINET login IDs</h2><p>One or more IDs per company. The password is saved but can never be shown again, not even to the Admin; only the TP computer uses it.</p><div id="tnList"></div>
         <form class="fgrid" id="tnAdd" style="margin-top:10px"><label>Company<select id="tn_client"></select></label><label>Login ID<input id="tn_user" autocomplete="off"></label><label>Password<input id="tn_pass" type="password" autocomplete="new-password"></label><div style="display:flex;align-items:flex-end"><button class="btn primary">Add ID</button></div></form></div>
     </div>
     <div class="grid2" style="margin-top:16px">
@@ -1391,9 +1391,9 @@ function watchJob(c,id){if(W.unsub)W.unsub();const box=$("rvJob")||$("rvLogin");
 const H={tried:new Set(),mcp:null,ok:null,fileArgs:false,busy:new Set(),live:{},polling:false};
 function renderHelperChip(){
   const chip=$("helperChip");
-  if(!isMD){chip.className="tpchip off";chip.textContent="TP Generate is done by the MD";return}
   const on=W.at&&Date.now()-new Date(W.at).getTime()<120000;
-  chip.className="tpchip "+(on?"ready":"off");chip.textContent=on?"TP computer online":W.at?"TP computer offline":"TP computer not set up yet"
+  if(!isMD){chip.className="tpchip "+(on?"ready":"off");chip.textContent=(on?"TP Computer Ready":"TP Computer Not ready")+" · TP Generate is done by the Admin";return}
+  chip.className="tpchip "+(on?"ready":"off");chip.textContent=on?"TP Computer Ready":W.at?"TP Computer Not ready":"TP Computer not set up yet"
 }
 async function hostCall(tool,input){
   const via={list_logins:()=>["tp_status",{job_id:"logins"}],doc_status:()=>["tp_status",{job_id:"status:"+input.tp_no}],start_login:()=>["continue_job",{job_id:"login:"+input.username}],submit_captcha:()=>["continue_job",{job_id:"captcha:"+input.text}]}[tool];
@@ -1488,7 +1488,7 @@ function renderDash(){
   const done=cs.filter(c=>FINAL.has(c.stage)).length;
   const num=(n,l,bad)=>`<div class="${bad&&n?"bad":""}"><b>${n}</b><span>${l}</span></div>`;
   let h=`<div class="vgrband"><div><div class="when">${esc(now.toLocaleDateString("en-IN",{weekday:"long",day:"numeric",month:"long",year:"numeric"}))}</div><h1>${greet}${(isMD?MD_NAME:(myStaff&&myStaff.name))?", "+esc(isMD?MD_NAME:myStaff.name):""} <span class="gold">·</span> VGR Legal desk</h1></div><span class="sp"></span>
-    <span class="rb" id="dashRobot"><i></i>TP robot…</span>
+    <span class="rb" id="dashRobot"><i></i>TP Computer…</span>
     <div class="jump">${types.map((t,i)=>`<button type="button" class="${i===0?"g":""}" data-jump="${esc(t)}">${esc(t)}</button>`).join("")}<button type="button" data-jump="__all">All Cases</button></div></div>
   <div class="nums">${num(open.length,"Open cases")}${num(open.filter(c=>days(c)>5).length,"Over 5 days",1)}${num(open.filter(c=>isTp(c)).length,"TP created, not registered")}${num(cs.length,"New in range")}${num(done,"Completed in range")}</div>
   <div class="lanes">${laneHtml}</div>`;
@@ -1506,7 +1506,7 @@ function renderDash(){
   </div></details>`;
   if(!cases.length)h+=`<div class="card empty"><h2>No cases yet</h2>Open MODT, Deed of Receipt or Legal Report and click “+ New Case”.</div>`;
   $("dash").innerHTML=h;
-  if(db)db.doc("tp_jobs/_worker").get().then(s=>{const w=s.exists?s.data():null,on=w&&Date.now()-new Date(w.at).getTime()<180000,el=$("dashRobot");if(el){el.classList.toggle("on",!!on);el.lastChild.textContent=on?"TP robot online":"TP robot offline"}}).catch(()=>{});
+  if(db)db.doc("tp_jobs/_worker").get().then(s=>{const w=s.exists?s.data():null,on=w&&Date.now()-new Date(w.at).getTime()<180000,el=$("dashRobot");if(el){el.classList.toggle("on",!!on);el.lastChild.textContent=on?"TP Computer Ready":"TP Computer Not ready"}}).catch(()=>{});
 }
 $("dash").addEventListener("click",e=>{const o=e.target.closest("[data-open]");if(o){const c=cases.find(x=>x._doc===o.dataset.open);if(c)openInfo(c);return}
   const j=e.target.closest("[data-jump]");if(j){tab=j.dataset.jump;page=0;render()}});
