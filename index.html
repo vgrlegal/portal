@@ -552,7 +552,7 @@ const DOCS={
     {k:"tpcopy",l:"TP copy, before biometric",auto:1},
     {k:"payshot",l:"Payment screenshot",auto:1}],
   dor:[
-    {k:"modt",l:"MODT copy",req:1},{k:"noc",l:"NOC"},{k:"letter",l:"SRO letter"},
+    {k:"modt",l:"MODT copy",req:1},{k:"modt2",l:"Supplementary MODT (if any)"},{k:"noc",l:"NOC"},{k:"letter",l:"SRO letter"},
     {k:"rep_kyc",l:"Bank rep Aadhaar + signature",h:"Filled from the client's saved rep. Or upload here.",kyc:1},
     {k:"rep_id",l:"Bank rep ID card",h:"Filled from the client's saved rep."},
     {k:"w1_kyc",l:"Witness 1 Aadhaar + signature",h:"Filled from the saved witness. Or upload here.",kyc:1},
@@ -914,7 +914,8 @@ async function addDocs(d,files,type){
   if(!list||!list.length)return;
   draftDocs={...draftDocs,[d.k]:list};renderDocs(type);
   if(editing&&infoMode==="view"){await patch(editing,{docs:draftDocs},`${d.l} uploaded`);if(H.ok)autoCapture();
-    if(d.k==="modt"&&isRD(editing.type)){const c2=cases.find(x=>x._doc===editing._doc)||{...editing,docs:draftDocs};rereadModt({...c2,docs:draftDocs},false)}}
+    if(d.k==="modt"&&isRD(editing.type)){const c2=cases.find(x=>x._doc===editing._doc)||{...editing,docs:draftDocs};rereadModt({...c2,docs:draftDocs},false)}
+    if(d.k==="modt2"&&isRD(editing.type)){const c2=cases.find(x=>x._doc===editing._doc)||{...editing,docs:draftDocs};readSuppModt({...c2,docs:draftDocs})}}
 }
 async function saveCase(){
   const err=m=>{$("ferr").textContent=m;$("ferr").hidden=false;return false};
@@ -1847,6 +1848,12 @@ async function rereadModt(c,force){const f=((c.docs||{}).modt||[])[0];if(!f){toa
     await patch(c,ch,`MODT read again (${n} fields filled)`);toast(`MODT read: ${n} field${n===1?"":"s"} filled. Check them.`);
     const fresh=cases.find(x=>x._doc===c._doc)||{...c,...ch};if(rv.c&&rv.c._doc===c._doc)openReview(fresh,rv.gen)}
   catch(e){console.warn(e);toast("Could not read the MODT: "+(e.message||e))}}
+async function readSuppModt(c){const f=((c.docs||{}).modt2||[])[0];if(!f)return;
+  toast("Reading the supplementary MODT with Claude…");
+  try{const r=await claudeModt(await fileOfDoc(f));if(!r){toast("Could not read the supplementary MODT");return}const d=r.d,tp={...(c.tp||{})};
+    tp["Supp MODT SRO"]=d.SRO||tp["Supp MODT SRO"]||"";tp["Supp MODT Book"]=d.Book||"1";tp["Supp MODT Doc No"]=d["Doc No"]||"";tp["Supp MODT Year"]=d.Year||"";tp["Supp loan amount"]=d["Loan Amount"]||"";
+    await patch(c,{tp},"Supplementary MODT read");toast(`Supplementary MODT: ${tp["Supp MODT SRO"]} ${tp["Supp MODT Doc No"]}/${tp["Supp MODT Year"]}, loan ${tp["Supp loan amount"]}. Total loan will be entered.`)}
+  catch(e){toast("Could not read the supplementary MODT: "+(e.message||e))}}
 async function autoBankFrom(file){if(!$("f_bank"))return;try{toast("Reading the MODT with Claude… about 10 seconds.");let t="";
   let c=null;try{c=await claudeModt(file)}catch(e){console.warn(e)}
   if(c&&Object.keys(c.d).length){modtAuto=c.d;t=c.bankText}else{toast("Reading the MODT…");t=await textOfPdf(file);modtAuto=parseModt(t)}
@@ -1867,14 +1874,14 @@ function sroNames(){return SF.G?[...new Set(Object.values(SF.G.sro).map(x=>x.sn)
 function villagesOf(sroName){if(!SF.G)return[];const x=Object.values(SF.G.sro).find(y=>y.sn===sroName);return x?[...new Set(x.vil.map(r=>r[0]))].sort():[]}
 function sameName(a,b){const t=x=>String(x||"").toLowerCase().replace(/[^a-z ]/g," ").split(/\s+/).filter(w=>w.length>1).sort().join(" ");return!a||!b||t(a)===t(b)||t(a).includes(t(b))||t(b).includes(t(a))}
 const DOR_PAGES=[
-  ["1 · Create document · link the MODT",[["Deed type","ro"],["SRO","sro"],["Book","s",["1","3","4"]],["Doc No"],["Year","year"],["Document type","s",["Regular Document"]]]],
+  ["1 · Create document · link the MODT",[["Deed type","ro"],["SRO","sro"],["Book","s",["1","3","4"]],["Doc No"],["Year","year"],["Document type","s",["Regular Document"]],["Supp MODT SRO","sro"],["Supp MODT Book","s",["1","3","4"]],["Supp MODT Doc No"],["Supp MODT Year","year"]]],
   ["2 · Mortgagee · company",[["Company name","w"],["Company state"],["Company district"],["Company address","w"],["Company address (Tamil)","w"],["Company pincode"]]],
   ["3 · Mortgagor · borrower",[["Mortgagor salutation","s",SAL],["Mortgagor"],["Mortgagor name (Tamil)"],["Mortgagor relation","s",REL],["Mortgagor relative name"],["Mortgagor relative name (Tamil)"],["Mortgagor Age"],["Mortgagor gender","s",GEN],["Mortgagor marital status","s",["Married","Unmarried","Widow","Divorced"]],["Mortgagor Aadhaar"],["Mortgagor profession"],["Mortgagor district"],["Mortgagor taluk"],["Mortgagor village"],["Mortgagor address","w"],["Mortgagor pincode"],["Mortgagor mobile"]]],
   ["4 · Company representative",[["Rep salutation","s",SAL],["Rep name"],["Rep name (Tamil)"],["Rep relation","s",REL],["Rep relative name"],["Rep relative name (Tamil)"],["Rep age"],["Rep gender","s",GEN],["Rep Aadhaar"],["Rep designation"],["Rep state"],["Rep district"],["Rep address","w"],["Rep address (Tamil)","w"],["Rep pincode"],["Rep mobile"]]],
   ["5 · Witness 1",[["Witness 1","wsel"]]],["6 · Witness 2",[["Witness 2","wsel"]]],
   ["7 · Presenter",[["Presenter","s",["Company representative","Mortgagor"]]]],
   ["8 · Property",[["Property district"],["Property SRO","sro"],["Village","vil"],["Survey number"],["Extent"],["Boundary North","w"],["Boundary East","w"],["Boundary West","w"],["Boundary South","w"]]],
-  ["9 · Loan repayment",[["Loan Amount"],["Loan closure date"]]],
+  ["9 · Loan repayment",[["Loan Amount"],["Supp loan amount"],["Loan closure date"]]],
   ["10 · Place of execution",[["Execution SRO","sro"],["SRO Tamil"]]]];
 const DOR_REQ=["SRO","Doc No","Year","Company name","Mortgagor","Mortgagor Age","Rep name","Rep Aadhaar","Witness 1 name","Witness 1 Aadhaar","Witness 2 name","Witness 2 Aadhaar","Loan Amount"];
 function dorFill(c,d){const set=(k,v)=>{if(v!=null&&String(v).trim()!==""&&!String(d[k]||"").trim())d[k]=String(v)};

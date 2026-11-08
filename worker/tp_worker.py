@@ -582,24 +582,11 @@ def run_dor(page, job, case):
     P.sel("deedType", "^Deed Of Receipt")
     P.js("tick('isPrevDocReg')"); P.wait(1.5)
     P.js("tick('linkPrevDoc')"); P.wait(2)
-    r = P.fuzzy("sub_reg_off", g(t, "SRO"), 2)
-    P.sel("sub_book_no", f"Book {g(t, 'Book') or 1}$", 0.5)
-    P.set("sub_doc_no", g(t, "Doc No"))
-    P.sel("sub_year", f"^{g(t, 'Year')}$", 0.5)
-    P.sel("cmb_doc_type", "^" + (g(t, "Document type") or "Regular Document"), 0.5)
-    P.click("changeBookDocSearchForLinkDoc", 5)
-    ok = P.js("""(()=>{const t=[...document.querySelectorAll('table')].find(t=>t.offsetParent && /Nature of Document/.test(t.innerText));
-        if(!t) return 'NOTFOUND'; const r=t.querySelector('input[type=radio],input[type=checkbox]'); if(!r) return 'NOROW'; r.click(); return t.innerText.split('\\n')[1]})()""")
-    if ok in ("NOTFOUND", "NOROW"):
-        job.step("MODT not found in search", page)
-        raise Stop(f"TNREGINET could not find the MODT {g(t,'SRO')} {g(t,'Doc No')}/{g(t,'Year')}. Check SRO, Doc No and Year in Drafting.")
-    P.wait(1)
-    # The linked MODT must be ADDED (saved) before Proceed - otherwise the draft has no linked document.
-    added = click_btn_text(P, r"^(add|link|add document|சேர்)$")
-    P.wait(3); pm = P.popup_ok()
-    job.step(f"Linked MODT added ({added or 'no Add button'}) {pm[:80]}", page)
-    if not added:
-        P.warn.append("Link: no Add button seen after the search")
+    link_doc(P, job, page, g(t, "SRO"), g(t, "Book") or "1", g(t, "Doc No"), g(t, "Year"), g(t, "Document type") or "Regular Document", "MODT")
+    if g(t, "Supp MODT Doc No"):
+        # Supplementary MODT: same party / property / company - link it too (loan amounts are added later)
+        link_doc(P, job, page, g(t, "Supp MODT SRO") or g(t, "SRO"), g(t, "Supp MODT Book") or "1", g(t, "Supp MODT Doc No"),
+                 g(t, "Supp MODT Year") or g(t, "Year"), "Regular Document", "Supplementary MODT")
     P.click("createDocProceed", 6)
     job.step("2 · Mortgagee (company)", page)
     if P.p.evaluate("()=>{const t=document.getElementById('tableForExecutantDtls');return !!(t&&t.offsetParent&&t.rows.length>1)}"):
@@ -610,6 +597,29 @@ def run_dor(page, job, case):
     rep_witness_presenter(P, job, page, t)
     comments, _seen, _done = property_step(P, job, page, t)
     return finish_dor(P, job, page, t, case, comments)
+
+
+def link_doc(P, job, page, sro, book, no, year, dtype, label):
+    """Search one registered document (SRO / Book / Doc No / Year), tick its row and press Add so it is saved as linked."""
+    job.step(f"1 · Linking {label} {sro} {no}/{year}", page)
+    P.fuzzy("sub_reg_off", sro, 2)
+    P.sel("sub_book_no", f"Book {book}$", 0.5)
+    P.set("sub_doc_no", no)
+    P.sel("sub_year", f"^{year}$", 0.5)
+    P.sel("cmb_doc_type", "^" + dtype, 0.5)
+    P.click("changeBookDocSearchForLinkDoc", 5)
+    ok = P.js("""(()=>{const t=[...document.querySelectorAll('table')].find(t=>t.offsetParent && /Nature of Document/.test(t.innerText));
+        if(!t) return 'NOTFOUND'; const r=t.querySelector('input[type=radio],input[type=checkbox]'); if(!r) return 'NOROW'; if(!r.checked) r.click(); return t.innerText.split('\\n')[1]})()""")
+    if ok in ("NOTFOUND", "NOROW"):
+        job.step(f"{label} not found in search", page)
+        raise Stop(f"TNREGINET could not find the {label} {sro} {no}/{year}. Check SRO, Doc No and Year in Drafting.")
+    P.wait(1)
+    # The linked document must be ADDED (saved) before Proceed - otherwise the draft has no linked document.
+    added = click_btn_text(P, r"^(add|link|add document|சேர்)$")
+    P.wait(3); pm = P.popup_ok()
+    job.step(f"Linked {label} added ({added or 'no Add button'}) {pm[:80]}", page)
+    if not added:
+        P.warn.append(f"Link {label}: no Add button seen after the search")
 
 
 def mortgagee_edit(P, job, page, t):
@@ -937,6 +947,11 @@ def loan_to_create(P, job, page, t, case, comments):
     main_next(P, page, 6)
     wait_for(P, "()=>/Loan Amount/i.test(document.body.innerText)", 20)
     amt = re.sub(r"[^\d.]", "", g(t, "Loan Amount", "Loan amount"))
+    supp = re.sub(r"[^\d.]", "", g(t, "Supp loan amount"))
+    if supp and amt:
+        tot = float(amt) + float(supp)
+        amt = str(int(tot)) if tot == int(tot) else f"{tot:.2f}"
+        comments.append(f"Loan amount = MODT {g(t, 'Loan Amount', 'Loan amount')} + supplementary {g(t, 'Supp loan amount')} = {amt}")
     if not label_fill(page, r"Loan Amount", amt):
         comments.append("Loan amount box not found")
     elif not amt:
@@ -972,33 +987,21 @@ def loan_to_create(P, job, page, t, case, comments):
     P.wait(3)
     if page.evaluate("()=>{const b=document.getElementById('btnMainNext');return !!(b&&b.offsetParent)}"):
         main_next(P, page, 5)
-    # 12. Create Document - pressed ONE time only, never again (no duplicate TP)
+    # 12. Create Document. Pressed again ONLY when TNREGINET refused it with the survey-number check
+    #     and no TP number came (MD's rule), at most 3 presses in all - never a duplicate TP.
     tp = tp_on_page(page)
     if not tp:
         if job.fresh().get("createClicked"):
-            raise Stop("Create Document was already pressed once for this job. Check My Documents before trying again.")
-        btn = page.locator("#btnCreateDocument:visible, input[value='Create Document']:visible, button:has-text('Create Document'):visible")
-        wait_for(P, "()=>[...document.querySelectorAll('#btnCreateDocument,input[value=\"Create Document\"],button')].some(b=>b.offsetParent&&/Create Document/i.test(b.value||b.innerText||''))", 20)
-        if not btn.count():
-            job.step("Create Document button not found", page)
-            raise Stop("The Create Document button did not appear. The draft is saved - send the screen to Claude.")
-        job.upd(createClicked=now())
-        job.step("12 · Create Document (pressed once)", page)
-        btn.first.click()
-        wait_loader(page)
-        for _ in range(20):
-            P.wait(1.5)
-            P.popup_ok()  # 'Continue' / OK confirmations - each dialog answered once
-            tp = tp_on_page(page)
+            raise Stop("Create Document was already pressed for this job. Check My Documents before trying again.")
+        for attempt in range(1, 4):
+            tp, said = press_create(P, job, page, attempt)
             if tp:
                 break
-            c2 = page.locator("button:has-text('Continue'):visible, input[value='Continue']:visible")
-            if c2.count() and not job.d.get("continueClicked"):
-                job.upd(continueClicked=now())
-                c2.first.click()
-        if not tp:
-            job.step("TP number not seen", page)
-            raise Stop("Create Document was pressed but no TP number appeared. Check My Documents (do NOT press Create again).")
+            if not re.search(r"survey", said, re.I) or attempt == 3:
+                job.step("TP number not seen", page)
+                raise Stop(f"Create Document was pressed but no TP number appeared ({said[:150]}). Check My Documents (do NOT press Create again).")
+            comments.append(f"Create Document attempt {attempt}: survey number check - retried")
+            survey_fix(P, job, page, edit=(attempt == 2))
     job.upd(tpNo=tp)
     kv_merge("cases", job.d.get("case", ""), {"tpNo": tp})
     job.step(f"12 · TP created: {tp}", page)
@@ -1007,6 +1010,64 @@ def loan_to_create(P, job, page, t, case, comments):
     except Exception:
         pass
     return tp
+
+
+def press_create(P, job, page, attempt):
+    """Press Create Document once; return (tp, what TNREGINET said)."""
+    btn = page.locator("#btnCreateDocument:visible, input[value='Create Document']:visible, button:has-text('Create Document'):visible")
+    wait_for(P, "()=>[...document.querySelectorAll('#btnCreateDocument,input[value=\"Create Document\"],button')].some(b=>b.offsetParent&&/Create Document/i.test(b.value||b.innerText||''))", 25)
+    if not btn.count():
+        job.step("Create Document button not found", page)
+        raise Stop("The Create Document button did not appear. The draft is saved - send the screen to Claude.")
+    job.upd(createClicked=now(), createCount=attempt)
+    job.step(f"12 · Create Document (press {attempt})", page)
+    btn.first.click()
+    wait_loader(page)
+    said, tp = "", ""
+    for _ in range(20):
+        P.wait(1.5)
+        said += " " + P.popup_ok()
+        tp = tp_on_page(page)
+        if tp:
+            break
+        c2 = page.locator("button:has-text('Continue'):visible, input[value='Continue']:visible")
+        if c2.count() and not job.d.get(f"continueClicked{attempt}"):
+            job.upd(**{f"continueClicked{attempt}": now()})
+            c2.first.click()
+        if re.search(r"survey", said, re.I):
+            break
+    if not tp:
+        said += " " + page.evaluate("()=>[...document.querySelectorAll('.error,.text-danger,.alert,.modal,.swal2-popup,[role=alert]')].filter(e=>e.offsetParent).map(e=>e.innerText).join(' ').slice(0,400)")
+    return tp, said.strip()
+
+
+def go_step(P, page, pat):
+    """Click a main step in TNREGINET's top stepper (Property Details, Document Preview ...)."""
+    page.evaluate("""(pat)=>{const re=new RegExp(pat,'i');const e=[...document.querySelectorAll('a,li,span,div,button')].filter(x=>x.offsetParent&&re.test((x.textContent||'').trim())&&(x.textContent||'').trim().length<40)
+        .sort((a,b)=>a.textContent.length-b.textContent.length)[0];if(e)(e.closest('a,li,button')||e).click()}""", pat)
+    wait_loader(page); P.wait(3); P.popup_ok()
+
+
+def survey_fix(P, job, page, edit=False):
+    """MD's rule for the survey-number check: back to Property Details → Survey Details
+    (2nd time: press Edit on the survey row, change nothing) → Document Preview → Create Document again."""
+    job.step("12 · Survey number check: back to Survey Details" + (" (Edit, no change)" if edit else ""), page)
+    go_step(P, page, r"^Property Details")
+    if not page.evaluate("()=>{const b=document.getElementById('btnChildNext');return !!(b&&b.offsetParent)}"):
+        page.evaluate(EDIT_ROW_JS, 0)  # open the saved property
+        wait_for(P, "()=>{const b=document.getElementById('btnChildNext');return !!(b&&b.offsetParent)}", 25)
+        P.wait(2)
+    page.evaluate("""()=>{const a=[...document.querySelectorAll('a')].find(x=>x.offsetParent&&/^Survey (Number )?Details$/i.test(x.textContent.replace(/["\\s]+/g,' ').trim()));if(a)a.click()}""")
+    wait_loader(page); P.wait(3); P.popup_ok()
+    if edit:
+        page.evaluate(EDIT_ROW_JS, 0)  # Edit on the survey row, nothing changed
+        wait_loader(page); P.wait(3); P.popup_ok()
+    job.step("12 · Survey Details opened, going to Document Preview", page)
+    go_step(P, page, r"^Document Pre")
+    P.wait(2)
+    if not page.locator("#btnCreateDocument:visible, input[value='Create Document']:visible").count() and \
+            page.evaluate("()=>{const b=document.getElementById('btnMainNext');return !!(b&&b.offsetParent)}"):
+        main_next(P, page, 5)
 
 
 def open_my_docs_row(P, job, page, tp):
