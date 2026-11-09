@@ -1800,7 +1800,10 @@ $("clientSave").onclick=()=>{const L=readClients();const bad=L.find(c=>!c.email|
   saveCfg({...cfg,clients:L})};
 $("paySave").onclick=()=>saveCfg({...cfg,pay:{account:$("pay_account").value.trim(),upi:fv("pay_upi"),link:fv("pay_link"),service:fv("pay_service")}});
 let CFG_OK=false;
-async function saveCfg(n){if(!db){toast("Sign in to save");return}if(!CFG_OK){toast("Settings are still loading. Try again in a moment.");return}cfg=n;fillStatic();render();
+async function saveCfg(n){if(!db){toast("Sign in to save");return}if(!CFG_OK){toast("Settings are still loading. Try again in a moment.");return}
+  const old=cfg;if((old.staff||[]).length+(old.banks||[]).length+(old.wit||[]).length&&!((n.staff||[]).length+(n.banks||[]).length)){toast("Not saved: this would empty the staff and company lists.");return}
+  try{if((old.banks||[]).length)await db.doc("config/lists_prev_"+new Date().toISOString().slice(0,10)).set({...old,staff:(old.staff||[]).map(staffObj),savedAt:nowISO()})}catch(e){}
+  cfg=n;fillStatic();render();
   try{await db.doc("config/lists").set({banks:n.banks,staff:n.staff.map(staffObj),types:n.types,pay:n.pay||{},profiles:n.profiles||{},wit:n.wit||[],clients:n.clients||[],rules:n.rules||[],domains:n.domains||{}});toast("Saved")}catch(err){fail(err)}}
 function fillStatic(){
   opts($("fClient"),cfg.banks,"All Clients");
