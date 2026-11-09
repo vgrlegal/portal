@@ -2293,7 +2293,7 @@ async function rereadModt(c,force){const f=((c.docs||{}).modt||[])[0];if(!f){toa
   toast("Reading the MODT with Claude… about 10–20 seconds.");
   try{const r=await claudeModt(await fileOfDoc(f));if(!r||!Object.keys(r.d).length){toast("Could not read the MODT. Check that it is clear and try again.");return}
     const tp={...(c.tp||{})};let n=0;Object.entries(r.d).forEach(([k,v])=>{if(force||!String(tp[k]||"").trim()){if(tp[k]!==v)n++;tp[k]=v}});
-    const ch={tp,tpAuto:{...(c.tpAuto||{}),...r.d}};if(!c.applicant&&r.d.Mortgagor)ch.applicant=r.d.Mortgagor;if(!c.loanAmount&&r.d["Loan Amount"])ch.loanAmount=r.d["Loan Amount"];
+    const ch={tp,tpAuto:{...(c.tpAuto||{}),...r.d}};if((!c.applicant||c.applicantFromMail)&&r.d.Mortgagor){ch.applicant=r.d.Mortgagor;ch.applicantFromMail=null}if(!c.bank&&r.bankText){const b=matchBank(r.bankText);if(b)ch.bank=b}if(!c.loanAmount&&r.d["Loan Amount"])ch.loanAmount=r.d["Loan Amount"];
     await patch(c,ch,`MODT read again (${n} fields filled)`);toast(`MODT read: ${n} field${n===1?"":"s"} filled. Check them.`);
     const fresh=cases.find(x=>x._doc===c._doc)||{...c,...ch};if(rv.c&&rv.c._doc===c._doc)openReview(fresh,rv.gen)}
   catch(e){console.warn(e);toast("Could not read the MODT: "+(e.message||e))}}

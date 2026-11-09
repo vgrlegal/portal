@@ -82,9 +82,55 @@ async function clientFile(sb: any, role: unknown, doc: unknown, url: unknown) {
   return json({ url: data.signedUrl });
 }
 
+// Cases arriving by e-mail (receipt@ mailbox): a Google Apps Script in that mailbox posts each new mail here.
+// Protected by MAIL_SECRET. Creates a Deed of Receipt case in Draft Pending with the attachments; the Admin's
+// portal then reads the MODT with Claude (needsRead) and fills the customer, company and loan.
+async function mailIn(body: Record<string, unknown>) {
+  const secret = Deno.env.get("MAIL_SECRET");
+  if (!secret || body.secret !== secret) return json({ error: "Not allowed" }, 403);
+  const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+  const mailId = String(body.mailId ?? "").slice(0, 200);
+  if (!mailId) return json({ error: "mailId needed" }, 400);
+  const { data: dup } = await admin.from("kv").select("id").eq("collection", "cases").eq("data->>mailId", mailId).limit(1);
+  if (dup && dup.length) return json({ ok: true, duplicate: true, doc: dup[0].id });
+  const files = Array.isArray(body.files) ? body.files.slice(0, 15) : [];
+  const t = new Date().toISOString().replace(/\.\d+Z$/, "Z");
+  const day = t.slice(0, 10).replace(/-/g, "");
+  const docs: Record<string, unknown[]> = {};
+  let n = 0;
+  for (const f of files as { name?: string; mime?: string; b64?: string }[]) {
+    const name = String(f.name ?? "file").replace(/[\\/#?%*:|"<>]/g, "_").slice(0, 120);
+    if (!f.b64 || !/\.(pdf|jpe?g|png|docx?)$/i.test(name)) continue;
+    const bytes = Uint8Array.from(atob(f.b64), (c) => c.charCodeAt(0));
+    const path = `mail/${t.slice(0, 7)}/${crypto.randomUUID()}/${name}`;
+    const { error } = await admin.storage.from("docs").upload(path, bytes, { contentType: f.mime || "application/octet-stream", upsert: false });
+    if (error) continue;
+    const k = /supp/i.test(name) ? "modt2" : /noc|no.?objection|closure|release|foreclos/i.test(name) ? "noc" : /letter|sro/i.test(name) ? "letter" : (docs.modt ? "letter" : "modt");
+    (docs[k] = docs[k] ?? []).push({ at: t, id: path, url: "sb:" + path, name, from: "mail" });
+    n++;
+  }
+  const { count } = await admin.from("kv").select("id", { count: "exact", head: true }).eq("collection", "cases").like("data->>id", `VGR-${day}-%`);
+  const cid = `VGR-${day}-${String((count ?? 0) + 1).padStart(3, "0")}`;
+  const from = String(body.from ?? "").slice(0, 200), subject = String(body.subject ?? "").slice(0, 200);
+  const who = "Mail · " + from;
+  const data = {
+    id: cid, type: "Deed of Receipt", applicant: subject.slice(0, 80) || "(from mail)", applicantFromMail: true, loanNo: "", phone: "", bank: "", branch: "",
+    state: "Tamil Nadu", stage: "Draft Pending", stageAt: t, createdAt: t, requestedAt: t, updatedAt: t,
+    stageLog: [{ s: "Case Created", at: t, by: who }, { s: "Draft Pending", at: t, by: who }],
+    log: [{ at: t, by: who, text: `Case created from e-mail (${n} attachment(s))` }],
+    comments: [{ at: t, by: who, text: `E-mail from ${from}: ${subject}\n${String(body.text ?? "").slice(0, 1500)}`, internal: "true", from: "mail" }],
+    docs, tp: {}, source: "mail", mailId, mailFrom: from, mailSubject: subject, needsRead: docs.modt ? "modt" : null,
+  };
+  const doc = crypto.randomUUID();
+  const { error } = await admin.from("kv").insert({ collection: "cases", id: doc, data });
+  if (error) return json({ error: error.message }, 500);
+  return json({ ok: true, doc, id: cid, files: n });
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
   try {
+    if (new URL(req.url).searchParams.get("mail") === "1") return await mailIn(await req.json());
     const auth = req.headers.get("Authorization") ?? "";
     const sb = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_ANON_KEY")!, { global: { headers: { Authorization: auth } } });
     const { data: role } = await sb.rpc("my_role");
