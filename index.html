@@ -1051,7 +1051,7 @@ async function bankReads(){if(!(isMD||isAdmin||isPartner())||!canWrite)return;
       if(!b&&lab.length&&(isMD||isAdmin)){const nm=lab[0].toLowerCase().replace(/\b\w/g,x=>x.toUpperCase());if(!cfg.banks.some(x=>x.toLowerCase()===nm.toLowerCase())){await saveCfg({...cfg,banks:[...cfg.banks,nm].sort((a,b)=>a.localeCompare(b))})}b=nm}
       const ch={mailBankDone:true};if(b){ch.bank=b;const who2=cfg.staff.map(staffObj).filter(m=>m.team&&(m.banks||[]).includes(b));if(who2.length===1&&!c.assignee)ch.assignee=who2[0].name}
       await db.collection("cases").doc(c._doc).update(ch)}catch(e){BR.delete("b"+c._doc)}}
-  for(const c of cases.filter(x=>x.source==="mail"&&!x.classified&&!BR.has("k"+x._doc))){BR.add("k"+x._doc);try{await classifyMail(c)}catch(e){console.warn(e);BR.delete("k"+c._doc)}}
+  for(const c of cases.filter(x=>x.source==="mail"&&!x.classified&&!BR.has("k"+x._doc))){BR.add("k"+c._doc);try{await classifyMail(c)}catch(e){console.warn(e);BR.delete("k"+c._doc)}}
   for(const c of cases.filter(x=>x.needsRead&&!(x.source==="mail"&&!x.classified)&&!BR.has(x._doc))){BR.add(c._doc);
   try{if(c.needsRead==="modt2")await readSuppModt(c);else await rereadModt(c,false);await db.collection("cases").doc(c._doc).update({needsRead:null})}catch(e){BR.delete(c._doc)}}}
 
