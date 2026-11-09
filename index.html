@@ -1046,7 +1046,7 @@ function bankOfDomain(d){if(!d||FREE_MAIL.test(d))return"";const map={...DOMAIN_
 async function bankReads(){if(!(isMD||isAdmin||isPartner())||!canWrite)return;
   if(isMD||isAdmin){const learn={};cases.filter(x=>x.source==="mail"&&x.bank).forEach(x=>{const d=domOf(x.mailOrigFrom||x.mailFrom);if(d&&!FREE_MAIL.test(d)&&!(cfg.domains||{})[d]&&!DOMAIN_SEED[d])learn[d]=x.bank});
     if(Object.keys(learn).length)await saveCfg({...cfg,domains:{...(cfg.domains||{}),...learn}})}
-  for(const c of cases.filter(x=>x.source==="mail"&&!x.bank&&!x.mailBankDone&&!BR.has("b"+x._doc))){BR.add("b"+x._doc);
+  for(const c of cases.filter(x=>x.source==="mail"&&!x.bank&&!x.mailBankDone&&!BR.has("b"+x._doc))){BR.add("b"+c._doc);
     try{const lab=(c.mailLabels||[]).filter(l=>!/^(inbox|important|starred|unread|vgr-portal|opinion-portal)$/i.test(l));let b=bankOfDomain(domOf(c.mailOrigFrom))||bankOfDomain(domOf(c.mailFrom))||(lab.length?matchBank(lab.join(" ")):"");
       if(!b&&lab.length&&(isMD||isAdmin)){const nm=lab[0].toLowerCase().replace(/\b\w/g,x=>x.toUpperCase());if(!cfg.banks.some(x=>x.toLowerCase()===nm.toLowerCase())){await saveCfg({...cfg,banks:[...cfg.banks,nm].sort((a,b)=>a.localeCompare(b))})}b=nm}
       const ch={mailBankDone:true};if(b){ch.bank=b;const who2=cfg.staff.map(staffObj).filter(m=>m.team&&(m.banks||[]).includes(b));if(who2.length===1&&!c.assignee)ch.assignee=who2[0].name}
