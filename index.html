@@ -2524,7 +2524,7 @@ async function claudeModt(file){if(!window.__sb)return null;const{canvases,text}
    if(cat||bat)put("Company address (Tamil)",[cat,bat&&bat!==cat?"கிளை: "+bat:""].filter(Boolean).join(", "));
    put("Company state",f.bank_state);put("Company district",f.bank_district);put("Company pincode",String(f.bank_pincode||"").replace(/\D/g,"").slice(0,6))}
   if(f.earlier_doc_no){put("Supp MODT SRO",f.earlier_sro||f.sro);put("Supp MODT Book",f.earlier_book||"1");put("Supp MODT Doc No",String(f.earlier_doc_no).replace(/\D/g,""));put("Supp MODT Year",String(f.earlier_year||"").replace(/\D/g,""));put("Supp loan amount",String(f.earlier_loan_amount||"").replace(/[^\d]/g,""))}
-  put("SRO",f.sro);put("SRO Tamil",f.sro_ta);put("Execution SRO",f.sro);put("Book",f.book);put("Doc No",f.doc_no);put("Year",f.year);
+  {const sn=(SF.G&&bestOf(sroNames(),f.sro))||f.sro;put("SRO",sn);put("SRO Tamil",f.sro_ta);put("Execution SRO",sn)}put("Book",f.book);put("Doc No",f.doc_no);put("Year",f.year);
   if(f.mortgagor_sal)put("Mortgagor salutation",salNorm(f.mortgagor_sal));put("Mortgagor",String(f.mortgagor||"").toUpperCase());put("Mortgagor name (Tamil)",f.mortgagor_ta);
   if(f.age){const y=+f.year||new Date().getFullYear();put("Mortgagor Age",String(+String(f.age).replace(/\D/g,"")+(new Date().getFullYear()-y)))}
   if(f.rel_type)put("Mortgagor relation",relNorm(f.rel_type));put("Mortgagor relative name",String(f.rel_name||"").toUpperCase());
@@ -2592,8 +2592,8 @@ const WPF=n=>[[`Witness ${n} salutation`,"s",SAL],[`Witness ${n} name`],[`Witnes
 /* matching against our Tamil Nadu SRO / village data */
 const nrm=s=>String(s||"").toLowerCase().replace(/[^a-z0-9]/g,"");
 function lev(a,b){if(a===b)return 0;const m=a.length,n=b.length;if(!m||!n)return m||n;let p=[...Array(n+1).keys()];for(let i=1;i<=m;i++){const q=[i];for(let j=1;j<=n;j++)q[j]=Math.min(p[j]+1,q[j-1]+1,p[j-1]+(a[i-1]===b[j-1]?0:1));p=q}return p[n]}
-function bestOf(list,v){const t=nrm(String(v||"").replace(/\b(sro|sub ?registrar|office|joint|no\.?)\b/gi,""));if(!t)return null;let best=null,sc=0;
-  for(const x of list){const n=nrm(x);if(!n)continue;let s2=n===t?1:(n.startsWith(t)||t.startsWith(n))?0.9:1-lev(n,t)/Math.max(n.length,t.length);if(s2>sc){sc=s2;best=x}}return sc>=0.72?best:null}
+function bestOf(list,v){const strip=x=>nrm(String(x||"").replace(/\b(sro|sub ?registrar|office|joint|no\.?)\b/gi,"").replace(/@.*$/,"")),t=strip(v);if(!t)return null;let best=null,sc=0;
+  for(const x of list){const n=strip(x);if(!n)continue;let s2=n===t?1:(n.startsWith(t)||t.startsWith(n))?0.9:1-lev(n,t)/Math.max(n.length,t.length);if(s2>sc){sc=s2;best=x}}return sc>=0.72?best:null}
 function sroNames(){return SF.G?[...new Set(Object.values(SF.G.sro).map(x=>x.sn))].sort():[]}
 function villagesOf(sroName){if(!SF.G)return[];const x=Object.values(SF.G.sro).find(y=>y.sn===sroName);return x?[...new Set(x.vil.map(r=>r[0]))].sort():[]}
 function sameName(a,b){const t=x=>String(x||"").toLowerCase().replace(/[^a-z ]/g," ").split(/\s+/).filter(w=>w.length>1).sort().join(" ");return!a||!b||t(a)===t(b)||t(a).includes(t(b))||t(b).includes(t(a))}
