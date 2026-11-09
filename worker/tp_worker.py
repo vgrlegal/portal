@@ -109,11 +109,16 @@ def download(url, dest):
 
 
 # ---------------- job state ----------------
+BUSY = {}  # job id -> what this computer is doing now (sent with every heartbeat, so the portal shows "Busy · case")
+
+
 class Job:
     def __init__(self, jid, data):
         self.id, self.d = jid, data
         self.last = ""
         self.times = [("Start", time.time())]
+        BUSY[jid] = {"job": jid, "case": data.get("caseId", ""), "kind": data.get("kind", ""), "login": data.get("loginUser", ""),
+                     "status": "starting", "since": now(), "t": time.time()}
 
     def timing(self):
         """Seconds spent on each main step (the number before ' · '), for the case."""
@@ -131,6 +136,13 @@ class Job:
 
     def upd(self, **kv):
         self.d.update(kv)
+        if "status" in kv:
+            if kv["status"] in ("done", "error", "cancelled"):
+                BUSY.pop(self.id, None)
+            elif self.id in BUSY:
+                BUSY[self.id]["status"] = kv["status"]
+        if "step" in kv and self.id in BUSY:
+            BUSY[self.id]["step"] = str(kv["step"])[:80]
         for i in range(4):
             try:
                 kv_merge("tp_jobs", self.id, kv)
@@ -167,7 +179,7 @@ class Job:
             return False
         self._cc = time.time()
         try:
-            return kv_status("tp_jobs", self.id) == "cancel"
+            return kv_status("tp_jobs", self.id) in ("cancel", "cancelled")
         except Exception as e:
             log(self.id[:8], "status poll failed:", e)
             return False
@@ -411,7 +423,7 @@ def do_login(page, job, acc):
             except Exception as e:
                 log(job.id[:8], "poll failed:", e)
                 d = {}
-            if d.get("status") == "cancel":
+            if d.get("status") in ("cancel", "cancelled"):
                 raise Stop("Stopped from the portal")
             if d.get("status") == "captcha_sent" and d.get("captcha"):
                 break
@@ -630,7 +642,7 @@ def english_pass(P, job, what, only=None, kind="english", texts=None):
     eng = None
     for _ in range(120):
         d = job.fresh()
-        if d.get("status") == "cancel":
+        if d.get("status") in ("cancel", "cancelled"):
             raise Stop("Stopped from the portal")
         if d.get("english") is not None and d.get("trId") == tr:
             eng = d.get("english") or {}
@@ -1604,7 +1616,7 @@ def ask_captcha(page, job, img_sel, label):
         except Exception as e:
             log(job.id[:8], "poll failed:", e)
             d = {}
-        if d.get("status") == "cancel":
+        if d.get("status") in ("cancel", "cancelled"):
             raise Stop("Stopped from the portal")
         if d.get("status") == "captcha_sent" and d.get("captcha"):
             job.upd(status="filling", captchaImg="")
@@ -2437,7 +2449,27 @@ def daily_backup():
     log("daily backup saved:", BACKUP_FILE, len(cases), "cases")
 
 
+def beat():
+    for k, v in list(BUSY.items()):
+        if time.time() - v.get("t", 0) > 3 * 3600:
+            BUSY.pop(k, None)
+    busy = [{x: v.get(x, "") for x in ("job", "case", "kind", "login", "status", "step", "since")} for v in list(BUSY.values())]
+    kv_set("tp_jobs", "_worker", {"at": now(), "host": os.uname().nodename, "probe": PROBE["res"], "busy": busy})
+
+
+def beat_loop():
+    """Heartbeat on its own thread every 30 s, so the portal shows Ready / Busy even while a TP or a captcha wait is running."""
+    while True:
+        try:
+            if PROBE.get("ok"):
+                beat()
+        except Exception as e:
+            log("heartbeat failed", e)
+        time.sleep(30)
+
+
 def main():
+    threading.Thread(target=beat_loop, daemon=True).start()
     log("TP worker started", "key type:", "secret" if KEY.startswith("sb_secret_") else "jwt" if KEY.startswith("eyJ") else ("EMPTY" if not KEY else "unknown"))
     with sync_playwright() as pw:
         last_beat, last_upd = 0, time.time()
@@ -2467,7 +2499,7 @@ def main():
                             kv_merge("tp_jobs", row["id"], {"status": "cancelled", "message": "Stopped (the TP computer restarted). Start again.", "at": now()})
                     PROBE["cleaned"] = True
                 if time.time() - last_beat > 30:
-                    kv_set("tp_jobs", "_worker", {"at": now(), "host": os.uname().nodename, "probe": PROBE["res"]})
+                    beat()
                     last_beat = time.time()
                 for row in kv_list("tp_jobs", status="queued"):
                     if row["id"].startswith("_") or (row["data"] or {}).get("status") != "queued":
@@ -2497,10 +2529,12 @@ def main():
                     try:
                         handle(pw, jid, data)
                     except Stop as e:
+                        BUSY.pop(jid, None)
                         kv_merge("tp_jobs", jid, {"status": "cancelled" if "portal" in str(e) else "error", "message": str(e), "at": now()})
                     except Exception as e:
                         traceback.print_exc()
                         kv_merge("tp_jobs", jid, {"status": "error", "message": f"Unexpected problem: {e}"[:300], "at": now()})
+                    BUSY.pop(jid, None)
                     last_beat = 0
             except Exception as e:
                 log("loop error", e)
