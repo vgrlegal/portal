@@ -1108,7 +1108,7 @@ const fv=id=>($(id)?$(id).value.trim():"");
 const BIO_P=[["rep","Company rep"],["w1","Witness 1"],["w2","Witness 2"]];
 function bioHtml(c){if(c.stage!=="Photo/Biometric")return"";const b=c.bio||{};return`<span class="pill ${BIO_P.every(([k])=>b[k])?"p-ok":"p-warn"}" style="margin-top:4px;white-space:normal">Biometric: ${BIO_P.map(([k,l])=>`${l} ${b[k]?"✓":"⏳"}`).join(" · ")}</span> `}
 function bioAsk(c){const b=c.bio||{};ask("Biometric done for",`<p class="sf-note">${esc(c.tpNo||"")} · tick each person whose photo and fingerprint are done. When all are ticked the case moves to Payment.</p>`+
-    BIO_P.map(([k,l])=>`<label style="display:flex;gap:8px;align-items:center;margin:6px 0"><input type="checkbox" id="bio_${k}" style="width:auto"${b[k]?" checked":""}> ${esc(l)}${b[k]?` <span class="sf-note">(${esc(fmtD(b[k].at||b[k]))}${b[k].by?" · "+esc(b[k].by):""})</span>`:""}</label>`).join(""),
+    BIO_P.map(([k,l])=>`<div style="display:flex;gap:10px;align-items:center;margin:8px 0;font-size:15px"><input type="checkbox" id="bio_${k}" style="width:20px;height:20px;margin:0;flex:none"${b[k]?" checked":""}><span style="cursor:pointer" onclick="$('bio_${k}').click()">${esc(l)}${b[k]?` <span class="sf-note">(${esc(fmtD(b[k].at||b[k]))}${b[k].by?" · "+esc(b[k].by):""})</span>`:""}</span></div>`).join(""),
   ()=>{const nb={};BIO_P.forEach(([k])=>{if($("bio_"+k).checked)nb[k]=b[k]||{at:nowISO(),by:who()}});const all=BIO_P.every(([k])=>nb[k]);
     const done=BIO_P.filter(([k])=>nb[k]).map(([,l])=>l).join(", ")||"none";
     return patch(c,all?{bio:nb,stage:"Payment"}:{bio:nb},all?"Biometric complete (all) → Payment":`Biometric done: ${done}`)},"Save")}
