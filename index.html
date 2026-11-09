@@ -1418,7 +1418,8 @@ async function renderReport(){const mEl=$("repMonth");if(!mEl.value)mEl.value=ne
 /* ---- mail cases: Claude looks at the FIRST PAGE of every file (cheap), puts each file in the right slot,
    reads only the MODT in full, and flags: no MODT · several customers · phone needed ---- */
 function lanOf(t){const m=String(t||"").match(/(?:LAN|loan(?:\s*(?:no|number|a\/c))?)\s*[:.#-]*\s*'?([A-Z]{0,8}\d[\w]{6,24})/i)||String(t||"").match(/\b([A-Z]{2,12}\d{8,20}|\d{10,20})\b/);return m?m[1]:""}
-async function classifyMail(c){const F=allFiles(c);if(!F.length){await db.collection("cases").doc(c._doc).update({classified:true,noModt:true,needsRead:null});return}
+function cleanCust(n){return String(n||"").replace(/\(.*$/,"").replace(/\b(S|W|D|C)\s*\/\s*O\b.*$/i,"").replace(/^\s*(MR|MRS|MS|SMT|THIRU|TMT|SRI|SHRI|SELVI|KUMARI)\b\.?\s*/i,"").replace(/[,.\s]+$/,"").trim().toUpperCase()}
+async function classifyMail(c){const seen=new Set(),F=allFiles(c).filter(x=>{const k=String(x.f.name||"").toLowerCase()+"|"+(x.f.size||"");if(seen.has(k))return false;seen.add(k);return true});if(!F.length){await db.collection("cases").doc(c._doc).update({classified:true,noModt:true,needsRead:null});return}
   const imgs=[],labels=[],idx=[];
   for(const [j,x] of F.slice(0,12).entries()){try{const file=await fileOfDoc(x.f);if(/\.docx?$/i.test(x.f.name))continue;const{canvases}=await canvasesOf([file],()=>{},1);if(canvases[0]){imgs.push(jpegOf(canvases[0],900));labels.push(`File ${j+1}: ${x.f.name}`);idx.push(j)}}catch(e){}}
   if(!imgs.length){await db.collection("cases").doc(c._doc).update({classified:true});return}
@@ -1430,7 +1431,7 @@ async function classifyMail(c){const F=allFiles(c);if(!F.length){await db.collec
   const ch={docs,classified:true,noModt:!docs.modt,multiCustomer:multi,needsRead:docs.modt?"modt":null};
   if(!c.phone&&data.fields.phone)ch.phone=String(data.fields.phone).replace(/\D/g,"").slice(-10);
   const ln=(R.find(x=>x.type==="modt"&&x.loan_no)||R.find(x=>x.loan_no)||{}).loan_no||lanOf(c.mailSubject);if(!c.loanNo&&ln)ch.loanNo=String(ln);
-  const nm=(R.find(x=>x.type==="modt"&&x.customer)||R.find(x=>x.customer)||{}).customer;if(c.applicantFromMail&&nm){ch.applicant=String(nm).toUpperCase()}
+  const nm=(R.find(x=>x.type==="modt"&&x.customer)||R.find(x=>x.customer)||{}).customer;if(c.applicantFromMail&&nm){ch.applicant=cleanCust(nm)}
   if(multi)ch.robotQs=[...(c.robotQs||[]),{id:crypto.randomUUID(),q:"This mail seems to have more than one customer / MODT. Split it?",options:["Yes, I'll use Split case","No, one case"],hint:[...custs].join(", ")}];
   await db.collection("cases").doc(c._doc).update(ch)}
 let ATTN=false;
@@ -2439,7 +2440,7 @@ async function rereadModt(c,force){const f=((c.docs||{}).modt||[])[0];if(!f){toa
   toast("Reading the MODT with Claude… about 10–20 seconds.");
   try{const r=await claudeModt(await fileOfDoc(f));if(!r||!Object.keys(r.d).length){toast("Could not read the MODT. Check that it is clear and try again.");return}
     const tp={...(c.tp||{})};let n=0;Object.entries(r.d).forEach(([k,v])=>{if(force||!String(tp[k]||"").trim()){if(tp[k]!==v)n++;tp[k]=v}});
-    const ch={tp,tpAuto:{...(c.tpAuto||{}),...r.d}};if((!c.applicant||c.applicantFromMail)&&r.d.Mortgagor){ch.applicant=r.d.Mortgagor;ch.applicantFromMail=null}if(!c.loanNo){const ln=r.d["Loan account"]||lanOf(c.mailSubject);if(ln)ch.loanNo=ln}if(!c.phone&&r.d["Mortgagor mobile"])ch.phone=String(r.d["Mortgagor mobile"]).replace(/\D/g,"").slice(-10);if(!c.bank&&r.bankText){const b=matchBank(r.bankText);if(b)ch.bank=b}if(!c.loanAmount&&r.d["Loan Amount"])ch.loanAmount=r.d["Loan Amount"];
+    const ch={tp,tpAuto:{...(c.tpAuto||{}),...r.d}};if((!c.applicant||c.applicantFromMail)&&r.d.Mortgagor){ch.applicant=cleanCust(r.d.Mortgagor);ch.applicantFromMail=null}if(!c.loanNo){const ln=r.d["Loan account"]||lanOf(c.mailSubject);if(ln)ch.loanNo=ln}if(!c.phone&&r.d["Mortgagor mobile"])ch.phone=String(r.d["Mortgagor mobile"]).replace(/\D/g,"").slice(-10);if(!c.bank&&r.bankText){const b=matchBank(r.bankText);if(b)ch.bank=b}if(!c.loanAmount&&r.d["Loan Amount"])ch.loanAmount=r.d["Loan Amount"];
     await patch(c,ch,`MODT read again (${n} fields filled)`);toast(`MODT read: ${n} field${n===1?"":"s"} filled. Check them.`);
     const fresh=cases.find(x=>x._doc===c._doc)||{...c,...ch};if(rv.c&&rv.c._doc===c._doc)openReview(fresh,rv.gen)}
   catch(e){console.warn(e);toast("Could not read the MODT: "+(e.message||e))}}
