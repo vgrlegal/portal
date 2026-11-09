@@ -690,6 +690,7 @@ const bucketLabel={lt2:"< 2 Days","2-3":"2-3 Days","3-5":"3-5 Days",gt5:"> 5 Day
 const nowISO=()=>new Date().toISOString();
 const who=()=>me||"Office";
 const money=v=>v===""||v==null?"":"₹"+Number(v).toLocaleString("en-IN");
+function canTp(){return isMD||!!(myStaff&&myStaff.tp===true)}
 function staffObj(x){return typeof x==="string"?{name:x,email:"",phone:"",tabs:TAB_KEYS.map(t=>t[0])}:{tabs:TAB_KEYS.map(t=>t[0]),...x}}
 function allowedTab(t){if(isMD||isAdmin)return true;if(t==="__set"||t==="__ppl")return false;if(t==="dash"||t==="__all")return true;if(!myStaff)return false;return (myStaff.tabs||[]).includes(t)}
 
@@ -790,7 +791,7 @@ function actionsFor0(c){
     return a;
   }
   if(s==="Draft Pending")a.push(["draft","Drafting"]);
-  if(s==="TP Creation"||s==="TP On Hold"){if(isMD)a.push(["tpgen",s==="TP On Hold"?"Retry TP Generate":"TP Generate"]);a.push(["draft","Edit Draft"],["tpno","Enter TP No."])}
+  if(s==="TP Creation"||s==="TP On Hold"){if(canTp())a.push(["tpgen",s==="TP On Hold"?"Retry TP Generate":"TP Generate"]);a.push(["draft","Edit Draft"],["tpno","Enter TP No."])}
   if(s==="Photo/Biometric")a.push(["mv:Payment","Biometric Done"]);
   if(s==="Payment"){a.push(["paylink","Send Payment"]);if(!c.paid)a.push(["paid","Payment Received"]);else a.push(["sropaid","SRO Payment Done"])}
   if(TRACKED.has(s)){if(isMD&&H.ok&&c.tpNo)a.push(["check","Check Status"]);a.push(["setst","Update Status"])}
@@ -1392,7 +1393,7 @@ const H={tried:new Set(),mcp:null,ok:null,fileArgs:false,busy:new Set(),live:{},
 function renderHelperChip(){
   const chip=$("helperChip");
   const on=W.at&&Date.now()-new Date(W.at).getTime()<120000;
-  if(!isMD){chip.className="tpchip "+(on?"ready":"off");chip.textContent=(on?"TP Computer Ready":"TP Computer Not ready")+" · TP Generate is done by the Admin";return}
+  if(!canTp()){chip.className="tpchip "+(on?"ready":"off");chip.textContent=(on?"TP Computer Ready":"TP Computer Not ready")+" · TP Generate is done by the Admin";return}
   chip.className="tpchip "+(on?"ready":"off");chip.textContent=on?"TP Computer Ready":W.at?"TP Computer Not ready":"TP Computer not set up yet"
 }
 async function hostCall(tool,input){
@@ -1517,9 +1518,9 @@ function renderSettings(){
   $("ch-banks").innerHTML=cfg.banks.length?cfg.banks.map((x,i)=>`<span class="chip">${esc(x)}${ro?"":`<button data-k="banks" data-i="${i}" aria-label="Remove ${esc(x)}">×</button>`}</span>`).join(""):`<span style="color:var(--muted);font-size:13px">No clients yet</span>`;
   document.querySelectorAll(".addline[data-k]").forEach(f=>f.hidden=ro);
   const staff=cfg.staff.map(staffObj);
-  $("staffTbl").innerHTML=`<tr><th>Name</th><th>Email</th><th>Phone</th>${TAB_KEYS.map(t=>`<th class="c">${esc(t[1])}</th>`).join("")}<th></th></tr>`+
+  $("staffTbl").innerHTML=`<tr><th>Name</th><th>Email</th><th>Phone</th>${TAB_KEYS.map(t=>`<th class="c">${esc(t[1])}</th>`).join("")}<th class="c" title="Can press TP Generate for single cases (Bulk Run stays Admin only)">TP Generate</th><th></th></tr>`+
     staff.map((s,i)=>`<tr data-i="${i}"><td><input class="sv" data-f="name" value="${esc(s.name)}" ${ro?"disabled":""}></td><td><input class="sv" data-f="email" type="email" value="${esc(s.email)}" ${ro?"disabled":""}></td><td><input class="sv" data-f="phone" value="${esc(s.phone)}" ${ro?"disabled":""}></td>
-      ${TAB_KEYS.map(t=>`<td class="c"><input type="checkbox" class="st" data-t="${esc(t[0])}" ${s.tabs.includes(t[0])?"checked":""} ${ro?"disabled":""} aria-label="${esc(s.name)} can use ${esc(t[1])}"></td>`).join("")}
+      ${TAB_KEYS.map(t=>`<td class="c"><input type="checkbox" class="st" data-t="${esc(t[0])}" ${s.tabs.includes(t[0])?"checked":""} ${ro?"disabled":""} aria-label="${esc(s.name)} can use ${esc(t[1])}"></td>`).join("")}<td class="c"><input type="checkbox" class="stp" ${s.tp===true?"checked":""} ${ro?"disabled":""} aria-label="${esc(s.name)} can press TP Generate"></td>
       <td style="white-space:nowrap">${ro||s.name===MD_NAME?"":`${s.email?`<button class="btn sinv" type="button" data-em="${esc(s.email)}">Invite</button> `:""}<button class="btn danger sdel" type="button">Remove</button>`}</td></tr>`).join("");
   $("staffAdd").hidden=ro;$("staffSave").hidden=ro;renderMasters(ro);
   renderClients(ro);
@@ -1536,7 +1537,7 @@ document.querySelectorAll(".addline[data-k]").forEach(f=>f.onsubmit=e=>{e.preven
   if(cfg.banks.some(x=>x.toLowerCase()===v.toLowerCase())){toast("Already in the list");return}saveCfg({...cfg,banks:[...cfg.banks,v]});inp.value=""});
 function fileLinks(fs){return(fs||[]).map(f=>`<a href="${esc(f.url)}" target="_blank" rel="noopener">${esc(f.name)}</a>`).join(" ")}
 function upBtn(id,label,ro,multi){return ro?"":`<label class="btn" for="${id}">${label}</label><input type="file" id="${id}" accept="image/*,application/pdf,.pdf" ${multi?"multiple":""} hidden>`}
-function readStaff(){return[...$("staffTbl").querySelectorAll("tr[data-i]")].map(tr=>({name:tr.querySelector('[data-f="name"]').value.trim(),email:tr.querySelector('[data-f="email"]').value.trim().toLowerCase(),phone:tr.querySelector('[data-f="phone"]').value.trim(),tabs:[...tr.querySelectorAll(".st:checked")].map(x=>x.dataset.t)})).filter(s=>s.name)}
+function readStaff(){return[...$("staffTbl").querySelectorAll("tr[data-i]")].map(tr=>({name:tr.querySelector('[data-f="name"]').value.trim(),email:tr.querySelector('[data-f="email"]').value.trim().toLowerCase(),phone:tr.querySelector('[data-f="phone"]').value.trim(),tabs:[...tr.querySelectorAll(".st:checked")].map(x=>x.dataset.t),tp:!!(tr.querySelector(".stp")||{}).checked})).filter(s=>s.name)}
 $("staffAdd").onclick=()=>{const s=readStaff();s.push({name:"New staff",email:"",phone:"",tabs:["MODT"]});cfg={...cfg,staff:s};renderSettings()};
 $("staffSave").onclick=()=>saveCfg({...cfg,staff:readStaff()});
 function branchesOf(co){return [...new Set(cases.filter(c=>c.bank===co&&c.branch).map(c=>c.branch))].sort()}
