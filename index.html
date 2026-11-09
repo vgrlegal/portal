@@ -2261,7 +2261,7 @@ async function readModtCase(c,force){const D=c.docs||{};if(!(D.mdraft||[]).lengt
     if(!imgs.length&&!draft.trim()){toast("Nothing readable in the uploaded documents");return}
     const hints=[...ruleHints(),...learned().slice(0,30).map(x=>`${x.field}: "${x.read}" → "${x.fixed}"`)].slice(0,40);
     const{data,error}=await window.__sb.functions.invoke("read-aadhaar",{body:{kind:"modt_case",draft:draft.slice(0,30000),images:imgs,labels,hints}});
-    if(error||!data||!data.fields)throw new Error((data&&data.error)||(error&&error.message)||"no reply");
+    if(error||!data||!data.fields){let m=(data&&data.error)||(error&&error.message)||"no reply";try{if(error&&error.context){const b=await error.context.json();m=b.error||m}}catch(e){}throw new Error(m+" (try once more)")}
     const F=data.fields,doubts=String(F.Doubts||"").trim();delete F.Doubts;
     const d={...(c.draft||{})};let n=0;Object.entries(F).forEach(([k,v])=>{v=Array.isArray(v)?v.join("\n"):String(v??"").trim();if(!v)return;if(force||!String(d[k]||"").trim()){if(d[k]!==v)n++;d[k]=v}});
     const ch={draft:d,tpAuto:{...(c.tpAuto||{}),...Object.fromEntries(Object.entries(F).map(([k,v])=>[k,String(v??"")]))},tpNotes:doubts};
