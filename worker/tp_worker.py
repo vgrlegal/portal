@@ -163,9 +163,10 @@ window.selre = (id,pat) => {const s=vis(id); if(!s) return 'NOFIELD '+id; const 
   const o=[...s.options].find(o=>re.test(o.text.trim())); if(!o) return 'NOOPT '+id+' '+pat;
   if(window.jQuery) jQuery(s).val(o.value).trigger('change').trigger('chosen:updated'); else {s.value=o.value; s.dispatchEvent(new Event('change',{bubbles:true}))}
   return 'ok '+o.text};
+window.lev = (a,b) => {const m=a.length,n=b.length;if(!m||!n)return m||n;let p=[...Array(n+1).keys()];for(let i=1;i<=m;i++){const q=[i];for(let j=1;j<=n;j++)q[j]=Math.min(p[j]+1,q[j-1]+1,p[j-1]+(a[i-1]===b[j-1]?0:1));p=q}return p[n]};
 window.selfuzzy = (id,txt) => {const s=vis(id); if(!s) return 'NOFIELD '+id; const t=String(txt).toLowerCase().replace(/[^a-z]/g,'');
   let best=null,score=0; for(const o of s.options){const n=o.text.toLowerCase().replace(/[^a-z]/g,''); if(!n) continue;
-    let m=0; for(let i=0;i<Math.min(n.length,t.length);i++) if(n[i]==t[i]) m++; const sc=m/Math.max(n.length,t.length); if(sc>score){score=sc;best=o}}
+    const sc=n===t?1:(n.startsWith(t)||t.startsWith(n))?0.9:1-lev(n,t)/Math.max(n.length,t.length); if(sc>score){score=sc;best=o}}
   if(!best||score<0.5) return 'NOOPT '+id+' '+txt;
   if(window.jQuery) jQuery(s).val(best.value).trigger('change').trigger('chosen:updated'); else {s.value=best.value; s.dispatchEvent(new Event('change',{bubbles:true}))}
   return 'ok '+best.text+' '+score.toFixed(2)};
@@ -228,7 +229,12 @@ class Portal:
     def fuzzy(self, fid, text, wait=2):
         if not text:
             return
-        r = self.js(f"selfuzzy({fid!r},{str(text)!r})")
+        # the list (e.g. districts after the state) may still be loading: try again a few times
+        for _ in range(4):
+            r = self.js(f"selfuzzy({fid!r},{str(text)!r})")
+            if str(r).startswith("ok") or str(r).startswith("NOFIELD"):
+                break
+            time.sleep(1.5)
         self.wait(wait)
         if not str(r).startswith("ok"):
             self.warn.append(r)
