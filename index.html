@@ -457,7 +457,7 @@ tr.hf input,tr.hf select{font-size:12.5px;padding:5px 7px;margin:2px 0}
         <div class="fgrid"><label class="full">Account details<textarea id="pay_account" placeholder="Account name, number, IFSC, bank"></textarea></label><label>UPI ID<input id="pay_upi"></label><label>Default service charge (₹)<input id="pay_service" type="number" min="0"></label><label class="full">Payment link (optional)<input id="pay_link" placeholder="https://"></label></div>
         <div style="margin-top:10px"><button class="btn primary" id="paySave" type="button">Save payment details</button></div></div>
       <div class="card"><h2>TNREGINET login IDs</h2><p>One or more IDs per company. The password is saved but can never be shown again, not even to the Admin; only the TP computer uses it.</p><div id="tnList"></div>
-        <form class="fgrid" id="tnAdd" style="margin-top:10px"><label>Company<select id="tn_client"></select></label><label>Login ID<input id="tn_user" autocomplete="off"></label><label>Password<input id="tn_pass" type="password" autocomplete="new-password"></label><div style="display:flex;align-items:flex-end"><button class="btn primary">Add ID</button></div></form></div>
+        <form class="fgrid" id="tnAdd" style="margin-top:10px"><label title="Deed of Receipt IDs belong to one company. MODT IDs are individual IDs used for any company.">Company (or MODT · all companies)<select id="tn_client"></select></label><label>Login ID<input id="tn_user" autocomplete="off"></label><label>Password<input id="tn_pass" type="password" autocomplete="new-password"></label><div style="display:flex;align-items:flex-end"><button class="btn primary">Add ID</button></div></form></div>
     </div>
     <div class="grid2" style="margin-top:16px">
       <div class="card"><h2>Client profiles · Deed of Receipt</h2><p>For each client: company address, representatives (details + Aadhaar KYC + bank ID card). Picking the client on a case fills all of it.</p>
@@ -887,7 +887,7 @@ $("bulkMove").onclick=()=>{const cs=selCases().filter(c=>isRD(c.type));
 const BV={unsub:null,batch:null,tr:new Set()};
 $("bulkRun").onclick=async()=>{const cs=selCases().filter(c=>isRD(c.type));
   const ok=cs.filter(c=>c.stage==="TP Creation"&&!/^TP\//.test(c.tpNo||"")),skip=cs.filter(c=>!ok.includes(c));
-  let logins=[];try{logins=await tnLogins()}catch(e){toast("Could not read the login IDs");return}
+  let logins=[];try{logins=(await tnLogins()).filter(l=>!isPool(l))}catch(e){toast("Could not read the login IDs");return}
   if(!logins.length){toast("Add a TNREGINET login ID in Clients & Staff first");return}
   const v=$("bulkView");v.hidden=false;
   const W1=(cfg.wit||[]).map(w=>`<option>${esc(w.name)}</option>`).join("");
@@ -1416,9 +1416,10 @@ async function startTp(c,u){
 
 /* ================= cloud TP (Oracle worker via tp_jobs) ================= */
 const W={at:null,unsub:null};
+const MODT_POOL="MODT · all companies";const isPool=l=>l.client===MODT_POOL;
 async function tnLogins(){const{data,error}=await window.__sb.from("tn_logins").select("id,client,username").order("client");if(error)throw error;return data||[]}
 async function tnRender(ro){const box=$("tnList");if(!box)return;$("tnAdd").hidden=ro||!isMD;
-  $("tn_client").innerHTML=cfg.banks.map(b=>`<option>${esc(b)}</option>`).join("");
+  $("tn_client").innerHTML=`<option>${esc(MODT_POOL)}</option>`+cfg.banks.map(b=>`<option>${esc(b)}</option>`).join("");
   if(!isMD){box.innerHTML=`<p class="sf-note">Only the Admin can see these.</p>`;return}
   let l=[];try{l=await tnLogins()}catch(e){box.innerHTML=`<p class="banner">Login IDs could not load: ${esc(e.message)}</p>`;return}
   box.innerHTML=l.length?l.map(x=>`<div class="mrow"><b>${esc(x.username)}</b><span>${ro?"":`<button class="btn danger" type="button" data-tnx="${x.id}">Remove</button>`}</span><div class="mf">${esc(x.client)} · password saved</div></div>`).join(""):`<p class="sf-note">No login IDs yet.</p>`;
@@ -1428,11 +1429,11 @@ async function tnRender(ro){const box=$("tnList");if(!box)return;$("tnAdd").hidd
 async function cloudTp(c,fresh){const box=$("rvLogin");box.innerHTML=`<div class="sect">Generate TP on TNREGINET</div><p class="sf-note">Loading login IDs…</p>`;
   if(c.tpJob&&!fresh){const j=await db.doc("tp_jobs/"+c.tpJob).get().catch(()=>null);if(j&&j.exists&&!["done","error","cancelled"].includes((j.data()||{}).status))return watchJob(c,c.tpJob)}
   let l=[];try{l=await tnLogins()}catch(e){box.innerHTML=`<p class="banner">${esc(e.message)}</p>`;return}
-  const mine=l.filter(x=>x.client===c.bank),list=mine.length?mine:l;
+  const modt=!isRD(c.type),pool=l.filter(isPool),comp=l.filter(x=>!isPool(x)),mine=modt?pool:comp.filter(x=>x.client===c.bank),list=mine.length?mine:modt?l:comp;
   if(!list.length){box.innerHTML=`<div class="sect">Generate TP on TNREGINET</div><p class="banner">No TNREGINET login IDs yet. Add them in Clients &amp; Staff → TNREGINET login IDs.</p>`;return}
   const on=W.at&&Date.now()-new Date(W.at).getTime()<120000,hasTp=/^TP\//.test(c.tpNo||"");
   box.innerHTML=`<div class="sect">${hasTp?"Upload documents to TNREGINET":"Generate TP on TNREGINET"}</div>${on?"":`<p class="banner">The TP computer is offline right now. The job will wait and start when it comes online.</p>`}
-    <div class="fgrid"><label>Login ID${mine.length?"":" (no ID saved for this company, showing all)"}<select id="rvUser">${list.map(x=>`<option value="${x.id}">${esc(x.username)} · ${esc(x.client)}</option>`).join("")}</select></label>
+    <div class="fgrid"><label>Login ID${mine.length?"":modt?" (no MODT ID saved yet, showing all)":" (no ID saved for this company, showing all)"}<select id="rvUser">${list.map(x=>`<option value="${x.id}">${esc(x.username)} · ${esc(x.client)}</option>`).join("")}</select></label>
     <div style="display:flex;align-items:flex-end;gap:6px">${hasTp?`<button type="button" class="btn primary" id="rvUpOnly">Upload documents only</button>`:`<button type="button" class="btn primary" id="rvStart">Start TP</button>`}<button type="button" class="btn" id="rvEc" title="Encumbrance certificate for the MODT property, 1 January of the MODT year to yesterday">Get EC</button></div></div>
     ${hasTp?`<p class="sf-note">TP already created: <b>${esc(c.tpNo)}</b>. A new TP will not be made. This only uploads the 5 documents and saves the TP print.</p>`:""}<div id="rvJob"></div>`;
   const go=async(kind,btn)=>{const sel=$("rvUser"),id=crypto.randomUUID(),u=sel.options[sel.selectedIndex].text.split(" · ")[0];btn.disabled=true;
