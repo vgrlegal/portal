@@ -749,7 +749,7 @@ function myOrg(){return myStaff?(myStaff.partner||myStaff.team||""):""}
 function isPartner(){return !!(myStaff&&myStaff.partner)}
 function canTp(){return isMD||!!(myStaff&&myStaff.tp===true)}
 function staffObj(x){return typeof x==="string"?{name:x,email:"",phone:"",tabs:TAB_KEYS.map(t=>t[0])}:{tabs:TAB_KEYS.map(t=>t[0]),...x}}
-function allowedTab(t){if(t==="__team")return isPartner();if(t==="__rep")return isMD||isPartner();if(t==="__tools")return isMD||isAdmin||isPartner();if(t==="__reg")return isMD||isAdmin;if(isMD||isAdmin)return true;if(t==="__set"||t==="__ppl")return false;if(t==="dash"||t==="__all")return true;if(!myStaff)return false;return (myStaff.tabs||[]).includes(t)}
+function allowedTab(t){if(t==="__team")return isPartner();if(t==="__rep")return isMD||isPartner();if(t==="__tools")return isMD||isAdmin||isPartner();if(t==="__reg")return isMD||isAdmin||isPartner();if(isMD||isAdmin)return true;if(t==="__set"||t==="__ppl")return false;if(t==="dash"||t==="__all")return true;if(!myStaff)return false;return (myStaff.tabs||[]).includes(t)}
 
 /* ================= tabs & ranges ================= */
 function renderTabs(){
@@ -762,7 +762,7 @@ function renderTabs(){
     (false&&allowedTab("__kyc")?`<button role="tab" data-t="__kyc" aria-selected="${tab==="__kyc"}">Drafting</button>`:"")+
     (isMD||isAdmin?`<button role="tab" data-t="__ppl" aria-selected="${tab==="__ppl"}">KYC Master</button>`:"")+
     (isMD||isAdmin?`<button role="tab" data-t="__set" aria-selected="${tab==="__set"}">Clients &amp; Staff</button>`:"")+
-    (isMD||isAdmin?`<button role="tab" data-t="__reg" aria-selected="${tab==="__reg"}">TNREGINET</button>`:"")+
+    (isMD||isAdmin||isPartner()?`<button role="tab" data-t="__reg" aria-selected="${tab==="__reg"}">${isMD||isAdmin?"TNREGINET":"Reps, witnesses &amp; IDs"}</button>`:"")+
     (isMD||isAdmin||isPartner()?`<button role="tab" data-t="__tools" aria-selected="${tab==="__tools"}">Tools</button>`:"")+
     (isPartner()?`<button role="tab" data-t="__team" aria-selected="${tab==="__team"}">My team</button>`:"")+
     (isMD||isPartner()?`<button role="tab" data-t="__rep" aria-selected="${tab==="__rep"}">Reports</button>`:"");
@@ -1635,7 +1635,7 @@ const PART_REASON=sv=>`Survey number is "${sv}" (Part). TNREGINET will not make 
 const BUSY_ST={starting:"starting",captcha:"waiting for the captcha",captcha_sent:"signing in",filling:"filling",uploading:"uploading",translate:"waiting for English names"};
 function busyText(b){b=(b||[])[0];if(!b)return"";const c=cases.find(x=>x.id===b.case),nm=c?c.applicant:b.case||"";return`TP Computer Busy · ${nm}${b.kind==="dor_upload"?" (upload)":""} · ${BUSY_ST[b.status]||b.status||""}`}
 const MODT_POOL="MODT · all companies";const isPool=l=>l.client===MODT_POOL;
-async function tnLogins(){const{data,error}=await window.__sb.from("tn_logins").select("id,client,username").order("client");if(error)throw error;return data||[]}
+async function tnLogins(){let r=await window.__sb.from("tn_logins").select("id,client,username,created_by").order("client");if(r.error)r=await window.__sb.from("tn_logins").select("id,client,username").order("client");if(r.error)throw r.error;return r.data||[]}
 /* ---- Recording mode: the person does one TNREGINET entry by hand on the TP computer; every page is saved for building the robot ---- */
 const REC={unsub:null};
 async function recRender(l){const box=$("recBox");if(!box)return;if(!isMD){box.innerHTML="";return}
@@ -1678,15 +1678,16 @@ async function tnImport(file){const box=$("tnImpBox");const rows=parseCsv(await 
     const{error}=await window.__sb.from("tn_logins").insert(pick.map(x=>({client:x.b,username:x.u,password:x.p})));pick.forEach(x=>x.p="");
     if(error){toast("Import failed: "+error.message);$("tnImpGo").disabled=false;return}
     box.innerHTML=`<p class="sf-note">✓ ${pick.length} login ID(s) imported. Now delete the "Chrome Passwords.csv" file from Downloads (and the Bin).</p>`;$("tnCsv").value="";tnRender(false)}}
-async function tnRender(ro){const box=$("tnList");if(!box)return;$("tnImp").hidden=ro||!isMD;$("tnCsv").onchange=e=>{const f=e.target.files[0];if(f)tnImport(f)};$("tnAdd").hidden=ro||!isMD;
-  $("tn_client").innerHTML=`<option>${esc(MODT_POOL)}</option>`+cfg.banks.map(b=>`<option>${esc(b)}</option>`).join("");
-  if(!isMD){box.innerHTML=`<p class="sf-note">Only the Admin can see these.</p>`;$("tnListM").innerHTML="";return}
+async function tnRender(ro){const box=$("tnList");if(!box)return;$("tnImp").hidden=ro||!isMD;$("tnCsv").onchange=e=>{const f=e.target.files[0];if(f)tnImport(f)};const pt=isPartner()&&!isMD;$("tnAdd").hidden=ro||!(isMD||pt);
+  $("tn_client").innerHTML=(pt?"":`<option>${esc(MODT_POOL)}</option>`)+cfg.banks.map(b=>`<option>${esc(b)}</option>`).join("");
+  if(!isMD&&!pt){box.innerHTML=`<p class="sf-note">Only the Admin can see these.</p>`;$("tnListM").innerHTML="";return}
   let l=[];try{l=await tnLogins()}catch(e){box.innerHTML=`<p class="banner">Login IDs could not load: ${esc(e.message)}</p>`;return}
   recRender(l);const pool=l.filter(isPool),all=l.filter(x=>!isPool(x)),tq=()=>($("tnQ").value||"").trim().toLowerCase();
-  const row=x=>`<div class="mrow"><b>${esc(x.username)}</b><span>${ro?"":`<button class="btn danger" type="button" data-tnx="${x.id}">Remove</button>`}</span><div class="mf">${esc(x.client)} · password saved</div></div>`;
+  const mine=x=>isMD||(x.created_by&&x.created_by===String(SELF_EMAIL||"").toLowerCase());
+  const row=x=>`<div class="mrow"><b>${esc(x.username)}</b><span>${ro||!mine(x)?"":`<button class="btn danger" type="button" data-tnx="${x.id}">Remove</button>`}</span><div class="mf">${esc(x.client)} · password saved</div></div>`;
   const paint=()=>{const q=tq(),l=q?all.filter(x=>(x.client+" "+x.username).toLowerCase().includes(q)):[];
-  $("tnListM").innerHTML=pool.length?pool.map(row).join(""):`<p class="sf-note">No MODT login IDs yet. Add one below with “${esc(MODT_POOL)}”.</p>`;
-  box.innerHTML=!q?`<p class="sf-note">${all.length} Receipt login IDs for ${new Set(all.map(x=>x.client)).size} companies. Type a company name above to see and remove them.</p>`:l.length?l.map(x=>`<div class="mrow"><b>${esc(x.username)}</b><span>${ro?"":`<button class="btn danger" type="button" data-tnx="${x.id}">Remove</button>`}</span><div class="mf">${esc(x.client)} · password saved</div></div>`).join(""):`<p class="sf-note">No login IDs for “${esc(q)}”.</p>`;
+  $("tnListM").innerHTML=pt?`<p class="sf-note">MODT login IDs are managed by the Admin.</p>`:pool.length?pool.map(row).join(""):`<p class="sf-note">No MODT login IDs yet. Add one below with “${esc(MODT_POOL)}”.</p>`;
+  box.innerHTML=!q?`<p class="sf-note">${all.length} Receipt login IDs for ${new Set(all.map(x=>x.client)).size} companies. Type a company name above to see and remove them.</p>`:l.length?l.map(row).join(""):`<p class="sf-note">No login IDs for “${esc(q)}”.</p>`;
   [...box.querySelectorAll("[data-tnx]"),...$("tnListM").querySelectorAll("[data-tnx]")].forEach(b=>b.onclick=()=>ask("Remove this login ID?",`<p class="sf-note">The TP computer will stop using it.</p>`,async()=>{const{error}=await window.__sb.from("tn_logins").delete().eq("id",b.dataset.tnx);if(error)toast(error.message);else{toast("Removed");tnRender(ro)}},"Remove"))};paint();$("tnQ").oninput=paint;
   $("tnAdd").onsubmit=async e=>{e.preventDefault();const client=fv("tn_client"),username=fv("tn_user"),password=$("tn_pass").value;if(!client||!username||!password){toast("Fill company, login ID and password");return}
     const{error}=await window.__sb.from("tn_logins").insert({client,username,password});if(error){toast(error.message);return}$("tn_user").value="";$("tn_pass").value="";toast("Login ID saved");tnRender(ro)}}
@@ -1865,7 +1866,7 @@ $("dash").addEventListener("click",e=>{const o=e.target.closest("[data-open]");i
 
 /* ================= settings ================= */
 function renderSettings(){
-  const ro=!(canWrite&&isAdmin);$("setNote").hidden=!ro;
+  const ro=!(canWrite&&(isAdmin||(isPartner()&&tab==="__reg")));$("setNote").hidden=!ro;
   $("banksSum").textContent=`${cfg.banks.length} companies · tap to see or remove`;const bq="";$("bankQ").oninput=e=>{const q=e.target.value.trim().toLowerCase();document.querySelectorAll("#ch-banks .chip").forEach(c=>c.hidden=!!q&&!c.textContent.toLowerCase().includes(q))};
   $("ch-banks").innerHTML=cfg.banks.length?cfg.banks.map((x,i)=>!bq||x.toLowerCase().includes(bq)?`<span class="chip">${esc(x)}${ro?"":`<button data-k="banks" data-i="${i}" aria-label="Remove ${esc(x)}">×</button>`}</span>`:"").join(""):`<span style="color:var(--muted);font-size:13px">No clients yet</span>`;
   document.querySelectorAll(".addline[data-k]").forEach(f=>f.hidden=ro);
@@ -1880,7 +1881,7 @@ function renderSettings(){
   tnRender(ro);renderStageTool();
   const PART=tab==="__reg"?"reg":tab==="__tools"?"tools":"set",onlyStage=isPartner()&&!isMD&&!isAdmin;
   const roleHide={clientCard:!isMD,rulesCard:!(isMD||isAdmin),bakCard:!isMD,stageCard:false};
-  document.querySelectorAll("#v-set [data-part]").forEach(e=>{e.hidden=e.dataset.part!==PART||!!roleHide[e.id]||(onlyStage&&e.id!=="stageCard")});
+  document.querySelectorAll("#v-set [data-part]").forEach(e=>{e.hidden=e.dataset.part!==PART||!!roleHide[e.id]||(onlyStage&&PART!=="reg"&&e.id!=="stageCard")});
   $("setNote").hidden=!ro||PART==="tools";
 }
 /* ---- Tools: move ONE case to any stage (Admin; a partner only his team's cases) ---- */
@@ -1936,6 +1937,9 @@ $("clientSave").onclick=()=>{const L=readClients();const bad=L.find(c=>!c.email|
 $("paySave").onclick=()=>saveCfg({...cfg,pay:{account:$("pay_account").value.trim(),upi:fv("pay_upi"),link:fv("pay_link"),service:fv("pay_service")}});
 let CFG_OK=false;
 async function saveCfg(n){if(!db){toast("Sign in to save");return}if(!CFG_OK){toast("Settings are still loading. Try again in a moment.");return}
+  if(!isMD&&!isAdmin){if(!isPartner()){toast("Only the Admin can change settings");return}
+    const{error}=await window.__sb.rpc("partner_save_people",{wit:n.wit||[],profiles:n.profiles||{}});if(error){toast("Not saved: "+error.message);return}
+    cfg={...cfg,wit:n.wit||[],profiles:n.profiles||{}};fillStatic();render();toast("Saved");return}
   const old=cfg;if((old.staff||[]).length+(old.banks||[]).length+(old.wit||[]).length&&!((n.staff||[]).length+(n.banks||[]).length)){toast("Not saved: this would empty the staff and company lists.");return}
   try{if((old.banks||[]).length)await db.doc("config/lists_prev_"+new Date().toISOString().slice(0,10)).set({...old,staff:(old.staff||[]).map(staffObj),savedAt:nowISO()})}catch(e){}
   cfg=n;fillStatic();render();
