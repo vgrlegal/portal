@@ -1434,7 +1434,7 @@ async function renderTime(from,to,want,on){const t=$("timeTbl");if(!t)return;let
   try{const{data}=await window.__sb.from("kv").select("data").eq("collection","presence").gte("data->>date",from).lt("data->>date",to).limit(5000);rows=(data||[]).map(r=>r.data)}catch(e){}
   if(isMD&&want!=="all")rows=rows.filter(r=>want==="vgr"?!r.org:r.org===want);
   const today=new Date(Date.now()+19800000).toISOString().slice(0,10),P={};
-  rows.forEach(r=>{const p=P[r.email]||(P[r.email]={name:r.name||r.email,org:r.org||"vgr",days:0,min:0,today:null});p.days++;p.min+=+r.minutes||0;if(r.date===today)p.today=r});
+  rows.forEach(r=>{const p=P[r.email]||(P[r.email]={name:r.name&&r.name!==r.email?r.name:(isMD&&r.email===SELF_EMAIL?MD_NAME:r.email),org:r.org||"vgr",days:0,min:0,today:null});p.days++;p.min+=+r.minutes||0;if(r.date===today)p.today=r});
   const hm=m=>`${Math.floor(m/60)}h ${m%60}m`,tf=x=>x?new Date(x).toLocaleTimeString("en-IN",{hour:"numeric",minute:"2-digit"}):"";
   const L=Object.values(P).sort((a,b)=>b.min-a.min);
   t.innerHTML=L.length?`<tr><th>Person</th><th>Organisation</th><th class="c">Days</th><th class="c">Total</th><th class="c">Average a day</th><th>Today</th></tr>`+L.map(p=>`<tr><td>${esc(p.name)}</td><td>${esc(on(p.org))}</td><td class="c">${p.days}</td><td class="c">${hm(p.min)}</td><td class="c">${hm(Math.round(p.min/p.days))}</td><td>${p.today?`${hm(+p.today.minutes||0)} · ${tf(p.today.first)} – ${tf(p.today.last)}${(+p.today.sessions||1)>1?` · ${p.today.sessions} sittings`:""}`:'<span class="no">not today</span>'}</td></tr>`).join(""):`<tr><td class="sf-note">No time recorded this month yet. It is counted from 9 Nov 2026.</td></tr>`}
