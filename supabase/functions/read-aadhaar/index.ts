@@ -174,16 +174,17 @@ async function mailIn(body: Record<string, unknown>) {
 
 // Usage log (who ran Claude reading, how much): kv collection "usage", one row per reading, for the reports.
 // deno-lint-ignore no-explicit-any
-async function logUsage(sb: any, kind: string, images: number, usage: any) {
+async function logUsage(sb: any, kind: string, images: number, usage: any, model = "") {
   const { data: u } = await sb.auth.getUser();
   const email = String(u?.user?.email ?? "").toLowerCase();
   const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
   const { data: cfg } = await admin.from("kv").select("data").eq("collection", "config").eq("id", "lists").maybeSingle();
   const st = (((cfg?.data as { staff?: unknown[] })?.staff ?? []) as Record<string, string>[]).find((x) => typeof x === "object" && String(x.email ?? "").toLowerCase() === email);
   const inT = Number(usage?.input_tokens ?? 0), outT = Number(usage?.output_tokens ?? 0);
-  const usd = (inT * 3 + outT * 15) / 1e6; // approximate (Sonnet-class list price per million tokens)
+  const cheap = /haiku/i.test(model);
+  const usd = cheap ? (inT * 1 + outT * 5) / 1e6 : (inT * 3 + outT * 15) / 1e6; // approximate list price per million tokens
   await admin.from("kv").insert({ collection: "usage", id: crypto.randomUUID(), data: {
-    at: new Date().toISOString(), email, name: st?.name ?? "", org: st?.partner || st?.team || "vgr", kind, images, inTok: inT, outTok: outT, usd: Math.round(usd * 10000) / 10000 } });
+    at: new Date().toISOString(), email, name: st?.name ?? "", org: st?.partner || st?.team || "vgr", kind, images, model, inTok: inT, outTok: outT, usd: Math.round(usd * 10000) / 10000 } });
 }
 
 Deno.serve(async (req) => {
@@ -214,6 +215,10 @@ Deno.serve(async (req) => {
       const t: Record<string, string> = {};
       for (const [k, v] of Object.entries(texts).slice(0, 40)) t[String(k).slice(0, 60)] = String(v).slice(0, 1500);
       content.push({ type: "text", text: PROMPT + "\n\nFields:\n" + JSON.stringify(t, null, 1) });
+    } else if (kind === "modt" && typeof body.pdfText === "string" && body.pdfText.length > 600 && (!Array.isArray(images) || !images.length)) {
+      // the MODT PDF already has its text inside: send the text, not page photos (much cheaper)
+      content.push({ type: "text", text: "MODT DOCUMENT TEXT (taken from the PDF):\n" + body.pdfText.slice(0, 60000) });
+      content.push({ type: "text", text: PROMPT });
     } else {
       const max = kind === "modt_case" || kind === "classify" ? 20 : 10;
       if (!Array.isArray(images) || !images.length || images.length > max) return json({ error: `Send 1-${max} images` }, 400);
@@ -227,14 +232,16 @@ Deno.serve(async (req) => {
       });
       content.push({ type: "text", text: PROMPT });
     }
+    // simple jobs (sorting files, Aadhaar, translation) use the cheaper model; MODT reading keeps the stronger one
+    const model = ["classify", "aadhaar", "english", "tamil"].includes(kind) ? (Deno.env.get("CHEAP_MODEL") ?? "claude-haiku-5-5") : (Deno.env.get("AADHAAR_MODEL") ?? "claude-sonnet-5-5");
     const r = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: { "x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json" },
-      body: JSON.stringify({ model: Deno.env.get("AADHAAR_MODEL") ?? "claude-sonnet-5-5", max_tokens: kind === "modt_case" ? 6000 : 2000, messages: [{ role: "user", content }] }),
+      body: JSON.stringify({ model, max_tokens: kind === "modt_case" ? 6000 : 2000, messages: [{ role: "user", content }] }),
     });
     const out = await r.json();
     if (!r.ok) return json({ error: out?.error?.message ?? "Claude error" }, 502);
-    try { await logUsage(sb, kind, Array.isArray(images) ? images.length : 0, out?.usage); } catch (_) { /* usage log never blocks reading */ }
+    try { await logUsage(sb, kind, Array.isArray(images) ? images.length : 0, out?.usage, model); } catch (_) { /* usage log never blocks reading */ }
     const text = (out.content ?? []).map((c: { text?: string }) => c.text ?? "").join("");
     const m = text.match(/\{[\s\S]*\}/);
     if (!m) return json({ error: "No JSON in reply" }, 502);

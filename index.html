@@ -1067,7 +1067,7 @@ async function bankReads(){if(!(isMD||isAdmin||isPartner())||!canWrite||!CFG_OK)
   if(window.__noCredit)return;
   for(const c of cases.filter(x=>x.source==="mail"&&!x.classified&&!BR.has("k"+x._doc))){if(window.__noCredit)break;BR.add("k"+c._doc);try{await classifyMail(c)}catch(e){console.warn(e);BR.delete("k"+c._doc)}}
   for(const c of cases.filter(x=>x.needsRead&&!(x.source==="mail"&&!x.classified)&&!BR.has(x._doc))){BR.add(c._doc);
-  try{if(window.__noCredit)break;if(c.needsRead==="modt2")await readSuppModt(c);else if(!await rereadModt(c,false)){BR.delete(c._doc);continue}await db.collection("cases").doc(c._doc).update({needsRead:null})}catch(e){BR.delete(c._doc)}}}
+  try{if(window.__noCredit)break;if(c.needsRead==="modt2")await readSuppModt(c);else if(c.modtReadOf&&c.modtReadOf===(((c.docs||{}).modt||[])[0]||{}).url&&c.tpAuto){}else if(!await rereadModt(c,false)){BR.delete(c._doc);continue}await db.collection("cases").doc(c._doc).update({needsRead:null})}catch(e){BR.delete(c._doc)}}}
 
 /* ================= writes ================= */
 async function patch(c,changes,logText){
@@ -1442,15 +1442,25 @@ async function renderTime(from,to,want,on){const t=$("timeTbl");if(!t)return;let
    reads only the MODT in full, and flags: no MODT · several customers · phone needed ---- */
 function lanOf(t){const m=String(t||"").match(/(?:LAN|loan(?:\s*(?:no|number|a\/c))?)\s*[:.#-]*\s*'?([A-Z]{0,8}\d[\w]{6,24})/i)||String(t||"").match(/\b([A-Z]{2,12}\d{8,20}|\d{10,20})\b/);return m?m[1]:""}
 function cleanCust(n){return String(n||"").replace(/\(.*$/,"").replace(/\b(S|W|D|C)\s*\/\s*O\b.*$/i,"").replace(/^\s*(MR|MRS|MS|SMT|THIRU|TMT|SRI|SHRI|SELVI|KUMARI)\b\.?\s*/i,"").replace(/[,.\s]+$/,"").trim().toUpperCase()}
+/* free first: a PDF that already carries its text is sorted without Claude, only when it is clearly a registered MODT or an NOC */
+function freeType(t){t=String(t||"").replace(/\s+/g," ");if(t.length<300)return null;
+  if(/no objection certificate|தடையில்லா/i.test(t)&&!/memorandum of deposit/i.test(t.slice(0,600)))return"noc";
+  if(/memorandum of deposit of title deeds?|deposit of title deeds?|அடமானப்? ?பத்திரம்|உரிமை ஆவண(ங்கள்)? ஒப்படைப்பு/i.test(t.slice(0,1500))&&/(R\/\s*[A-Za-z .]+\/\s*\S*\s*-?\s*\d\s*\/\s*\d+\s*\/\s*\d{4})|document\s*no|ஆவண\s*எண்/i.test(t)&&!/\b(dear sir|we request|kindly|cancellation request)\b/i.test(t.slice(0,800)))return"modt";
+  return null}
 async function classifyMail(c){const seen=new Set(),F=allFiles(c).filter(x=>{const k=String(x.f.name||"").toLowerCase()+"|"+(x.f.size||"");if(seen.has(k))return false;seen.add(k);return true});if(!F.length){await db.collection("cases").doc(c._doc).update({classified:true,noModt:true,needsRead:null});return}
-  const imgs=[],labels=[],idx=[];
-  for(const [j,x] of F.slice(0,12).entries()){try{const file=await fileOfDoc(x.f);if(/\.docx?$/i.test(x.f.name))continue;const{canvases}=await canvasesOf([file],()=>{},1);if(canvases[0]){imgs.push(jpegOf(canvases[0],900));labels.push(`File ${j+1}: ${x.f.name}`);idx.push(j)}}catch(e){}}
-  if(!imgs.length){await db.collection("cases").doc(c._doc).update({classified:true});return}
-  const{data,error}=await window.__sb.functions.invoke("read-aadhaar",{body:{kind:"classify",images:imgs,labels}});if(error||!data||!data.fields){let t="";try{t=JSON.parse(await error.context.text()).error||""}catch(e){}if(/credit balance/i.test(t)){toast("Claude credit is finished — top up at console.anthropic.com (Plans & Billing). Mail cases will be read after that.");window.__noCredit=true}throw new Error(t||"classify failed")}
+  const imgs=[],labels=[],idx=[],free={};
+  for(const [j,x] of F.slice(0,12).entries()){try{const file=await fileOfDoc(x.f);if(/\.docx?$/i.test(x.f.name))continue;const{canvases,text}=await canvasesOf([file],()=>{},1);
+    const ft=freeType(text);if(ft){free[j]=ft;continue}
+    if(canvases[0]){imgs.push(jpegOf(canvases[0],900));labels.push(`File ${j+1}: ${x.f.name}`);idx.push(j)}}catch(e){}}
+  const freeModt=Object.values(free).includes("modt");let data={fields:{files:[]}};
+  if(imgs.length&&!freeModt){const r=await window.__sb.functions.invoke("read-aadhaar",{body:{kind:"classify",images:imgs,labels}});const error=r.error;data=r.data;
+    if(error||!data||!data.fields){let t="";try{t=JSON.parse(await error.context.text()).error||""}catch(e){}if(/credit balance/i.test(t)){toast("Claude credit is finished — top up at console.anthropic.com (Plans & Billing). Mail cases will be read after that.");window.__noCredit=true}throw new Error(t||"classify failed")}}
+  else if(!imgs.length&&!Object.keys(free).length){await db.collection("cases").doc(c._doc).update({classified:true});return}
   const R=(data.fields.files||[]),docs={},custs=new Set();const slot={modt:"modt",supp_modt:"modt2",noc:"noc",letter:"letter"};
-  idx.forEach((j,i)=>{const r=R.find(x=>+x.n===i+1)||{};let k=slot[r.type]||"other";if(k==="modt"&&docs.modt)k="other";(docs[k]=docs[k]||[]).push({...F[j].f,kind:r.type||""});if(r.type==="modt"&&r.customer)custs.add(String(r.customer).trim().toLowerCase())});
-  F.forEach((x,j)=>{if(!idx.includes(j))(docs.other=docs.other||[]).push(x.f)});
-  const multi=custs.size>1||R.filter(x=>x.type==="modt").length>1;
+  Object.entries(free).forEach(([j,t])=>{let k=slot[t]||"other";if(k==="modt"&&docs.modt)k="other";(docs[k]=docs[k]||[]).push({...F[+j].f,kind:t,free:true})});
+  idx.forEach((j,i)=>{const r=freeModt?{}:(R.find(x=>+x.n===i+1)||{});let k=slot[r.type]||"other";if(k==="modt"&&docs.modt)k="other";(docs[k]=docs[k]||[]).push({...F[j].f,kind:r.type||""});if(r.type==="modt"&&r.customer)custs.add(String(r.customer).trim().toLowerCase())});
+  F.forEach((x,j)=>{if(!idx.includes(j)&&!(j in free))(docs.other=docs.other||[]).push(x.f)});
+  const multi=custs.size>1||R.filter(x=>x.type==="modt").length>1||Object.values(free).filter(t=>t==="modt").length>1;
   const ch={docs,classified:true,noModt:!docs.modt,multiCustomer:multi,needsRead:docs.modt?"modt":null};
   if(!c.phone&&data.fields.phone)ch.phone=String(data.fields.phone).replace(/\D/g,"").slice(-10);
   const ln=(R.find(x=>x.type==="modt"&&x.loan_no)||R.find(x=>x.loan_no)||{}).loan_no||lanOf(c.mailSubject);if(!c.loanNo&&ln)ch.loanNo=String(ln);
@@ -2316,12 +2326,19 @@ async function claudeRead(canvases){if(!window.__sb)return null;
   put("aadhaar",String(f.aadhaar||"").replace(/\D/g,"").length===12?String(f.aadhaar).replace(/\D/g,""):"");put("addr",f.address_en);put("addr_ta",f.address_ta);put("district",f.district);put("state",f.state);put("pincode",f.pincode);put("mobile",f.mobile);
   if(rt)o.rel_type=rt;if(o.gender)o.sal=o.gender==="Female"?(rt==="Wife of"?"Mrs":"Ms"):"Mr";
   lastOcrText=JSON.stringify(f,null,1);return o}
-async function readAadhaar(files,say){const{canvases,text}=await canvasesOf(files,say);let all="";
-  try{say("Reading the Aadhaar with Claude… about 5 seconds.");const c=await claudeRead(canvases);if(c&&c.name){if(c.name)c.name=c.name.toUpperCase();if(c.rel_name)c.rel_name=c.rel_name.toUpperCase();return c}}catch(e){console.warn(e)}
-  say("Reading the Aadhaar… about 15–30 seconds the first time.");await loadTess();
-  if(!tessWorker)tessWorker=Tesseract.createWorker("eng");const w=await tessWorker;for(const[i,c]of canvases.entries()){say(`Reading page ${i+1} of ${canvases.length}…`);const r=await w.recognize(sharpen(c));all+="\n"+r.data.text}
-  lastOcrText=all;const o=parseAadhaar(all),fromLayer=parseAadhaar(text);Object.keys(fromLayer).forEach(k=>{if(!o[k]&&fromLayer[k])o[k]=fromLayer[k]});delete o.name_ta;delete o.rel_ta;delete o.addr_ta;
-  if(o.name)o.name=o.name.toUpperCase();if(o.rel_name)o.rel_name=o.rel_name.toUpperCase();return o}
+/* Aadhaar: free reading first (text inside the PDF, then free OCR); Claude only when the free result fails the checks */
+function verhoeff(n){const d=[[0,1,2,3,4,5,6,7,8,9],[1,2,3,4,0,6,7,8,9,5],[2,3,4,0,1,7,8,9,5,6],[3,4,0,1,2,8,9,5,6,7],[4,0,1,2,3,9,5,6,7,8],[5,9,8,7,6,0,4,3,2,1],[6,5,9,8,7,1,0,4,3,2],[7,6,5,9,8,2,1,0,4,3],[8,7,6,5,9,3,2,1,0,4],[9,8,7,6,5,4,3,2,1,0]],p=[[0,1,2,3,4,5,6,7,8,9],[1,5,7,6,2,8,3,0,9,4],[5,8,0,3,7,9,6,1,4,2],[8,9,1,6,0,4,3,5,2,7],[9,4,5,3,1,2,6,8,7,0],[4,2,8,6,5,7,3,9,0,1],[2,7,9,3,8,0,6,4,1,5],[7,0,4,6,9,1,3,2,5,8]];
+  n=String(n||"");if(!/^[2-9]\d{11}$/.test(n))return false;let c=0;n.split("").reverse().forEach((x,i)=>{c=d[c][p[i%8][+x]]});return c===0}
+function aadhaarGood(o){return!!(o&&o.name&&o.name.split(/\s+/).join("").length>=3&&verhoeff(o.aadhaar)&&o.dob&&o.gender)}
+async function readAadhaar(files,say){const{canvases,text}=await canvasesOf(files,say);
+  const fin=async(o,how)=>{if(o.name)o.name=o.name.toUpperCase();if(o.rel_name)o.rel_name=o.rel_name.toUpperCase();
+    if(how!=="claude"){try{if(o.name&&!o.name_ta)o.name_ta=await toTamil(o.name);if(o.rel_name&&!o.rel_ta)o.rel_ta=await toTamil(o.rel_name)}catch(e){}}o._how=how;return o};
+  let o=parseAadhaar(text);if(aadhaarGood(o))return fin(o,"pdf text");
+  try{say("Reading the Aadhaar (free reader)… about 10–20 seconds.");await loadTess();if(!tessWorker)tessWorker=Tesseract.createWorker("eng");const w=await tessWorker;let all="";
+    for(const[i,c]of canvases.entries()){say(`Reading page ${i+1} of ${canvases.length}…`);const r=await w.recognize(sharpen(c));all+="\n"+r.data.text}
+    lastOcrText=all;const t=parseAadhaar(all);Object.keys(o).forEach(k=>{if(!t[k]&&o[k])t[k]=o[k]});delete t.name_ta;delete t.rel_ta;delete t.addr_ta;o=t;if(aadhaarGood(o))return fin(o,"free OCR")}catch(e){console.warn(e)}
+  try{say("Free reader was not sure. Reading with Claude… about 5 seconds.");const c=await claudeRead(canvases);if(c&&c.name)return fin(c,"claude")}catch(e){console.warn(e)}
+  return fin(o,"free OCR (unchecked)")}
 /* English → Tamil (same as TNREGINET's F8 typing), via Google Input Tools */
 async function toTamil(text){text=String(text||"").trim();if(!text)return"";const segs=text.split(/(\s*[,\/\-]\s*|\s+)/);const out=[];
   for(const sg of segs){if(!/[A-Za-z]/.test(sg)){out.push(sg);continue}
@@ -2434,9 +2451,10 @@ function parseModt(raw){const t=String(raw||"").replace(/[ \t]+/g," "),f=(re,g=1
   if(/^(mrs|ms)/i.test(d["Mortgagor salutation"]||""))d["Mortgagor gender"]="Female";else if(d["Mortgagor salutation"]==="Mr")d["Mortgagor gender"]="Male";
   if(/wife/i.test(d["Mortgagor relation"]||""))d["Mortgagor marital status"]="Married";
   return d}
-async function claudeModt(file){if(!window.__sb)return null;const{canvases}=await canvasesOf([file],()=>{},10);if(!canvases.length)return null;
+async function claudeModt(file){if(!window.__sb)return null;const{canvases,text}=await canvasesOf([file],()=>{},10);if(!canvases.length)return null;
   const hints=[...ruleHints(),...learned().slice(0,40).map(x=>`${x.field}: "${x.read}" → "${x.fixed}"`)].slice(0,40);
-  const{data,error}=await window.__sb.functions.invoke("read-aadhaar",{body:{kind:"modt",images:canvases.slice(0,10).map(c=>jpegOf(c,1500)),hints}});
+  const tx=String(text||"").replace(/\s+/g," ").trim(),junk=(tx.match(/[\u0080-\u00ff\ufffd]/g)||[]).length/Math.max(1,tx.length),useText=tx.length>=Math.max(1500,canvases.length*500)&&/\d{4}/.test(tx)&&/mortgag|deposit|loan|அடமான/i.test(tx)&&junk<0.01;
+  const{data,error}=await window.__sb.functions.invoke("read-aadhaar",{body:useText?{kind:"modt",pdfText:tx,hints}:{kind:"modt",images:canvases.slice(0,10).map(c=>jpegOf(c,1300)),hints}});
   if(error||!data||!data.fields){console.warn("Claude MODT",error||data);try{if(/credit balance/i.test(await error.context.text())){window.__noCredit=true;toast("Claude credit is finished — top up at console.anthropic.com (Plans & Billing).")}}catch(e){}return null}
   const f=data.fields,d={},put=(k,v)=>{v=String(v??"").trim();if(v)d[k]=v};
   (Array.isArray(f.co_mortgagors)?f.co_mortgagors:[]).slice(0,4).forEach((m,i)=>{const n=i+2;put(`Mortgagor ${n} name`,String(m.name||"").toUpperCase());put(`Mortgagor ${n} name (Tamil)`,m.name_ta);put(`Mortgagor ${n} age`,m.age);put(`Mortgagor ${n} relation`,m.rel_type);put(`Mortgagor ${n} relative name`,String(m.rel_name||"").toUpperCase())});
@@ -2488,7 +2506,7 @@ async function rereadModt(c,force){const f=((c.docs||{}).modt||[])[0];if(!f){toa
   toast("Reading the MODT with Claude… about 10–20 seconds.");
   try{const r=await claudeModt(await fileOfDoc(f));if(!r||!Object.keys(r.d).length){toast("Could not read the MODT. Check that it is clear and try again.");return false}
     const tp={...(c.tp||{})};let n=0;Object.entries(r.d).forEach(([k,v])=>{if(force||!String(tp[k]||"").trim()){if(tp[k]!==v)n++;tp[k]=v}});
-    const ch={tp,tpAuto:{...(c.tpAuto||{}),...r.d}};if((!c.applicant||c.applicantFromMail)&&r.d.Mortgagor){ch.applicant=cleanCust(r.d.Mortgagor);ch.applicantFromMail=null}if(!c.loanNo){const ln=r.d["Loan account"]||lanOf(c.mailSubject);if(ln)ch.loanNo=ln}if(!c.phone&&r.d["Mortgagor mobile"])ch.phone=String(r.d["Mortgagor mobile"]).replace(/\D/g,"").slice(-10);if(!c.bank&&r.bankText){const b=matchBank(r.bankText);if(b)ch.bank=b}if(!c.loanAmount&&r.d["Loan Amount"])ch.loanAmount=r.d["Loan Amount"];
+    const ch={tp,tpAuto:{...(c.tpAuto||{}),...r.d},modtReadOf:f.url||f.name};if((!c.applicant||c.applicantFromMail)&&r.d.Mortgagor){ch.applicant=cleanCust(r.d.Mortgagor);ch.applicantFromMail=null}if(!c.loanNo){const ln=r.d["Loan account"]||lanOf(c.mailSubject);if(ln)ch.loanNo=ln}if(!c.phone&&r.d["Mortgagor mobile"])ch.phone=String(r.d["Mortgagor mobile"]).replace(/\D/g,"").slice(-10);if(!c.bank&&r.bankText){const b=matchBank(r.bankText);if(b)ch.bank=b}if(!c.loanAmount&&r.d["Loan Amount"])ch.loanAmount=r.d["Loan Amount"];
     await patch(c,ch,`MODT read again (${n} fields filled)`);toast(`MODT read: ${n} field${n===1?"":"s"} filled. Check them.`);
     const fresh=cases.find(x=>x._doc===c._doc)||{...c,...ch};if(rv.c&&rv.c._doc===c._doc)openReview(fresh,rv.gen);return true}
   catch(e){console.warn(e);toast("Could not read the MODT: "+(e.message||e));return false}}
