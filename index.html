@@ -1051,9 +1051,10 @@ async function bankReads(){if(!(isMD||isAdmin||isPartner())||!canWrite)return;
       if(!b&&lab.length&&(isMD||isAdmin)){const nm=lab[0].toLowerCase().replace(/\b\w/g,x=>x.toUpperCase());if(!cfg.banks.some(x=>x.toLowerCase()===nm.toLowerCase())){await saveCfg({...cfg,banks:[...cfg.banks,nm].sort((a,b)=>a.localeCompare(b))})}b=nm}
       const ch={mailBankDone:true};if(b){ch.bank=b;const who2=cfg.staff.map(staffObj).filter(m=>m.team&&(m.banks||[]).includes(b));if(who2.length===1&&!c.assignee)ch.assignee=who2[0].name}
       await db.collection("cases").doc(c._doc).update(ch)}catch(e){BR.delete("b"+c._doc)}}
-  for(const c of cases.filter(x=>x.source==="mail"&&!x.classified&&!BR.has("k"+x._doc))){BR.add("k"+c._doc);try{await classifyMail(c)}catch(e){console.warn(e);BR.delete("k"+c._doc)}}
+  if(window.__noCredit)return;
+  for(const c of cases.filter(x=>x.source==="mail"&&!x.classified&&!BR.has("k"+x._doc))){if(window.__noCredit)break;BR.add("k"+c._doc);try{await classifyMail(c)}catch(e){console.warn(e);BR.delete("k"+c._doc)}}
   for(const c of cases.filter(x=>x.needsRead&&!(x.source==="mail"&&!x.classified)&&!BR.has(x._doc))){BR.add(c._doc);
-  try{if(c.needsRead==="modt2")await readSuppModt(c);else await rereadModt(c,false);await db.collection("cases").doc(c._doc).update({needsRead:null})}catch(e){BR.delete(c._doc)}}}
+  try{if(window.__noCredit)break;if(c.needsRead==="modt2")await readSuppModt(c);else if(!await rereadModt(c,false)){BR.delete(c._doc);continue}await db.collection("cases").doc(c._doc).update({needsRead:null})}catch(e){BR.delete(c._doc)}}}
 
 /* ================= writes ================= */
 async function patch(c,changes,logText){
@@ -1423,7 +1424,7 @@ async function classifyMail(c){const seen=new Set(),F=allFiles(c).filter(x=>{con
   const imgs=[],labels=[],idx=[];
   for(const [j,x] of F.slice(0,12).entries()){try{const file=await fileOfDoc(x.f);if(/\.docx?$/i.test(x.f.name))continue;const{canvases}=await canvasesOf([file],()=>{},1);if(canvases[0]){imgs.push(jpegOf(canvases[0],900));labels.push(`File ${j+1}: ${x.f.name}`);idx.push(j)}}catch(e){}}
   if(!imgs.length){await db.collection("cases").doc(c._doc).update({classified:true});return}
-  const{data,error}=await window.__sb.functions.invoke("read-aadhaar",{body:{kind:"classify",images:imgs,labels}});if(error||!data||!data.fields)throw new Error("classify failed");
+  const{data,error}=await window.__sb.functions.invoke("read-aadhaar",{body:{kind:"classify",images:imgs,labels}});if(error||!data||!data.fields){let t="";try{t=JSON.parse(await error.context.text()).error||""}catch(e){}if(/credit balance/i.test(t)){toast("Claude credit is finished — top up at console.anthropic.com (Plans & Billing). Mail cases will be read after that.");window.__noCredit=true}throw new Error(t||"classify failed")}
   const R=(data.fields.files||[]),docs={},custs=new Set();const slot={modt:"modt",supp_modt:"modt2",noc:"noc",letter:"letter"};
   idx.forEach((j,i)=>{const r=R.find(x=>+x.n===i+1)||{};let k=slot[r.type]||"other";if(k==="modt"&&docs.modt)k="other";(docs[k]=docs[k]||[]).push({...F[j].f,kind:r.type||""});if(r.type==="modt"&&r.customer)custs.add(String(r.customer).trim().toLowerCase())});
   F.forEach((x,j)=>{if(!idx.includes(j))(docs.other=docs.other||[]).push(x.f)});
@@ -2389,7 +2390,7 @@ function parseModt(raw){const t=String(raw||"").replace(/[ \t]+/g," "),f=(re,g=1
 async function claudeModt(file){if(!window.__sb)return null;const{canvases}=await canvasesOf([file],()=>{},10);if(!canvases.length)return null;
   const hints=[...ruleHints(),...learned().slice(0,40).map(x=>`${x.field}: "${x.read}" → "${x.fixed}"`)].slice(0,40);
   const{data,error}=await window.__sb.functions.invoke("read-aadhaar",{body:{kind:"modt",images:canvases.slice(0,10).map(c=>jpegOf(c,1500)),hints}});
-  if(error||!data||!data.fields){console.warn("Claude MODT",error||data);return null}
+  if(error||!data||!data.fields){console.warn("Claude MODT",error||data);try{if(/credit balance/i.test(await error.context.text())){window.__noCredit=true;toast("Claude credit is finished — top up at console.anthropic.com (Plans & Billing).")}}catch(e){}return null}
   const f=data.fields,d={},put=(k,v)=>{v=String(v??"").trim();if(v)d[k]=v};
   (Array.isArray(f.co_mortgagors)?f.co_mortgagors:[]).slice(0,4).forEach((m,i)=>{const n=i+2;put(`Mortgagor ${n} name`,String(m.name||"").toUpperCase());put(`Mortgagor ${n} name (Tamil)`,m.name_ta);put(`Mortgagor ${n} age`,m.age);put(`Mortgagor ${n} relation`,m.rel_type);put(`Mortgagor ${n} relative name`,String(m.rel_name||"").toUpperCase())});
   {const ca=String(f.bank_address||"").trim(),ba=String(f.branch_address||"").trim(),cat=String(f.bank_address_ta||"").trim(),bat=String(f.branch_address_ta||"").trim();
@@ -2438,12 +2439,12 @@ async function readModtCase(c,force){const D=c.docs||{};if(!(D.mdraft||[]).lengt
   catch(e){console.warn(e);toast("Could not read the MODT documents: "+(e.message||e))}}
 async function rereadModt(c,force){const f=((c.docs||{}).modt||[])[0];if(!f){toast("Upload the MODT copy first");return}
   toast("Reading the MODT with Claude… about 10–20 seconds.");
-  try{const r=await claudeModt(await fileOfDoc(f));if(!r||!Object.keys(r.d).length){toast("Could not read the MODT. Check that it is clear and try again.");return}
+  try{const r=await claudeModt(await fileOfDoc(f));if(!r||!Object.keys(r.d).length){toast("Could not read the MODT. Check that it is clear and try again.");return false}
     const tp={...(c.tp||{})};let n=0;Object.entries(r.d).forEach(([k,v])=>{if(force||!String(tp[k]||"").trim()){if(tp[k]!==v)n++;tp[k]=v}});
     const ch={tp,tpAuto:{...(c.tpAuto||{}),...r.d}};if((!c.applicant||c.applicantFromMail)&&r.d.Mortgagor){ch.applicant=cleanCust(r.d.Mortgagor);ch.applicantFromMail=null}if(!c.loanNo){const ln=r.d["Loan account"]||lanOf(c.mailSubject);if(ln)ch.loanNo=ln}if(!c.phone&&r.d["Mortgagor mobile"])ch.phone=String(r.d["Mortgagor mobile"]).replace(/\D/g,"").slice(-10);if(!c.bank&&r.bankText){const b=matchBank(r.bankText);if(b)ch.bank=b}if(!c.loanAmount&&r.d["Loan Amount"])ch.loanAmount=r.d["Loan Amount"];
     await patch(c,ch,`MODT read again (${n} fields filled)`);toast(`MODT read: ${n} field${n===1?"":"s"} filled. Check them.`);
-    const fresh=cases.find(x=>x._doc===c._doc)||{...c,...ch};if(rv.c&&rv.c._doc===c._doc)openReview(fresh,rv.gen)}
-  catch(e){console.warn(e);toast("Could not read the MODT: "+(e.message||e))}}
+    const fresh=cases.find(x=>x._doc===c._doc)||{...c,...ch};if(rv.c&&rv.c._doc===c._doc)openReview(fresh,rv.gen);return true}
+  catch(e){console.warn(e);toast("Could not read the MODT: "+(e.message||e));return false}}
 async function readSuppModt(c){const f=((c.docs||{}).modt2||[])[0];if(!f)return;
   toast("Reading the supplementary MODT with Claude…");
   try{const r=await claudeModt(await fileOfDoc(f));if(!r){toast("Could not read the supplementary MODT");return}const d=r.d,tp={...(c.tp||{})};
