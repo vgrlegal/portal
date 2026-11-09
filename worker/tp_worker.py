@@ -2030,6 +2030,42 @@ def probe():
     log("probe", PROBE["res"])
 
 
+BAK = {"at": 0}
+BACKUP_DIR = os.path.expanduser("~/VGR-Backup")
+BACKUP_FILE = os.path.join(BACKUP_DIR, "VGR-portal-backup.json")
+
+
+def daily_backup():
+    """Once a day (after 11 pm, or at the first chance if the Mac was off): save settings + cases to ONE file,
+    replaced each time. Never replaces a good file with one whose staff and company lists are empty."""
+    import datetime
+    t = datetime.datetime.now()
+    today = t.strftime("%Y-%m-%d")
+    old = None
+    try:
+        with open(BACKUP_FILE) as f:
+            old = json.load(f)
+    except Exception:
+        pass
+    last = (old or {}).get("date", "")
+    yday = (t - datetime.timedelta(days=1)).strftime("%Y-%m-%d")
+    if last == today or (t.hour < 23 and last >= yday):
+        return
+    cfg = kv_get("config", "lists") or {}
+    if not (cfg.get("staff") or cfg.get("banks")) and old and ((old.get("settings") or {}).get("banks")):
+        log("backup skipped: the portal settings look empty; keeping the last good backup from", last)
+        return
+    cases = [dict(r["data"] or {}, _id=r["id"]) for r in kv_list("cases")]
+    out = {"app": "VGR Legal portal", "date": today, "made": now(), "settings": cfg, "cases": cases,
+           "note": "Restore: portal > Clients & Staff > Backup > Restore settings from a backup. TNREGINET passwords are not in this file."}
+    os.makedirs(BACKUP_DIR, exist_ok=True)
+    tmp = BACKUP_FILE + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(out, f, ensure_ascii=False, indent=1)
+    os.replace(tmp, BACKUP_FILE)
+    log("daily backup saved:", BACKUP_FILE, len(cases), "cases")
+
+
 def main():
     log("TP worker started", "key type:", "secret" if KEY.startswith("sb_secret_") else "jwt" if KEY.startswith("eyJ") else ("EMPTY" if not KEY else "unknown"))
     with sync_playwright() as pw:
@@ -2039,6 +2075,12 @@ def main():
                 last_upd = time.time()
                 self_update()
             try:
+                if time.time() - BAK["at"] > 600:
+                    BAK["at"] = time.time()
+                    try:
+                        daily_backup()
+                    except Exception as e:
+                        log("backup failed", e)
                 if time.time() - PROBE["at"] > (1800 if PROBE["ok"] else 300):
                     probe()
                 if not PROBE["ok"]:

@@ -452,18 +452,19 @@ tr.hf input,tr.hf select{font-size:12.5px;padding:5px 7px;margin:2px 0}
   </section>
   <section id="v-rep" hidden><div class="wrap" style="padding-top:16px"><div class="card"><h2>Reports</h2>
     <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-bottom:10px"><label>Month<input type="month" id="repMonth"></label><label id="repOrgL">Show<select id="repOrg"><option value="all">Everything</option><option value="vgr">VGR office only</option><option value="oo">Opinion &amp; Ownership only</option></select></label><button class="btn" id="repCsv" type="button">⬇ Excel (CSV)</button></div>
-    <div style="overflow-x:auto"><table class="mini" id="repTbl"></table></div><p class="sf-note" id="repNote"></p></div></div></section>
+    <div style="overflow-x:auto"><table class="mini" id="repTbl"></table></div><p class="sf-note" id="repNote"></p></div>
+    <div class="card" style="margin-top:16px"><h2>Time on the portal</h2><p class="sf-note">Minutes with the portal open, counted each day (India time). Open but idle still counts, so read it together with the work done above.</p><div style="overflow-x:auto"><table class="mini" id="timeTbl"></table></div></div></div></section>
   <section id="v-team" hidden><div class="wrap" style="padding-top:16px"><div class="card"><h2>My team</h2><p>Your team works on Deed of Receipt only. Add a person, save, then press Invite (e-mail) or Copy link (to send on WhatsApp). The link works once; only that person should open it.</p>
     <div style="overflow-x:auto"><table class="mini" id="teamTbl"></table></div>
     <div style="display:flex;gap:8px;margin-top:10px"><button class="btn" id="teamAdd" type="button">+ Add team member</button><button class="btn primary" id="teamSave" type="button">Save team</button></div></div></div></section>
   <section id="v-set" hidden>
     <p class="banner" id="setNote" hidden>Only the Admin can change clients, staff and payment details.</p>
     <div class="grid2">
-      <div class="card"><h2>Clients · Banks &amp; NBFCs</h2><p>Companies that send work.</p><div class="chips" id="ch-banks"></div><form class="addline" data-k="banks"><input placeholder="e.g. Lendingkart Finance"><button class="btn primary">Add</button></form></div>
+      <div class="card"><h2>Clients · Banks &amp; NBFCs</h2><p>Companies that send work.</p><details class="fold"><summary id="banksSum">Companies</summary><input id="bankQ" class="fq" placeholder="Search company…"><div class="chips" id="ch-banks"></div></details><form class="addline" data-k="banks"><input placeholder="e.g. Lendingkart Finance"><button class="btn primary">Add</button></form></div>
       <div class="card"><h2>Payment details</h2><p>Used in the WhatsApp payment message to customers.</p>
         <div class="fgrid"><label class="full">Account details<textarea id="pay_account" placeholder="Account name, number, IFSC, bank"></textarea></label><label>UPI ID<input id="pay_upi"></label><label>Default service charge (₹)<input id="pay_service" type="number" min="0"></label><label class="full">Payment link (optional)<input id="pay_link" placeholder="https://"></label></div>
         <div style="margin-top:10px"><button class="btn primary" id="paySave" type="button">Save payment details</button></div></div>
-      <div class="card"><h2>TNREGINET login IDs</h2><p>One or more IDs per company. The password is saved but can never be shown again, not even to the Admin; only the TP computer uses it.</p><div id="tnList"></div>
+      <div class="card"><h2>TNREGINET login IDs</h2><p>One or more IDs per company. The password is saved but can never be shown again, not even to the Admin; only the TP computer uses it.</p><input id="tnQ" class="fq" placeholder="Type a company name to see its login IDs…"><div id="tnList"></div>
         <div id="tnImp" style="margin-top:10px"><label class="btn" for="tnCsv">⬆ Import from Chrome passwords (CSV)</label><input type="file" id="tnCsv" accept=".csv,text/csv" hidden>
         <span class="sf-note"> Google Password Manager → Settings → Export passwords. Only TNREGINET logins whose company is recognised are imported. Delete the CSV after importing.</span><div id="tnImpBox"></div></div>
         <div id="recBox" style="margin-top:12px"></div>
@@ -471,20 +472,22 @@ tr.hf input,tr.hf select{font-size:12.5px;padding:5px 7px;margin:2px 0}
     </div>
     <div class="grid2" style="margin-top:16px">
       <div class="card"><h2>Client profiles · Deed of Receipt</h2><p>For each client: company address, representatives (details + Aadhaar KYC + bank ID card). Picking the client on a case fills all of it.</p>
-        <div id="xlBox" class="mrow" style="border:1px dashed var(--line);border-radius:10px;padding:10px 12px;margin-bottom:8px"><b>Import from your Excel</b><span><label class="btn primary" for="xlIn">Choose Excel</label><input type="file" id="xlIn" accept=".xlsx,.xls" hidden></span><div class="mf"><span class="no">“RD _ TP Details - Common Data.xlsx”: bank sheets and the Witness Master are read in this browser.</span></div></div>
+        <input id="repQ" class="fq" placeholder="Type a company name…"><div id="xlBox" hidden class="mrow" style="border:1px dashed var(--line);border-radius:10px;padding:10px 12px;margin-bottom:8px"><b>Import from your Excel</b><span><label class="btn primary" for="xlIn">Choose Excel</label><input type="file" id="xlIn" accept=".xlsx,.xls" hidden></span><div class="mf"><span class="no">“RD _ TP Details - Common Data.xlsx”: bank sheets and the Witness Master are read in this browser.</span></div></div>
         <div id="repList"></div></div>
       <div class="card"><h2>Witnesses</h2><p>Save each witness once. Mark W1 / W2 to fill new cases automatically; staff can change them per case.</p><div id="witList"></div>
-        <form class="addline" id="witAdd" style="margin-top:10px"><input placeholder="Witness name"><button class="btn primary">Add</button></form></div>
+        <div id="witAdd" style="margin-top:10px"><label class="btn primary" for="witAadhaar">＋ Add witness · upload Aadhaar</label><input type="file" id="witAadhaar" accept="image/*,application/pdf,.pdf" multiple hidden><span class="sf-note"> Front and back (photos or one PDF). Claude fills the details; check and save.</span></div></div>
     </div>
     <div class="card" style="margin-top:16px"><h2>Staff</h2><p>Tick the work each person can open. Staff sign in with this email. Save, then press <b>Invite</b>: they get an email link and set their own password. They see only the work you tick.</p>
       <div style="overflow-x:auto"><table class="mini stafft" id="staffTbl"></table></div>
       <div style="display:flex;gap:8px;margin-top:10px"><button class="btn" id="staffAdd" type="button">+ Add staff</button><button class="btn primary" id="staffSave" type="button">Save staff</button></div></div>
-    <div class="card" style="margin-top:16px" id="rulesCard"><h2>Learning list</h2><p>Rules Claude and the TP robot follow when reading documents and filling TNREGINET, for example how to tell Urban, Rural or Natham. When the robot is unsure it asks a question on the case; your answer and its reason become a rule here. Only the Admin can change this list.</p>
+    <details class="card fold" style="margin-top:16px" id="rulesCard"><summary><h2 style="display:inline">Learning list</h2> <span class="sf-note" id="rulesSum"></span></summary><p>Rules Claude and the TP robot follow when reading documents and filling TNREGINET, for example how to tell Urban, Rural or Natham. When the robot is unsure it asks a question on the case; your answer and its reason become a rule here. Only the Admin can change this list.</p>
       <div id="rulesList"></div>
-      <form class="addline" id="ruleAdd" style="margin-top:8px;display:flex;gap:6px"><input id="ruleIn" placeholder="New rule, e.g. Extent in cents or acres means Agricultural land"><button class="btn primary" type="submit">Add rule</button></form></div>
-    <div class="card" style="margin-top:16px" id="clientCard"><h2>Client logins (banks)</h2><p>A bank person signs in and sees only their company's Deed of Receipt cases (all branches, or one branch): stage, TP copy, their documents, queries and messages. They can file new cases with the MODT and NOC; those land in Drafting. Internal comments, staff and settings are never shown to them.</p>
+      <form class="addline" id="ruleAdd" style="margin-top:8px;display:flex;gap:6px"><input id="ruleIn" placeholder="New rule, e.g. Extent in cents or acres means Agricultural land"><button class="btn primary" type="submit">Add rule</button></form></details>
+    <details class="card fold" style="margin-top:16px" id="clientCard"><summary><h2 style="display:inline">Client logins (banks)</h2></summary><p>A bank person signs in and sees only their company's Deed of Receipt cases (all branches, or one branch): stage, TP copy, their documents, queries and messages. They can file new cases with the MODT and NOC; those land in Drafting. Internal comments, staff and settings are never shown to them.</p>
       <div style="overflow-x:auto"><table class="mini" id="clientTbl"></table></div>
-      <div style="display:flex;gap:8px;margin-top:10px"><button class="btn" id="clientAdd" type="button">+ Add client login</button><button class="btn primary" id="clientSave" type="button">Save client logins</button></div></div>
+      <div style="display:flex;gap:8px;margin-top:10px"><button class="btn" id="clientAdd" type="button">+ Add client login</button><button class="btn primary" id="clientSave" type="button">Save client logins</button></div></details>
+    <div class="card" style="margin-top:16px" id="bakCard"><h2>Backup</h2><p>One file with everything: settings (staff, companies, witnesses, client profiles, rules) and all cases. The Mac also saves this file every night to the VGR-Backup folder (one file, replaced each day). Restore puts the settings back from a backup file; cases are not touched.</p>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn primary" id="bakDown" type="button">⬇ Download backup</button><label class="btn" for="bakIn">Restore settings from a backup…</label><input type="file" id="bakIn" accept=".json,application/json" hidden></div></div>
   </section>
 </main>
 
@@ -522,6 +525,8 @@ tr.hf input,tr.hf select{font-size:12.5px;padding:5px 7px;margin:2px 0}
 #authGate .am{min-height:18px;font-size:13px;color:#b42318;margin-top:10px}
 #authGate .lk{background:none;color:#1f3b63;font-weight:500;margin-top:8px;padding:6px;font-size:13px}
 [hidden]{display:none!important}
+.fq{width:100%;box-sizing:border-box;padding:8px 10px;margin:6px 0 8px;border:1px solid var(--line,#ccc);border-radius:8px;font:inherit;background:transparent;color:inherit}
+details.fold>summary{cursor:pointer;list-style:revert;padding:4px 0}
 #acctBar{position:fixed;left:10px;bottom:10px;z-index:20;background:var(--surface,#fff);border:1px solid var(--line,#ddd);border-radius:10px;padding:5px 8px;box-shadow:0 2px 10px rgba(0,0,0,.08);display:flex;gap:6px;align-items:center;font-size:12px}
 #acctBar button{border:1px solid var(--line,#ccc);background:transparent;color:inherit;border-radius:7px;padding:4px 8px;font:inherit;font-size:12px;cursor:pointer}
 </style>
@@ -634,7 +639,11 @@ ready.then(()=>{const hdr=document.body;const d=document.createElement("div");d.
   d.innerHTML=`<span>${(session.user.email||"").replace(/</g,"")}</span><button id="acPw">Change password</button><button id="acOut">Sign out</button>`;hdr.appendChild(d);
   document.getElementById("acOut").onclick=async()=>{await sb.auth.signOut();location.reload()};
   document.getElementById("acPw").onclick=async()=>{const p=prompt("New password (at least 8 characters)");if(!p)return;if(p.length<8){alert("At least 8 characters.");return}
-    const{error}=await sb.auth.updateUser({password:p});alert(error?error.message:"Password changed.")}});
+    const{error}=await sb.auth.updateUser({password:p});alert(error?error.message:"Password changed.")};
+  const tm=document.createElement("span");tm.id="acTime";tm.style.color="var(--muted,#777)";d.insertBefore(tm,d.children[1]);
+  const ping=async()=>{if(document.visibilityState!=="visible")return;try{await sb.rpc("ping_presence");const k=(session.user.email||"").toLowerCase()+"|"+new Date(Date.now()+19800000).toISOString().slice(0,10);
+    const{data}=await sb.from("kv").select("data").eq("collection","presence").eq("id",k).maybeSingle();const m=data&&data.data?+data.data.minutes||0:0;tm.textContent=m?`Today ${Math.floor(m/60)}h ${m%60}m`:""}catch(e){}};
+  ping();setInterval(ping,60000);document.addEventListener("visibilitychange",ping)});
 })();
 </script>
 
@@ -848,8 +857,12 @@ function actionsFor0(c){
 }
 
 /* ================= table ================= */
+function fillClientFilter(){const sel=$("fClient");if(!sel)return;const v=sel.value,T=cfg.types.includes(tab)?tab:null,n={};
+  cases.forEach(c=>{if(c.bank&&(!T||c.type===T))n[c.bank]=(n[c.bank]||0)+1});const L=Object.keys(n).sort((a,b)=>n[b]-n[a]||a.localeCompare(b));
+  const tot=Object.values(n).reduce((a,b)=>a+b,0);const html=`<option value="">All companies (${tot})</option>`+L.map(b=>`<option value="${esc(b)}">${esc(b)} (${n[b]})</option>`).join("");
+  if(sel.__h!==html){sel.innerHTML=html;sel.__h=html}sel.value=L.includes(v)?v:""}
 function render(){
-  renderTabs();
+  renderTabs();fillClientFilter();
   if(!allowedTab(tab))tab="dash";
   ["v-dash","v-list","v-set","v-sro","v-kyc","v-ppl","v-team","v-rep"].forEach(id=>$(id).hidden=true);
   if(tab==="__rep"){$("v-rep").hidden=false;$("ranges").style.visibility="hidden";$("customRow").hidden=true;renderReport();return}
@@ -1381,8 +1394,8 @@ function renderRules(ro){const box=$("rulesList");if(!box)return;$("rulesCard").
 /* ---- partner (e.g. Opinion & Ownership): their team, their branding ---- */
 function teamRows(){return cfg.staff.map(staffObj).filter(x=>x.team&&x.team===myOrg())}
 function renderTeam(){const L=teamRows();const t=$("teamTbl");
-  t.innerHTML=`<tr><th>Name</th><th>Email</th><th>Phone</th><th>Banks (none ticked = all)</th><th class="c">TP Generate</th><th></th></tr>`+L.map((m,i)=>`<tr data-i="${i}"><td><input class="tm_n" value="${esc(m.name)}"></td><td><input class="tm_e" type="email" value="${esc(m.email)}"></td><td><input class="tm_p" value="${esc(m.phone||"")}"></td><td>${bankPick(m.banks)}</td><td class="c"><input type="checkbox" class="tm_t" ${m.tp?"checked":""}></td>
-    <td style="white-space:nowrap">${m.email?`<button class="btn tinv" type="button" data-em="${esc(m.email)}">Invite</button> <button class="btn slink" type="button" data-em="${esc(m.email)}">Copy link</button> `:""}<button class="btn danger tdel" type="button">Remove</button></td></tr>`).join("")+(L.length?"":`<tr><td colspan="6" class="sf-note">No team members yet.</td></tr>`);
+  t.innerHTML=`<tr><th>Name</th><th>Email</th><th>Phone</th><th>Banks (none ticked = all)</th><th class="c">TP Generate</th><th>Login</th><th></th></tr>`+L.map((m,i)=>`<tr data-i="${i}"><td><input class="tm_n" value="${esc(m.name)}"></td><td><input class="tm_e" type="email" value="${esc(m.email)}"></td><td><input class="tm_p" value="${esc(m.phone||"")}"></td><td>${bankPick(m.banks)}</td><td class="c"><input type="checkbox" class="tm_t" ${m.tp?"checked":""}></td>
+    <td class="lgst" data-em="${esc((m.email||"").toLowerCase())}" style="white-space:nowrap;font-size:12px">${m.email?"…":""}</td><td style="white-space:nowrap">${m.email?`<button class="btn tinv" type="button" data-em="${esc(m.email)}">Invite</button> <button class="btn slink" type="button" data-em="${esc(m.email)}">Copy link</button> `:""}<button class="btn danger tdel" type="button">Remove</button></td></tr>`).join("")+(L.length?"":`<tr><td colspan="7" class="sf-note">No team members yet.</td></tr>`);loginStatus();
   t.querySelectorAll(".tdel").forEach(b=>b.onclick=()=>{b.closest("tr").remove()});
   t.querySelectorAll(".tinv").forEach(b=>b.onclick=async()=>{b.disabled=true;b.textContent="Sending…";try{const{data,error}=await window.__sb.functions.invoke("read-aadhaar",{body:{kind:"invite",email:b.dataset.em}});if(error||!data||data.error)throw new Error((data&&data.error)||(error&&error.message));b.textContent="Sent ✓";toast(data.sent==="reset"?"Already has a login: a password-reset link was e-mailed.":"Invite e-mailed.")}catch(e){b.textContent="Invite";b.disabled=false;toast("Invite not sent: "+e.message)}})}
 function bankPick(sel){sel=sel||[];return`<select class="tm_b" multiple size="3" style="min-width:200px" title="Hold Command (Mac) or Ctrl to pick more than one">${cfg.banks.map(b=>`<option${sel.includes(b)?" selected":""}>${esc(b)}</option>`).join("")}</select>`}
@@ -1413,9 +1426,18 @@ async function renderReport(){const mEl=$("repMonth");if(!mEl.value)mEl.value=ne
     REP_ROWS.map(r=>`<tr><td>${esc(r.name)}</td><td>${esc(on(r.org))}</td><td class="c">${r.created}</td><td class="c">${r.drafted}</td><td class="c">${r.tp}</td><td class="c">${r.done}</td>${C?`<td class="c">${r.ocr}</td><td class="c">${r.img}</td><td class="c">${Math.round(r.usd*USD_INR)}</td>`:""}</tr>`).join("")+
     `<tr style="font-weight:700"><td>Total</td><td></td><td class="c">${tot.created}</td><td class="c">${tot.drafted}</td><td class="c">${tot.tp}</td><td class="c">${tot.done}</td>${C?`<td class="c">${tot.ocr}</td><td class="c">${tot.img}</td><td class="c">${Math.round(tot.usd*USD_INR)}</td>`:""}</tr>`;
   $("repNote").textContent=`People in this view: ${REP_ROWS.filter(r=>r.name!=="Mail (auto)").length}.`+(C?` Claude reading is counted from 9 Nov 2026; cost is an estimate (≈ ₹${USD_INR}/$).`:"");
+  renderTime(from,to,want,on);
   $("repCsv").onclick=()=>{const h=["Person","Organisation","Cases created","Drafts done","TPs made","Completed","Claude readings","Pages read","Cost INR approx"];
     if(!C)h.length=6;const csv=[h,...REP_ROWS.map(r=>[r.name,on(r.org),r.created,r.drafted,r.tp,r.done,r.ocr,r.img,Math.round(r.usd*USD_INR)].slice(0,C?9:6))].map(a=>a.map(x=>`"${String(x).replace(/"/g,'""')}"`).join(",")).join("\n");
     const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([csv],{type:"text/csv"}));a.download=`VGR report ${mon}.csv`;a.click()}}
+async function renderTime(from,to,want,on){const t=$("timeTbl");if(!t)return;let rows=[];
+  try{const{data}=await window.__sb.from("kv").select("data").eq("collection","presence").gte("data->>date",from).lt("data->>date",to).limit(5000);rows=(data||[]).map(r=>r.data)}catch(e){}
+  if(isMD&&want!=="all")rows=rows.filter(r=>want==="vgr"?!r.org:r.org===want);
+  const today=new Date(Date.now()+19800000).toISOString().slice(0,10),P={};
+  rows.forEach(r=>{const p=P[r.email]||(P[r.email]={name:r.name||r.email,org:r.org||"vgr",days:0,min:0,today:null});p.days++;p.min+=+r.minutes||0;if(r.date===today)p.today=r});
+  const hm=m=>`${Math.floor(m/60)}h ${m%60}m`,tf=x=>x?new Date(x).toLocaleTimeString("en-IN",{hour:"numeric",minute:"2-digit"}):"";
+  const L=Object.values(P).sort((a,b)=>b.min-a.min);
+  t.innerHTML=L.length?`<tr><th>Person</th><th>Organisation</th><th class="c">Days</th><th class="c">Total</th><th class="c">Average a day</th><th>Today</th></tr>`+L.map(p=>`<tr><td>${esc(p.name)}</td><td>${esc(on(p.org))}</td><td class="c">${p.days}</td><td class="c">${hm(p.min)}</td><td class="c">${hm(Math.round(p.min/p.days))}</td><td>${p.today?`${hm(+p.today.minutes||0)} · ${tf(p.today.first)} – ${tf(p.today.last)}${(+p.today.sessions||1)>1?` · ${p.today.sessions} sittings`:""}`:'<span class="no">not today</span>'}</td></tr>`).join(""):`<tr><td class="sf-note">No time recorded this month yet. It is counted from 9 Nov 2026.</td></tr>`}
 /* ---- mail cases: Claude looks at the FIRST PAGE of every file (cheap), puts each file in the right slot,
    reads only the MODT in full, and flags: no MODT · several customers · phone needed ---- */
 function lanOf(t){const m=String(t||"").match(/(?:LAN|loan(?:\s*(?:no|number|a\/c))?)\s*[:.#-]*\s*'?([A-Z]{0,8}\d[\w]{6,24})/i)||String(t||"").match(/\b([A-Z]{2,12}\d{8,20}|\d{10,20})\b/);return m?m[1]:""}
@@ -1583,9 +1605,10 @@ async function tnRender(ro){const box=$("tnList");if(!box)return;$("tnImp").hidd
   $("tn_client").innerHTML=`<option>${esc(MODT_POOL)}</option>`+cfg.banks.map(b=>`<option>${esc(b)}</option>`).join("");
   if(!isMD){box.innerHTML=`<p class="sf-note">Only the Admin can see these.</p>`;return}
   let l=[];try{l=await tnLogins()}catch(e){box.innerHTML=`<p class="banner">Login IDs could not load: ${esc(e.message)}</p>`;return}
-  recRender(l);
-  box.innerHTML=l.length?l.map(x=>`<div class="mrow"><b>${esc(x.username)}</b><span>${ro?"":`<button class="btn danger" type="button" data-tnx="${x.id}">Remove</button>`}</span><div class="mf">${esc(x.client)} · password saved</div></div>`).join(""):`<p class="sf-note">No login IDs yet.</p>`;
-  box.querySelectorAll("[data-tnx]").forEach(b=>b.onclick=()=>ask("Remove this login ID?",`<p class="sf-note">The TP computer will stop using it.</p>`,async()=>{const{error}=await window.__sb.from("tn_logins").delete().eq("id",b.dataset.tnx);if(error)toast(error.message);else{toast("Removed");tnRender(ro)}},"Remove"));
+  recRender(l);const all=l,tq=()=>($("tnQ").value||"").trim().toLowerCase();
+  const paint=()=>{const q=tq(),l=q?all.filter(x=>(x.client+" "+x.username).toLowerCase().includes(q)):[];
+  box.innerHTML=!q?`<p class="sf-note">${all.length} login IDs for ${new Set(all.map(x=>x.client)).size} companies. Type a company name above to see and remove them.</p>`:l.length?l.map(x=>`<div class="mrow"><b>${esc(x.username)}</b><span>${ro?"":`<button class="btn danger" type="button" data-tnx="${x.id}">Remove</button>`}</span><div class="mf">${esc(x.client)} · password saved</div></div>`).join(""):`<p class="sf-note">No login IDs for “${esc(q)}”.</p>`;
+  box.querySelectorAll("[data-tnx]").forEach(b=>b.onclick=()=>ask("Remove this login ID?",`<p class="sf-note">The TP computer will stop using it.</p>`,async()=>{const{error}=await window.__sb.from("tn_logins").delete().eq("id",b.dataset.tnx);if(error)toast(error.message);else{toast("Removed");tnRender(ro)}},"Remove"))};paint();$("tnQ").oninput=paint;
   $("tnAdd").onsubmit=async e=>{e.preventDefault();const client=fv("tn_client"),username=fv("tn_user"),password=$("tn_pass").value;if(!client||!username||!password){toast("Fill company, login ID and password");return}
     const{error}=await window.__sb.from("tn_logins").insert({client,username,password});if(error){toast(error.message);return}$("tn_user").value="";$("tn_pass").value="";toast("Login ID saved");tnRender(ro)}}
 async function cloudTp(c,fresh){const box=$("rvLogin");box.innerHTML=`<div class="sect">Generate TP on TNREGINET</div><p class="sf-note">Loading login IDs…</p>`;
@@ -1752,18 +1775,23 @@ $("dash").addEventListener("click",e=>{const o=e.target.closest("[data-open]");i
 /* ================= settings ================= */
 function renderSettings(){
   const ro=!(canWrite&&isAdmin);$("setNote").hidden=!ro;
-  $("ch-banks").innerHTML=cfg.banks.length?cfg.banks.map((x,i)=>`<span class="chip">${esc(x)}${ro?"":`<button data-k="banks" data-i="${i}" aria-label="Remove ${esc(x)}">×</button>`}</span>`).join(""):`<span style="color:var(--muted);font-size:13px">No clients yet</span>`;
+  $("banksSum").textContent=`${cfg.banks.length} companies · tap to see or remove`;const bq="";$("bankQ").oninput=e=>{const q=e.target.value.trim().toLowerCase();document.querySelectorAll("#ch-banks .chip").forEach(c=>c.hidden=!!q&&!c.textContent.toLowerCase().includes(q))};
+  $("ch-banks").innerHTML=cfg.banks.length?cfg.banks.map((x,i)=>!bq||x.toLowerCase().includes(bq)?`<span class="chip">${esc(x)}${ro?"":`<button data-k="banks" data-i="${i}" aria-label="Remove ${esc(x)}">×</button>`}</span>`:"").join(""):`<span style="color:var(--muted);font-size:13px">No clients yet</span>`;
   document.querySelectorAll(".addline[data-k]").forEach(f=>f.hidden=ro);
   const staff=cfg.staff.map(staffObj);
-  $("staffTbl").innerHTML=`<tr><th>Name</th><th>Email</th><th>Phone</th>${TAB_KEYS.map(t=>`<th class="c">${esc(t[1])}</th>`).join("")}<th class="c" title="Can press TP Generate for single cases (Bulk Run stays Admin only)">TP Generate</th><th></th></tr>`+
+  $("staffTbl").innerHTML=`<tr><th>Name</th><th>Email</th><th>Phone</th>${TAB_KEYS.map(t=>`<th class="c">${esc(t[1])}</th>`).join("")}<th class="c" title="Can press TP Generate for single cases (Bulk Run stays Admin only)">TP Generate</th><th>Login</th><th></th></tr>`+
     staff.map((s,i)=>`<tr data-i="${i}"><td><input class="sv" data-f="name" value="${esc(s.name)}" ${ro?"disabled":""}></td><td><input class="sv" data-f="email" type="email" value="${esc(s.email)}" ${ro?"disabled":""}></td><td><input class="sv" data-f="phone" value="${esc(s.phone)}" ${ro?"disabled":""}></td>
-      ${TAB_KEYS.map(t=>`<td class="c"><input type="checkbox" class="st" data-t="${esc(t[0])}" ${s.tabs.includes(t[0])?"checked":""} ${ro?"disabled":""} aria-label="${esc(s.name)} can use ${esc(t[1])}"></td>`).join("")}<td class="c"><input type="checkbox" class="stp" ${s.tp===true?"checked":""} ${ro?"disabled":""} aria-label="${esc(s.name)} can press TP Generate"></td>
+      ${TAB_KEYS.map(t=>`<td class="c"><input type="checkbox" class="st" data-t="${esc(t[0])}" ${s.tabs.includes(t[0])?"checked":""} ${ro?"disabled":""} aria-label="${esc(s.name)} can use ${esc(t[1])}"></td>`).join("")}<td class="c"><input type="checkbox" class="stp" ${s.tp===true?"checked":""} ${ro?"disabled":""} aria-label="${esc(s.name)} can press TP Generate"></td><td class="lgst" data-em="${esc((s.email||"").toLowerCase())}" style="white-space:nowrap;font-size:12px">${s.email?"…":'<span class="no">no email</span>'}</td>
       <td style="white-space:nowrap">${s.partner||s.team?`<span class="pill p-info" title="Partner organisation">${s.partner?"Partner · ":""}${esc((ORGS[s.partner||s.team]||{}).name||s.partner||s.team)}</span> `:""}${ro||s.name===MD_NAME?"":`${s.email?`<button class="btn sinv" type="button" data-em="${esc(s.email)}">Invite</button> <button class="btn slink" type="button" data-em="${esc(s.email)}">Copy link</button> `:""}<button class="btn danger sdel" type="button">Remove</button>`}</td></tr>`).join("");
-  $("staffAdd").hidden=ro;$("staffSave").hidden=ro;renderMasters(ro);
+  $("staffAdd").hidden=ro;$("staffSave").hidden=ro;renderMasters(ro);loginStatus();$("bakCard").hidden=!isMD;$("bankQ").dispatchEvent(new Event("input"));if($("rulesSum"))$("rulesSum").textContent=`${(cfg.rules||[]).length} rules · tap to open`;
   renderClients(ro);renderRules(ro);
   const p=cfg.pay||{};["account","upi","link","service"].forEach(k=>{$("pay_"+k).value=p[k]||"";$("pay_"+k).disabled=ro});$("paySave").hidden=ro;
   tnRender(ro);
 }
+function ago(t){if(!t)return"";const m=Math.round((Date.now()-new Date(t))/60000);return m<2?"just now":m<60?m+" min ago":m<1440?Math.round(m/60)+" h ago":Math.round(m/1440)+" days ago"}
+let LGS={at:0,L:[]};async function loginStatus(){if(!isMD&&!isPartner())return;let L=LGS.L;if(Date.now()-LGS.at>60000){try{const{data}=await window.__sb.rpc("login_status");L=data||[];LGS={at:Date.now(),L}}catch(e){return}}
+  document.querySelectorAll(".lgst[data-em]").forEach(td=>{const em=td.dataset.em;if(!em)return;const u=L.find(x=>x.email===em);
+    td.innerHTML=!u?'<span class="no">Not invited</span>':u.last_login?`<span class="ok" title="Last login ${esc(new Date(u.last_login).toLocaleString("en-IN"))}">● Active</span> · ${ago(u.last_login)}`:`<span class="no" title="Invited ${esc(new Date(u.invited).toLocaleString("en-IN"))}">Invited · not logged in yet</span>`})}
 async function copyInviteLink(em,btn){btn.disabled=true;const old=btn.textContent;btn.textContent="Making link…";
   try{const{data,error}=await window.__sb.functions.invoke("read-aadhaar",{body:{kind:"invite",email:em,link:true}});if(error||!data||!data.link)throw new Error((data&&data.error)||(error&&error.message)||"failed");
     let ok=false;try{await navigator.clipboard.writeText(data.link);ok=true}catch(e){}
@@ -1806,7 +1834,7 @@ async function saveCfg(n){if(!db){toast("Sign in to save");return}if(!CFG_OK){to
   cfg=n;fillStatic();render();
   try{await db.doc("config/lists").set({banks:n.banks,staff:n.staff.map(staffObj),types:n.types,pay:n.pay||{},profiles:n.profiles||{},wit:n.wit||[],clients:n.clients||[],rules:n.rules||[],domains:n.domains||{}});toast("Saved")}catch(err){fail(err)}}
 function fillStatic(){
-  opts($("fClient"),cfg.banks,"All Clients");
+
   const names=[...(isMD?[MD_NAME]:[]),...cfg.staff.map(s=>staffObj(s).name).filter(n=>!(isMD&&n===MD_NAME))],mv=me;
   $("meSel").innerHTML=`<option value="">— pick your name —</option>`+names.map(s=>`<option>${esc(s)}</option>`).join("");$("meSel").value=names.includes(mv)?mv:"";
   $("meSel").disabled=!!(myStaff&&!isMD);
@@ -2151,22 +2179,35 @@ function ageOf(v){v=String(v||"").trim();if(/^\d{1,3}(\.0)?$/.test(v))return Str
 const digits=v=>String(v||"").replace(/\.0$/,"").replace(/\D/g,"");
 function personDone(p){return!!(p&&p.name&&digits(p.id_no||p.aadhaar).length===12)}
 
+/* ---- backup: one file with settings + cases; restore puts settings back (Admin) ---- */
+function backupObj(){return{app:"VGR Legal portal",made:new Date().toISOString(),settings:{...cfg,staff:cfg.staff.map(staffObj)},cases:cases.map(c=>{const o={...c};delete o._doc;return{_id:c._doc,...o}})}}
+$("bakDown").onclick=()=>{const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([JSON.stringify(backupObj(),null,1)],{type:"application/json"}));a.download="VGR-portal-backup.json";a.click()};
+$("bakIn").onchange=async e=>{const f=e.target.files[0];e.target.value="";if(!f)return;let b;try{b=JSON.parse(await f.text())}catch(err){toast("This is not a portal backup file");return}
+  const st=b&&(b.settings||b.config);if(!st||!Array.isArray(st.banks)){toast("This is not a portal backup file");return}
+  ask("Restore settings from this backup?",`<p class="sf-note">Backup made ${esc(new Date(b.made||0).toLocaleString("en-IN"))}: ${st.banks.length} companies, ${(st.staff||[]).length} staff, ${(st.wit||[]).length} witnesses, ${Object.keys(st.profiles||{}).length} client profiles, ${(st.rules||[]).length} rules. This replaces today's settings (today's are kept as a copy first). Cases are not changed.</p>`,
+    ()=>saveCfg({...cfg,...st,staff:(st.staff||[]).map(staffObj),types:(st.types&&st.types.length)?st.types:cfg.types}),"Restore")};
 /* ---- settings cards ---- */
 function renderMasters(ro){
   const P=cfg.profiles||{};
-  $("repList").innerHTML=cfg.banks.length?cfg.banks.map((b,i)=>{const p=P[b]||{},reps=p.reps||[],kyc=reps.filter(r=>(r.kyc||[]).length&&(r.idcard||[]).length).length,co=!!(p.company&&p.company.addr_en);
+  const rq=($("repQ").value||"").trim().toLowerCase();$("repQ").oninput=()=>renderMasters(ro);$("xlBox").hidden=true;
+  $("repList").innerHTML=!cfg.banks.length?`<p class="sf-note">Add clients first.</p>`:!rq?`<p class="sf-note">${cfg.banks.length} companies · ${cfg.banks.filter(b=>(P[b]||{}).company&&P[b].company.addr_en).length} set up. Type a company name above.</p>`:cfg.banks.map((b,i)=>{if(!b.toLowerCase().includes(rq))return"";const p=P[b]||{},reps=p.reps||[],kyc=reps.filter(r=>(r.kyc||[]).length&&(r.idcard||[]).length).length,co=!!(p.company&&p.company.addr_en);
     const ok=co&&reps.length&&kyc===reps.length;
     return`<div class="mrow"><b>${esc(b)}</b><span>${ro?"":`<button class="btn" type="button" data-pe="${i}">${co||reps.length?"Edit":"Set up"}</button>`}</span>
-      <div class="mf"><span class="${co?"ok":"no"}">${co?"✓":"○"} Company address</span> · <span class="${reps.length?"ok":"no"}">${reps.length} rep${reps.length===1?"":"s"}</span> · <span class="${reps.length&&kyc===reps.length?"ok":"no"}">KYC + ID ${kyc}/${reps.length}</span>${ok?` · <span class="ok">ready</span>`:""}</div></div>`}).join(""):`<p class="sf-note">Add clients first.</p>`;
+      <div class="mf"><span class="${co?"ok":"no"}">${co?"✓":"○"} Company address</span> · <span class="${reps.length?"ok":"no"}">${reps.length} rep${reps.length===1?"":"s"}</span> · <span class="${reps.length&&kyc===reps.length?"ok":"no"}">KYC + ID ${kyc}/${reps.length}</span>${ok?` · <span class="ok">ready</span>`:""}</div></div>`}).join("")||`<p class="sf-note">No company matches “${esc(rq)}”.</p>`;
   $("witList").innerHTML=(cfg.wit||[]).length?cfg.wit.map((w,i)=>`<div class="mrow"><b>${esc(w.name)}</b><span>${ro?(w.def?"W"+w.def:""):`<select data-wd="${i}" aria-label="Default slot for ${esc(w.name)}"><option value="">—</option><option value="1"${w.def===1?" selected":""}>W1</option><option value="2"${w.def===2?" selected":""}>W2</option></select><button class="btn" type="button" data-we="${i}">Edit</button>`}</span>
-    <div class="mf"><span class="${digits(w.aadhaar).length===12?"ok":"no"}">${digits(w.aadhaar).length===12?"✓ Aadhaar":"○ Aadhaar"}</span> · ${(w.kyc||[]).length?fileLinks(w.kyc):'<span class="no">○ KYC</span>'}</div></div>`).join(""):`<p class="sf-note">No witnesses yet. Add one, or import your Excel.</p>`;
-  $("witAdd").hidden=ro;$("xlBox").hidden=ro;if(ro)return;
+    <div class="mf"><span class="${digits(w.aadhaar).length===12?"ok":"no"}">${digits(w.aadhaar).length===12?"✓ Aadhaar":"○ Aadhaar"}</span> · ${(w.kyc||[]).length?fileLinks(w.kyc):'<span class="no">○ KYC</span>'}</div></div>`).join(""):`<p class="sf-note">No witnesses yet. Upload a witness's Aadhaar to add one.</p>`;
+  $("witAdd").hidden=ro;if(ro)return;
   document.querySelectorAll("[data-pe]").forEach(el=>el.onclick=()=>openProfile(cfg.banks[+el.dataset.pe]));
   document.querySelectorAll("[data-we]").forEach(el=>el.onclick=()=>openWitness(+el.dataset.we));
   document.querySelectorAll("[data-wd]").forEach(el=>el.onchange=()=>{const i=+el.dataset.wd,d=+el.value||0;saveCfg({...cfg,wit:cfg.wit.map((x,j)=>j===i?{...x,def:d}:(d&&x.def===d?{...x,def:0}:x))})});
 }
-$("witAdd").onsubmit=e=>{e.preventDefault();const inp=e.target.querySelector("input"),v=inp.value.trim();if(!v)return;if((cfg.wit||[]).some(w=>w.name.toLowerCase()===v.toLowerCase())){toast("Already in the list");return}
-  const wit=[...(cfg.wit||[]),{name:v,sal:"Mr",kyc:[],def:0}];saveCfg({...cfg,wit});inp.value="";setTimeout(()=>openWitness(wit.length-1),300)};
+function aadhaarToPerson(o,idKey){const r={};["sal","name","name_ta","rel_type","rel_name","dob","gender","district","state","pincode","mobile","addr","addr_ta"].forEach(k=>{if(o[k])r[k]=o[k]});if(o.rel_ta)r.rel_ta=o.rel_ta;if(o.aadhaar)r[idKey]=o.aadhaar;return r}
+$("witAadhaar").onchange=async e=>{const fs=[...e.target.files];e.target.value="";if(!fs.length)return;
+  try{const o=await readAadhaar(fs,toast);if(!o||!o.name){toast("Could not read the name from this Aadhaar. Try a clearer photo.");return}
+    const w={sal:"Mr",kyc:[],def:0,...aadhaarToPerson(o,"aadhaar")};const dup=(cfg.wit||[]).findIndex(x=>x.name.toLowerCase()===w.name.toLowerCase()||(w.aadhaar&&digits(x.aadhaar)===w.aadhaar));
+    const k=await makeKyc(fs,`${w.name} - Witness KYC`);if(k)w.kyc=k;
+    const wit=dup>=0?cfg.wit.map((x,j)=>j===dup?{...x,...w,def:x.def}:x):[...(cfg.wit||[]),w];await saveCfg({...cfg,wit});toast(dup>=0?w.name+" updated from the Aadhaar":w.name+" added. Check the details.");setTimeout(()=>openWitness(dup>=0?dup:wit.length-1),300)}
+  catch(err){toast("Could not read the Aadhaar: "+(err.message||err))}};
 
 /* ---- editor drawer ---- */
 let pe=null;
@@ -2188,13 +2229,15 @@ function paintProfile(){
   const{bank,p}=pe,W=cfg.wit||[];
   let h=`<div class="rvsec"><div class="sect">Mortgagee · company details</div><div class="fgrid">${CO_F.map(f=>fld("co_",f,p.company[f[0]])).join("")}</div></div>`;
   p.reps.forEach((r,i)=>{h+=`<div class="rvsec"><div class="sect">Company representative ${i+1}${p.reps.length>1?` <button type="button" class="btn danger" data-rx="${i}" style="float:right">Remove</button>`:""}</div><div class="fgrid">${PERSON_F.map(f=>fld(`r${i}_`,f,r[f[0]])).join("")}</div>
-    <div class="mf" style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">${upBtn("rk_"+i,(r.kyc||[]).length?"Replace KYC":"Upload Aadhaar KYC",false,1)}${upBtn("ri_"+i,(r.idcard||[]).length?"Replace ID":"Upload bank ID card")}${fileLinks(r.kyc)} ${fileLinks(r.idcard)}</div></div>`});
+    <div class="mf" style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">${upBtn("rk_"+i,(r.kyc||[]).length?"Replace Aadhaar (fills details)":"Upload Aadhaar · fills the details",false,1)}${upBtn("ri_"+i,(r.idcard||[]).length?"Replace ID":"Upload bank ID card")}${fileLinks(r.kyc)} ${fileLinks(r.idcard)}</div></div>`});
   h+=`<button type="button" class="btn" id="repAdd">+ Add another representative</button>`;
   if(false)h+=`<div class="rvsec" style="margin-top:14px"><div class="sect">Default witnesses for ${esc(bank)}</div><div class="fgrid">${[1,2].map(n=>`<label>Witness ${n}<select id="pw${n}"><option value="">Use the office default</option>${W.map(w=>`<option${p["w"+n]===w.name?" selected":""}>${esc(w.name)}</option>`).join("")}</select></label>`).join("")}</div></div>`;
   openPE(bank,h,saveProfile);
   const keep=()=>{pe.p=collectProfile()};
   p.reps.forEach((r,i)=>{
-    $("rk_"+i).onchange=async e=>{const fs=[...e.target.files];if(!fs.length)return;keep();const k=await makeKyc(fs,`${bank} - ${pe.p.reps[i].name||"Rep"} - Bank Rep KYC`);if(k){pe.p.reps[i].kyc=k;paintProfile()}};
+    $("rk_"+i).onchange=async e=>{const fs=[...e.target.files];if(!fs.length)return;keep();let o=null;try{o=await readAadhaar(fs,toast)}catch(err){console.warn(err)}
+      if(o&&o.name)pe.p.reps[i]={...pe.p.reps[i],...aadhaarToPerson(o,"id_no")};else toast("Could not read this Aadhaar; fill the details by hand.");
+      const k=await makeKyc(fs,`${bank} - ${pe.p.reps[i].name||"Rep"} - Bank Rep KYC`);if(k)pe.p.reps[i].kyc=k;paintProfile();if(o&&o.name)toast("Details filled from the Aadhaar. Add the designation, check and save.")};
     $("ri_"+i).onchange=async e=>{const f=e.target.files[0];if(!f)return;keep();const ext=(f.name.match(/\.[a-z0-9]+$/i)||[".pdf"])[0];const r2=await uploadFile(new File([f],`${bank} - ${pe.p.reps[i].name||"Rep"} - Bank Rep ID${ext}`,{type:f.type}));if(r2){pe.p.reps[i].idcard=[r2];paintProfile()}};
   });
   document.querySelectorAll("[data-rx]").forEach(el=>el.onclick=()=>{keep();pe.p.reps.splice(+el.dataset.rx,1);paintProfile()});
@@ -2207,11 +2250,11 @@ function saveProfile(){const p=collectProfile();p.reps=p.reps.filter(r=>r.name||
 function openWitness(i){const w={...cfg.wit[i]};pe={kind:"w",i,w};paintWitness()}
 function paintWitness(){const{w,i}=pe;
   const h=`<div class="rvsec"><div class="fgrid">${WIT_F.map(f=>fld("w_",f,w[f[0]])).join("")}</div>
-    <div class="mf" style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">${upBtn("wkx",(w.kyc||[]).length?"Replace KYC":"Upload Aadhaar KYC",false,1)}${fileLinks(w.kyc)}</div></div>
+    <div class="mf" style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">${upBtn("wkx",(w.kyc||[]).length?"Replace Aadhaar (fills details)":"Upload Aadhaar · fills the details",false,1)}${fileLinks(w.kyc)}</div></div>
     <button type="button" class="btn danger" id="wDel">Remove this witness</button>`;
   openPE("Witness · "+(w.name||""),h,()=>{const o=readF("w_",WIT_F,pe.w);if(!o.name){toast("Enter the name");return}if(o.aadhaar&&digits(o.aadhaar).length!==12){toast("Aadhaar should be 12 digits");return}
     saveCfg({...cfg,wit:cfg.wit.map((x,j)=>j===i?o:x)});closePE()});
-  $("wkx").onchange=async e=>{const fs=[...e.target.files];if(!fs.length)return;pe.w=readF("w_",WIT_F,pe.w);const k=await makeKyc(fs,`${pe.w.name||"Witness"} - Witness KYC`);if(k){pe.w.kyc=k;paintWitness()}};
+  $("wkx").onchange=async e=>{const fs=[...e.target.files];if(!fs.length)return;pe.w=readF("w_",WIT_F,pe.w);try{const o=await readAadhaar(fs,toast);if(o&&o.name)pe.w={...pe.w,...aadhaarToPerson(o,"aadhaar")}}catch(err){console.warn(err)}const k=await makeKyc(fs,`${pe.w.name||"Witness"} - Witness KYC`);if(k){pe.w.kyc=k;paintWitness()}};
   $("wDel").onclick=()=>ask("Remove this witness?",`<p class="sf-note">${esc(w.name)} will no longer fill new cases. Past cases keep their files.</p>`,()=>{saveCfg({...cfg,wit:cfg.wit.filter((_,j)=>j!==i)});closePE()},"Remove");
 }
 
