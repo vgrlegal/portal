@@ -104,6 +104,8 @@ async function mailIn(body: Record<string, unknown>) {
   const secret = Deno.env.get("MAIL_SECRET");
   if (!secret || body.secret !== secret) return json({ error: "Not allowed" }, 403);
   const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+  if (body.action === "queries") return await mailQueries(admin);
+  if (body.action === "queryDone") return await mailQueryDone(admin, String(body.doc ?? ""), String(body.how ?? "sent"));
   const mailId = String(body.mailId ?? "").slice(0, 200);
   if (!mailId) return json({ error: "mailId needed" }, 400);
   const { data: dup } = await admin.from("kv").select("id").eq("collection", "cases").filter("data->mailIds", "cs", JSON.stringify([mailId])).limit(1);
@@ -111,28 +113,45 @@ async function mailIn(body: Record<string, unknown>) {
   const { data: dup1 } = await admin.from("kv").select("id").eq("collection", "cases").eq("data->>mailId", mailId).limit(1);
   if (dup1 && dup1.length) return json({ ok: true, duplicate: true, doc: dup1[0].id });
   const threadId = String(body.threadId ?? "").slice(0, 200);
-  const subjKey = String(body.subject ?? "").toLowerCase().replace(/^\s*((re|fw|fwd)\s*:\s*|\[external\]-?\s*)+/g, "").replace(/\s+/g, " ").trim().slice(0, 120);
+  // "FW:", "Req:", "RE:", "Fwd:" and similar short prefixes are removed, so the same request sent twice is one case
+  const subjKey = String(body.subject ?? "").toLowerCase().replace(/^\s*(([a-z]{1,5})\s*:\s*|\[external\]-?\s*)+/g, "").replace(/\s+/g, " ").trim().slice(0, 120);
+  // loan account numbers in the subject (long codes with many digits), e.g. MFLSECUTAML000005488668
+  const loanKeys = [...new Set((String(body.subject ?? "").toUpperCase().match(/[A-Z0-9]{8,}/g) ?? []).filter((x) => (x.match(/\d/g) ?? []).length >= 6))].slice(0, 5);
   const labels = (Array.isArray(body.labels) ? body.labels : []).map((x: unknown) => String(x).slice(0, 60)).filter((x: string) => !/^(vgr-portal|opinion-portal)$/i.test(x)).slice(0, 10);
   const files = Array.isArray(body.files) ? body.files.slice(0, 15) : [];
   const t = new Date().toISOString().replace(/\.\d+Z$/, "Z");
   const day = t.slice(0, 10).replace(/-/g, "");
-  const docs: Record<string, unknown[]> = {};
-  let n = 0;
+  // fingerprint of every file (free): the same PDF sent again is recognised before any reading
+  const items: { name: string; mime: string; bytes: Uint8Array; hash: string }[] = [];
   for (const f of files as { name?: string; mime?: string; b64?: string }[]) {
     const name = String(f.name ?? "file").replace(/[\\/#?%*:|"<>]/g, "_").slice(0, 120);
     if (!f.b64 || !/\.(pdf|jpe?g|png|docx?)$/i.test(name)) continue;
     const bytes = Uint8Array.from(atob(f.b64), (c) => c.charCodeAt(0));
+    const hash = [...new Uint8Array(await crypto.subtle.digest("SHA-256", bytes))].map((b) => b.toString(16).padStart(2, "0")).join("").slice(0, 32);
+    if (items.some((x) => x.hash === hash)) continue;
+    items.push({ name, mime: f.mime || "application/octet-stream", bytes, hash });
+  }
+  // the same mail conversation (thread) is ONE case; so is the same subject, the same file or the same loan number
+  let same: { id: string; data: Record<string, unknown> } | null = null, why = "";
+  if (threadId) { const { data: r } = await admin.from("kv").select("id,data").eq("collection", "cases").eq("data->>mailThread", threadId).limit(1); if (r && r.length) { same = r[0] as never; why = "same mail conversation"; } }
+  if (!same && subjKey.length > 8) { const { data: r } = await admin.from("kv").select("id,data").eq("collection", "cases").eq("data->>mailSubjectKey", subjKey).eq("data->>source", "mail").limit(1); if (r && r.length) { same = r[0] as never; why = "same subject"; } }
+  for (const it of items) { if (same) break; const { data: r } = await admin.from("kv").select("id,data").eq("collection", "cases").filter("data->fileHashes", "cs", JSON.stringify([it.hash])).limit(1); if (r && r.length) { same = r[0] as never; why = "same file (" + it.name + ")"; } }
+  for (const lk of loanKeys) { if (same) break; const { data: r } = await admin.from("kv").select("id,data").eq("collection", "cases").filter("data->loanKeys", "cs", JSON.stringify([lk])).limit(1); if (r && r.length) { same = r[0] as never; why = "same loan number " + lk; } }
+  const known = new Set(((same?.data as Record<string, unknown>)?.fileHashes as string[]) ?? []);
+  const docs: Record<string, unknown[]> = {};
+  const hashes: string[] = [];
+  let n = 0, skipped = 0;
+  for (const { name, mime, bytes, hash } of items) {
+    if (known.has(hash)) { skipped++; continue; }
+    const f = { mime };
     const path = `mail/${t.slice(0, 7)}/${crypto.randomUUID()}/${name}`;
-    const { error } = await admin.storage.from("docs").upload(path, bytes, { contentType: f.mime || "application/octet-stream", upsert: false });
+    const { error } = await admin.storage.from("docs").upload(path, bytes, { contentType: f.mime, upsert: false });
     if (error) continue;
+    hashes.push(hash);
     const k = /supp/i.test(name) ? "modt2" : /noc|no.?objection|closure|release|foreclos/i.test(name) ? "noc" : /letter|sro/i.test(name) ? "letter" : (docs.modt ? "letter" : "modt");
-    (docs[k] = docs[k] ?? []).push({ at: t, id: path, url: "sb:" + path, name, from: "mail" });
+    (docs[k] = docs[k] ?? []).push({ at: t, id: path, url: "sb:" + path, name, from: "mail", hash });
     n++;
   }
-  // the same mail conversation (thread) is ONE case: a reply adds its files and text to the existing case
-  let same: { id: string; data: Record<string, unknown> } | null = null;
-  if (threadId) { const { data: r } = await admin.from("kv").select("id,data").eq("collection", "cases").eq("data->>mailThread", threadId).limit(1); if (r && r.length) same = r[0] as never; }
-  if (!same && subjKey.length > 8) { const { data: r } = await admin.from("kv").select("id,data").eq("collection", "cases").eq("data->>mailSubjectKey", subjKey).eq("data->>source", "mail").limit(1); if (r && r.length) same = r[0] as never; }
   if (same) {
     // deno-lint-ignore no-explicit-any
     const d = same.data as Record<string, any>; const t2 = new Date().toISOString().replace(/\.\d+Z$/, "Z");
@@ -142,13 +161,15 @@ async function mailIn(body: Record<string, unknown>) {
       else nd[k] = [...(nd[k] ?? []), ...arr];
     }
     const who2 = "Mail · " + String(body.from ?? "").slice(0, 200);
-    const upd = { ...d, docs: nd, mailIds: [...((d.mailIds as string[]) ?? [d.mailId]), mailId].slice(-50), mailThread: d.mailThread || threadId, updatedAt: t2, mailNew: true,
-      comments: [...((d.comments as unknown[]) ?? []), { at: t2, by: who2, text: `New mail in this conversation (${n} file(s)): ${String(body.subject ?? "")}\n${String(body.text ?? "").slice(0, 1500)}`, internal: "true", from: "mail" }].slice(-200),
+    const upd = { ...d, docs: nd, fileHashes: [...((d.fileHashes as string[]) ?? []), ...hashes].slice(-200), loanKeys: [...new Set([...((d.loanKeys as string[]) ?? []), ...loanKeys])].slice(0, 10), mailIds: [...((d.mailIds as string[]) ?? [d.mailId]), mailId].slice(-50), mailThread: d.mailThread || threadId, updatedAt: t2, mailNew: true,
+      comments: [...((d.comments as unknown[]) ?? []), { at: t2, by: who2, text: `New mail for this case (${why}; ${n} new file(s)${skipped ? `, ${skipped} already here, not added again` : ""}): ${String(body.subject ?? "")}\n${String(body.text ?? "").slice(0, 1500)}`, internal: "true", from: "mail" }].slice(-200),
       log: [...((d.log as unknown[]) ?? []), { at: t2, by: who2, text: `Mail reply added (${n} file(s))` }].slice(-80) };
     if (!d.needsRead && docs.modt && !(d.docs as Record<string, unknown[]>)?.modt?.length) (upd as Record<string, unknown>).needsRead = "modt";
+    // a case that had no MODT gets its new files sorted again (the bank may have replied with the MODT)
+    if (n && d.noModt) Object.assign(upd, { classified: false, noModt: null, needsRead: null });
     const { error: ue } = await admin.from("kv").update({ data: upd, updated_at: new Date().toISOString() }).eq("collection", "cases").eq("id", same.id);
     if (ue) return json({ error: ue.message }, 500);
-    return json({ ok: true, doc: same.id, added: n, thread: true });
+    return json({ ok: true, doc: same.id, added: n, skipped, joined: why });
   }
   if (!n) return json({ ok: true, skipped: "no attachments and no earlier case" });
   const { count } = await admin.from("kv").select("id", { count: "exact", head: true }).eq("collection", "cases").like("data->>id", `VGR-${day}-%`);
@@ -164,12 +185,31 @@ async function mailIn(body: Record<string, unknown>) {
     stageLog: [{ s: "Case Created", at: t, by: who }, { s: "Draft Pending", at: t, by: who }],
     log: [{ at: t, by: who, text: `Case created from e-mail (${n} attachment(s))` }],
     comments: [{ at: t, by: who, text: `E-mail from ${from}: ${subject}\n${String(body.text ?? "").slice(0, 1500)}`, internal: "true", from: "mail" }],
-    docs, tp: {}, source: "mail", mailId, mailIds: [mailId], mailThread: threadId, mailSubjectKey: subjKey, mailLabels: labels, mailOrigFrom: origFrom, mailFrom: from, mailSubject: subject, needsRead: docs.modt ? "modt" : null,
+    docs, tp: {}, source: "mail", fileHashes: hashes, loanKeys, mailId, mailIds: [mailId], mailThread: threadId, mailSubjectKey: subjKey, mailLabels: labels, mailOrigFrom: origFrom, mailFrom: from, mailSubject: subject, needsRead: docs.modt ? "modt" : null,
   };
   const doc = crypto.randomUUID();
   const { error } = await admin.from("kv").insert({ collection: "cases", id: doc, data });
   if (error) return json({ error: error.message }, 500);
   return json({ ok: true, doc, id: cid, files: n });
+}
+
+// Query mails: new mail cases (from QUERY_FROM) that have no MODT; the mail script replies in the same conversation, then confirms.
+const QUERY_FROM = "2026-11-10";
+// deno-lint-ignore no-explicit-any
+async function mailQueries(admin: any) {
+  const { data } = await admin.from("kv").select("id,data").eq("collection", "cases").eq("data->>source", "mail").eq("data->>noModt", "true").gte("data->>createdAt", QUERY_FROM).limit(50);
+  const out = (data ?? []).filter((r: { data: Record<string, unknown> }) => r.data.classified && !r.data.querySentAt && r.data.mailThread && r.data.stage === "Draft Pending")
+    .map((r: { id: string; data: Record<string, unknown> }) => ({ doc: r.id, id: r.data.id, thread: r.data.mailThread, subject: r.data.mailSubject }));
+  return json({ ok: true, queries: out });
+}
+// deno-lint-ignore no-explicit-any
+async function mailQueryDone(admin: any, doc: string, how: string) {
+  const { data: r } = await admin.from("kv").select("data").eq("collection", "cases").eq("id", doc).maybeSingle();
+  if (!r) return json({ error: "no such case" }, 404);
+  const t = new Date().toISOString().replace(/\.\d+Z$/, "Z"), d = r.data as Record<string, unknown[]>;
+  const text = how === "draft" ? "Query mail asking for the MODT copy is ready as a Gmail draft in this conversation (check and send it)." : "Query mail sent to the bank asking for the registered MODT copy.";
+  await admin.from("kv").update({ data: { ...d, querySentAt: t, queryHow: how, comments: [...(d.comments ?? []), { at: t, by: "Mail (auto)", text, internal: "true", from: "mail" }].slice(-200) }, updated_at: new Date().toISOString() }).eq("collection", "cases").eq("id", doc);
+  return json({ ok: true });
 }
 
 // Usage log (who ran Claude reading, how much): kv collection "usage", one row per reading, for the reports.

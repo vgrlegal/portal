@@ -787,8 +787,9 @@ function renderSegs(base){
   $("segAsg").innerHTML=[["all","All"],["me","Myself"],["none","Unassigned"]].map(([k,l])=>`<button data-k="${k}" aria-pressed="${asg===k}" ${k==="me"&&!me?"disabled":""}>${l}</button>`).join("");
   const fl=flowOf(tab==="__all"?"MODT":tab),stages=tab==="__all"?[...new Set([...FLOWS.reg,...SIDE.reg,...FLOWS.legal,...SIDE.legal])]:[...FLOWS[fl],...SIDE[fl]];
   const v=$("hf_stage").value;$("hf_stage").innerHTML=`<option value="">All status</option>`+stages.map(s=>`<option>${esc(s)}</option>`).join("");if(stages.includes(v))$("hf_stage").value=v;
-  const bv=$("hf_bank").value,banks=[...new Set([...cfg.banks,...cases.map(c=>c.bank).filter(Boolean)])].sort();
-  $("hf_bank").innerHTML=`<option value="">All companies</option>`+banks.map(b=>`<option>${esc(b)}</option>`).join("");$("hf_bank").value=banks.includes(bv)?bv:"";
+  const bv=$("hf_bank").value,T=cfg.types.includes(tab)?tab:null,bn={};cases.forEach(c=>{if(c.bank&&(!T||c.type===T))bn[c.bank]=(bn[c.bank]||0)+1});
+  const banks=Object.keys(bn).sort((a,b)=>bn[b]-bn[a]||a.localeCompare(b)),btot=Object.values(bn).reduce((a,b)=>a+b,0);
+  const bh=`<option value="">All companies (${btot})</option>`+banks.map(b=>`<option value="${esc(b)}">${esc(b)} (${bn[b]})</option>`).join("");if($("hf_bank").__h!==bh){$("hf_bank").innerHTML=bh;$("hf_bank").__h=bh}$("hf_bank").value=banks.includes(bv)?bv:"";
   const rv=$("hf_branch").value,brs=[...new Set(cases.filter(c=>!$("hf_bank").value||c.bank===$("hf_bank").value).map(c=>c.branch).filter(Boolean))].sort();
   $("hf_branch").innerHTML=`<option value="">All branches</option>`+brs.map(b=>`<option>${esc(b)}</option>`).join("");$("hf_branch").value=brs.includes(rv)?rv:"";
 }
@@ -834,7 +835,9 @@ function missingReq(type,docs){
 
 /* ================= actions per stage ================= */
 function prevStage(c){const L=stageLog(c).filter(e=>e.s!=="Case Created");for(let i=L.length-2;i>=0;i--)if(L[i].s!==c.stage)return L[i].s;return""}
-function actionsFor(c){const a0=actionsFor0(c);if(isMD&&prevStage(c))a0.push(["undo","↩ Back to "+prevStage(c)]);if(isMD&&c.stage==="Draft Pending"){a0.push(["split","Split case"],["merge","Merge into…"])}return a0}
+function canBack(){return isMD||isPartner()||!!(myStaff&&myStaff.back===true)}
+function doubtful(c){return c.source==="mail"&&c.stage==="Draft Pending"&&(c.multiCustomer||c.dupOf)}
+function actionsFor(c){const a0=actionsFor0(c);if(canBack()&&canWrite&&prevStage(c))a0.push(["undo","↩ Back to "+prevStage(c)]);if(canWrite&&doubtful(c)){a0.push(["split","Split case"],["merge","Same case · merge into…"]);if(c.dupOf||c.multiCustomer)a0.push(["notdup","Separate · no change"])}return a0}
 function actionsFor0(c){
   const s=c.stage,a=[],fl=flowOf(c.type);
   if(fl==="legal"){
@@ -885,7 +888,7 @@ function render(){
   $("tbody").innerHTML=rows.map(c=>{
     const cm=(c.comments||[]).length;
     return`<tr data-id="${esc(c._doc)}">
-    <td>${bulkOk()&&isRD(c.type)?`<input type="checkbox" class="selbox" data-sel="${esc(c._doc)}" ${SEL.has(c._doc)?"checked":""} aria-label="Select ${esc(c.applicant)}">`:""}${c.applicantFromMail?`<span class="strong">⏳ Reading documents…</span><span class="sub">${esc((c.mailSubject||c.applicant||"").slice(0,70))}</span>`:`<span class="strong">${esc(c.applicant)}</span>`}${c.loanNo?`<span class="sub mono">Loan ${esc(c.loanNo)}</span>`:""}${c.noModt?`<span class="pill p-bad" style="margin-top:4px">No MODT</span> `:""}${c.multiCustomer?`<span class="pill p-warn" style="margin-top:4px">Several customers?</span> `:""}${c.source==="mail"&&!c.bank?`<span class="pill p-warn" style="margin-top:4px">Company?</span> `:""}${!c.phone&&!FINAL.has(c.stage)?`<span class="pill p-info" style="margin-top:4px;font-size:11px" title="Customer phone needed for payment">📞 Phone needed</span>`:""}<span class="sub mono">${esc(c.id)}</span>${tab==="__all"?`<span class="sub">${esc(c.type)}</span>`:""}</td>
+    <td>${bulkOk()&&isRD(c.type)?`<input type="checkbox" class="selbox" data-sel="${esc(c._doc)}" ${SEL.has(c._doc)?"checked":""} aria-label="Select ${esc(c.applicant)}">`:""}${c.applicantFromMail?`<span class="strong">⏳ Reading documents…</span><span class="sub">${esc((c.mailSubject||c.applicant||"").slice(0,70))}</span>`:`<span class="strong">${esc(c.applicant)}</span>`}${c.loanNo?`<span class="sub mono">Loan ${esc(c.loanNo)}</span>`:""}${c.noModt?`<span class="pill p-bad" style="margin-top:4px">No MODT</span> `:""}${doubtful(c)?`<span class="pill p-warn" style="margin-top:4px" title="${c.dupOf?"Looks like the same customer as "+esc(c.dupOf):"This mail may hold more than one customer"}. Open the mail files and press Same case / Split / Separate.">🔔 Check this mail${c.dupOf?" · same as "+esc(c.dupOf)+"?":" · 2 customers?"}</span> `:""}${c.source==="mail"&&!c.bank?`<span class="pill p-warn" style="margin-top:4px">Company?</span> `:""}${!c.phone&&!FINAL.has(c.stage)?`<span class="pill p-info" style="margin-top:4px;font-size:11px" title="Customer phone needed for payment">📞 Phone needed</span>`:""}<span class="sub mono">${esc(c.id)}</span>${tab==="__all"?`<span class="sub">${esc(c.type)}</span>`:""}</td>
     <td><span class="strong">${esc(c.bank||"—")}</span><span class="sub">${esc(c.branch||"")}</span></td>
     <td>${datesCell(c)}</td>
     <td>${statusCell(c)}</td>
@@ -1099,7 +1102,8 @@ function runAction(c,k){
     ()=>patch(c,{stage:"Submitted Online",comments:[...(c.comments||[]),{at:nowISO(),by:who(),text:"Resubmitted after correction (same TP)",internal:"false"}].slice(-100)},"Resubmitted after refusal (same TP)"),"Resubmit");
   if(k==="split")return splitCase(c);
   if(k==="merge")return mergeCase(c);
-  if(k==="undo"){const p=prevStage(c);if(!p||!isMD)return;return ask("Move back a stage?",`<p class="sf-note">${esc(c.applicant||c.id)}: <b>${esc(c.stage)}</b> → <b>${esc(p)}</b>. This is recorded in the case history.</p>`,()=>patch(c,{stage:p},`Stage moved back: ${c.stage} → ${p} (Admin)`),"Move back")}
+  if(k==="notdup")return patch(c,{dupOf:null,multiCustomer:false},"Checked: this mail is a separate case");
+  if(k==="undo"){const p=prevStage(c);if(!p||!canBack())return;return ask("Move back a stage?",`<p class="sf-note">${esc(c.applicant||c.id)}: <b>${esc(c.stage)}</b> → <b>${esc(p)}</b>. This is recorded in the case history.</p>`,()=>patch(c,{stage:p},`Stage moved back: ${c.stage} → ${p} (${isMD?"Admin":who()})`),"Move back")}
   if(k==="draft")return openReview(c,false);
   if(k==="tpgen")return openReview(c,true);
   if(k==="tpno")return ask("Enter TP number",`<label>TP number<input id="m_tp" required placeholder="TP/…/2026" value="${esc(c.tpNo||"")}"></label><label>TNREGINET login used<input id="m_login" value="${esc(c.tpLogin||"")}"></label>`,
@@ -1481,11 +1485,22 @@ function splitCase(c){const F=allFiles(c);if(F.length<2){toast("Only one file in
     const t=nowISO(),id=newId(),nm=fv("sp_name");const nc={...c,id,docs:move,applicant:nm||"(split from "+c.id+")",applicantFromMail:!nm,tp:{},draft:{},tpAuto:null,bank:c.bank||"",needsRead:"modt",mailIds:[],mailThread:"",mailSubjectKey:"",createdAt:t,requestedAt:t,updatedAt:t,stageAt:t,
       stageLog:[{s:"Case Created",at:t,by:who()},{s:"Draft Pending",at:t,by:who()}],log:[{at:t,by:who(),text:"Split from "+c.id}],comments:[...(c.comments||[]),{at:t,by:who(),text:"Split from "+c.id,internal:"true"}]};delete nc._doc;
     await db.collection("cases").add(nc);await patch(c,{docs:keep,needsRead:"modt",tpAuto:null},"Split: "+pick.length+" file(s) moved to "+id);toast("New case "+id+" made; Claude will read both")},"Split")}
-function mergeCase(c){const L=cases.filter(x=>x._doc!==c._doc&&x.stage==="Draft Pending"&&x.type===c.type);if(!L.length){toast("No other Draft Pending case");return}
-  ask("Merge "+c.id+" into another case",`<p class="sf-note">Use this only for the SAME customer and loan (a duplicate). All files and comments of ${esc(c.id)} move into the case you pick, and ${esc(c.id)} is removed.</p><label>Merge into<select id="mg_to">${L.map(x=>`<option value="${esc(x._doc)}">${esc(x.id)} · ${esc(x.applicant||"")} · ${esc(x.bank||"")}</option>`).join("")}</select></label>`,async()=>{
-    const to=cases.find(x=>x._doc===fv("mg_to"));if(!to)return;const d={...(to.docs||{})};Object.entries(c.docs||{}).forEach(([k,arr])=>{const tk=k==="modt"&&(d.modt||[]).length?"letter":k;d[tk]=[...(d[tk]||[]),...(arr||[])]});
-    await patch(to,{docs:d,mailIds:[...(to.mailIds||[]),...(c.mailIds||[c.mailId].filter(Boolean))],comments:[...(to.comments||[]),...(c.comments||[]),{at:nowISO(),by:who(),text:"Merged "+c.id+" into this case",internal:"true"}]},"Merged "+c.id+" into this case");
-    await db.collection("cases").doc(c._doc).delete();toast(c.id+" merged into "+to.id)},"Merge")}
+function mergeCase(c){const L=cases.filter(x=>x._doc!==c._doc&&x.type===c.type&&!FINAL.has(x.stage)).sort((a,b)=>(b.id===c.dupOf)-(a.id===c.dupOf));if(!L.length){toast("No other Draft Pending case");return}
+  ask("Merge "+c.id+" into another case",`<p class="sf-note">Use this only for the SAME customer and loan (a duplicate). All files and comments of ${esc(c.id)} move into the case you pick, and ${esc(c.id)} is hidden from the lists (kept in the records).</p><label>Merge into<select id="mg_to">${L.map(x=>`<option value="${esc(x._doc)}">${esc(x.id)} · ${esc(x.applicant||"")} · ${esc(x.bank||"")}</option>`).join("")}</select></label>`,async()=>{
+    const to=cases.find(x=>x._doc===fv("mg_to"));if(!to)return;await mergeInto(c,to,"Merged "+c.id+" into this case");
+    await patch(c,{mergedInto:to.id,dupOf:null,multiCustomer:false},"Merged into "+to.id+" (same case)");toast(c.id+" merged into "+to.id)},"Merge")}
+/* after reading: the same registered MODT (SRO + Doc No + Year) in two open mail cases is certainly one case, so the newer one is merged into the older
+   (only while both are still in Draft Pending, so no work is lost). Same loan number only is not certain: it is flagged 🔔 for a person to check. */
+async function autoDup(c){if(c.source!=="mail"||c.stage!=="Draft Pending")return;const t=c.tp||{},no=String(t["Doc No"]||"").replace(/\D/g,""),yr=String(t.Year||"").trim(),sro=nrm(t.SRO);
+  const others=cases.filter(x=>x._doc!==c._doc&&x.type===c.type&&!x.mergedInto);
+  const same=no&&yr&&sro?others.find(x=>{const u=x.tp||{};return String(u["Doc No"]||"").replace(/\D/g,"")===no&&String(u.Year||"").trim()===yr&&nrm(u.SRO)===sro}):null;
+  if(same){if(same.stage==="Draft Pending"){const[old,neu]=(same.createdAt||"")<=(c.createdAt||"")?[same,c]:[c,same];
+      await mergeInto(neu,old,`Auto-merged ${neu.id}: same MODT (${t.SRO} ${no}/${yr})`);await patch(neu,{mergedInto:old.id},`Auto-merged into ${old.id}: same MODT ${no}/${yr}`);toast(`${neu.id} was the same MODT as ${old.id}; merged automatically`)}
+    else await patch(c,{dupOf:same.id},`Same MODT as ${same.id} (already at ${same.stage}): check`);return}
+  const ln=String(c.loanNo||"").trim();const sl=ln.length>=6?others.find(x=>String(x.loanNo||"").trim()===ln&&!FINAL.has(x.stage)):null;if(sl&&!c.dupOf)await patch(c,{dupOf:sl.id},`Same loan number as ${sl.id}: check`)}
+async function mergeInto(c,to,why){const d={...(to.docs||{})},have=new Set(Object.values(d).flat().map(f=>f.hash||f.name));
+    Object.entries(c.docs||{}).forEach(([k,arr])=>{const add=(arr||[]).filter(f=>!have.has(f.hash||f.name));if(!add.length)return;const tk=k==="modt"&&(d.modt||[]).length?"letter":k;d[tk]=[...(d[tk]||[]),...add]});
+    await patch(to,{docs:d,fileHashes:[...new Set([...(to.fileHashes||[]),...(c.fileHashes||[])])],loanKeys:[...new Set([...(to.loanKeys||[]),...(c.loanKeys||[])])],mailIds:[...(to.mailIds||[]),...(c.mailIds||[c.mailId].filter(Boolean))],comments:[...(to.comments||[]),...(c.comments||[]),{at:nowISO(),by:who(),text:"Merged "+c.id+" into this case",internal:"true"}]},why)}
 function caseFiles(c){const pri=["modt","deed","legal","noc","sanction","revenue","ec"],out=[];
   docsFor(c.type).slice().sort((a,b)=>((pri.indexOf(a.k)+1)||99)-((pri.indexOf(b.k)+1)||99)).forEach(d=>((c.docs||{})[d.k]||[]).forEach(f=>out.push({...f,lab:d.l})));return out}
 async function docUrl(u){if(String(u).startsWith("sb:")&&window.__signed)return window.__signed(u);return u}
@@ -1789,9 +1804,9 @@ function renderSettings(){
   $("ch-banks").innerHTML=cfg.banks.length?cfg.banks.map((x,i)=>!bq||x.toLowerCase().includes(bq)?`<span class="chip">${esc(x)}${ro?"":`<button data-k="banks" data-i="${i}" aria-label="Remove ${esc(x)}">×</button>`}</span>`:"").join(""):`<span style="color:var(--muted);font-size:13px">No clients yet</span>`;
   document.querySelectorAll(".addline[data-k]").forEach(f=>f.hidden=ro);
   const staff=cfg.staff.map(staffObj);
-  $("staffTbl").innerHTML=`<tr><th>Name</th><th>Email</th><th>Phone</th>${TAB_KEYS.map(t=>`<th class="c">${esc(t[1])}</th>`).join("")}<th class="c" title="Can press TP Generate for single cases (Bulk Run stays Admin only)">TP Generate</th><th>Login</th><th></th></tr>`+
+  $("staffTbl").innerHTML=`<tr><th>Name</th><th>Email</th><th>Phone</th>${TAB_KEYS.map(t=>`<th class="c">${esc(t[1])}</th>`).join("")}<th class="c" title="Can press TP Generate for single cases (Bulk Run stays Admin only)">TP Generate</th><th class="c" title="Can move a case back to the earlier stage">Back stage</th><th>Login</th><th></th></tr>`+
     staff.map((s,i)=>`<tr data-i="${i}"><td><input class="sv" data-f="name" value="${esc(s.name)}" ${ro?"disabled":""}></td><td><input class="sv" data-f="email" type="email" value="${esc(s.email)}" ${ro?"disabled":""}></td><td><input class="sv" data-f="phone" value="${esc(s.phone)}" ${ro?"disabled":""}></td>
-      ${TAB_KEYS.map(t=>`<td class="c"><input type="checkbox" class="st" data-t="${esc(t[0])}" ${s.tabs.includes(t[0])?"checked":""} ${ro?"disabled":""} aria-label="${esc(s.name)} can use ${esc(t[1])}"></td>`).join("")}<td class="c"><input type="checkbox" class="stp" ${s.tp===true?"checked":""} ${ro?"disabled":""} aria-label="${esc(s.name)} can press TP Generate"></td><td class="lgst" data-em="${esc((s.email||"").toLowerCase())}" style="white-space:nowrap;font-size:12px">${s.email?"…":'<span class="no">no email</span>'}</td>
+      ${TAB_KEYS.map(t=>`<td class="c"><input type="checkbox" class="st" data-t="${esc(t[0])}" ${s.tabs.includes(t[0])?"checked":""} ${ro?"disabled":""} aria-label="${esc(s.name)} can use ${esc(t[1])}"></td>`).join("")}<td class="c"><input type="checkbox" class="stp" ${s.tp===true?"checked":""} ${ro?"disabled":""} aria-label="${esc(s.name)} can press TP Generate"></td><td class="c">${s.partner?'<span title="Partner: always allowed">✓</span>':`<input type="checkbox" class="sbk" ${s.back===true?"checked":""} ${ro?"disabled":""} aria-label="${esc(s.name)} can move cases back a stage">`}</td><td class="lgst" data-em="${esc((s.email||"").toLowerCase())}" style="white-space:nowrap;font-size:12px">${s.email?"…":'<span class="no">no email</span>'}</td>
       <td style="white-space:nowrap">${s.partner||s.team?`<span class="pill p-info" title="Partner organisation">${s.partner?"Partner · ":""}${esc((ORGS[s.partner||s.team]||{}).name||s.partner||s.team)}</span> `:""}${ro||s.name===MD_NAME?"":`${s.email?`<button class="btn sinv" type="button" data-em="${esc(s.email)}">Invite</button> <button class="btn slink" type="button" data-em="${esc(s.email)}">Copy link</button> `:""}<button class="btn danger sdel" type="button">Remove</button>`}</td></tr>`).join("");
   $("staffAdd").hidden=ro;$("staffSave").hidden=ro;renderMasters(ro);loginStatus();$("bakCard").hidden=!isMD;$("bankQ").dispatchEvent(new Event("input"));if($("rulesSum"))$("rulesSum").textContent=`${(cfg.rules||[]).length} rules · tap to open`;
   renderClients(ro);renderRules(ro);
@@ -1818,7 +1833,7 @@ document.querySelectorAll(".addline[data-k]").forEach(f=>f.onsubmit=e=>{e.preven
   if(cfg.banks.some(x=>x.toLowerCase()===v.toLowerCase())){toast("Already in the list");return}saveCfg({...cfg,banks:[...cfg.banks,v]});inp.value=""});
 function fileLinks(fs){return(fs||[]).map(f=>`<a href="${esc(f.url)}" target="_blank" rel="noopener">${esc(f.name)}</a>`).join(" ")}
 function upBtn(id,label,ro,multi){return ro?"":`<label class="btn" for="${id}">${label}</label><input type="file" id="${id}" accept="image/*,application/pdf,.pdf" ${multi?"multiple":""} hidden>`}
-function readStaff(){return[...$("staffTbl").querySelectorAll("tr[data-i]")].map(tr=>({...(()=>{const o=staffObj(cfg.staff[+tr.dataset.i]||{});return{partner:o.partner,team:o.team}})(),name:tr.querySelector('[data-f="name"]').value.trim(),email:tr.querySelector('[data-f="email"]').value.trim().toLowerCase(),phone:tr.querySelector('[data-f="phone"]').value.trim(),tabs:[...tr.querySelectorAll(".st:checked")].map(x=>x.dataset.t),tp:!!(tr.querySelector(".stp")||{}).checked})).filter(s=>s.name)}
+function readStaff(){return[...$("staffTbl").querySelectorAll("tr[data-i]")].map(tr=>({...(()=>{const o=staffObj(cfg.staff[+tr.dataset.i]||{});return{partner:o.partner,team:o.team}})(),name:tr.querySelector('[data-f="name"]').value.trim(),email:tr.querySelector('[data-f="email"]').value.trim().toLowerCase(),phone:tr.querySelector('[data-f="phone"]').value.trim(),tabs:[...tr.querySelectorAll(".st:checked")].map(x=>x.dataset.t),tp:!!(tr.querySelector(".stp")||{}).checked,back:!!(tr.querySelector(".sbk")||{}).checked})).filter(s=>s.name)}
 $("staffAdd").onclick=()=>{const s=readStaff();s.push({name:"New staff",email:"",phone:"",tabs:["MODT"]});cfg={...cfg,staff:s};renderSettings()};
 $("staffSave").onclick=()=>saveCfg({...cfg,staff:readStaff()});
 function branchesOf(co){return [...new Set(cases.filter(c=>c.bank===co&&c.branch).map(c=>c.branch))].sort()}
@@ -2508,6 +2523,7 @@ async function rereadModt(c,force){const f=((c.docs||{}).modt||[])[0];if(!f){toa
     const tp={...(c.tp||{})};let n=0;Object.entries(r.d).forEach(([k,v])=>{if(force||!String(tp[k]||"").trim()){if(tp[k]!==v)n++;tp[k]=v}});
     const ch={tp,tpAuto:{...(c.tpAuto||{}),...r.d},modtReadOf:f.url||f.name};if((!c.applicant||c.applicantFromMail)&&r.d.Mortgagor){ch.applicant=cleanCust(r.d.Mortgagor);ch.applicantFromMail=null}if(!c.loanNo){const ln=r.d["Loan account"]||lanOf(c.mailSubject);if(ln)ch.loanNo=ln}if(!c.phone&&r.d["Mortgagor mobile"])ch.phone=String(r.d["Mortgagor mobile"]).replace(/\D/g,"").slice(-10);if(!c.bank&&r.bankText){const b=matchBank(r.bankText);if(b)ch.bank=b}if(!c.loanAmount&&r.d["Loan Amount"])ch.loanAmount=r.d["Loan Amount"];
     await patch(c,ch,`MODT read again (${n} fields filled)`);toast(`MODT read: ${n} field${n===1?"":"s"} filled. Check them.`);
+    try{await autoDup({...c,...ch})}catch(e){console.warn(e)}
     const fresh=cases.find(x=>x._doc===c._doc)||{...c,...ch};if(rv.c&&rv.c._doc===c._doc)openReview(fresh,rv.gen);return true}
   catch(e){console.warn(e);toast("Could not read the MODT: "+(e.message||e));return false}}
 async function readSuppModt(c){const f=((c.docs||{}).modt2||[])[0];if(!f)return;
@@ -2576,7 +2592,7 @@ setInterval(()=>{if(!$("v-list").hidden||!$("v-dash").hidden)render()},60000);
     myStaff=!isMD&&SELF_EMAIL?cfg.staff.find(x=>x.email&&x.email.toLowerCase()===SELF_EMAIL)||null:null;if(myStaff)me=myStaff.name;
     applyBrand();if(!["dash","__all","__set","__sro","__ppl","__team","__rep"].includes(tab)&&!cfg.types.includes(tab))tab="dash";fillStatic();render()},()=>{});
   db.doc("tp_jobs/_worker").onSnapshot(s=>{W.at=s.exists?(s.data()||{}).at:null;if(!$("tpbar").hidden)renderHelperChip()},()=>{});
-  db.collection("cases").onSnapshot(s=>{if(!s.metadata.fromCache)clearTimeout(timer);cases=s.docs.map(d=>({...d.data(),_doc:d.id}));
+  db.collection("cases").onSnapshot(s=>{if(!s.metadata.fromCache)clearTimeout(timer);cases=s.docs.map(d=>({...d.data(),_doc:d.id})).filter(c=>!c.mergedInto);
     if(editing){const fresh=cases.find(c=>c._doc===editing._doc);if(fresh){editing=fresh;if($("timeline"))renderTimeline(fresh)}}
     if(rv.c){const f=cases.find(c=>c._doc===rv.c._doc);if(f)rv.c=f}
     render();if(H.ok)autoCapture();bankReads()},
