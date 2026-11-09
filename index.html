@@ -471,7 +471,7 @@ tr.hf input,tr.hf select{font-size:12.5px;padding:5px 7px;margin:2px 0}
         <form class="fgrid" id="tnAdd" style="margin-top:10px"><label title="Deed of Receipt IDs belong to one company. MODT IDs are individual IDs used for any company.">Company (or MODT · all companies)<select id="tn_client"></select></label><label>Login ID<input id="tn_user" autocomplete="off"></label><label>Password<input id="tn_pass" type="password" autocomplete="new-password"></label><div style="display:flex;align-items:flex-end"><button class="btn primary">Add ID</button></div></form></div>
     </div>
     <div class="grid2" style="margin-top:16px">
-      <div class="card"><h2>Client profiles · Deed of Receipt</h2><p>For each client: company address, representatives (details + Aadhaar KYC + bank ID card). Picking the client on a case fills all of it.</p>
+      <div class="card"><h2>Client profiles · Deed of Receipt</h2><p>Company representatives for each client (details from the Aadhaar + bank ID card). Company name and address come from each case's MODT.</p>
         <input id="repQ" class="fq" placeholder="Type a company name…"><div id="xlBox" hidden class="mrow" style="border:1px dashed var(--line);border-radius:10px;padding:10px 12px;margin-bottom:8px"><b>Import from your Excel</b><span><label class="btn primary" for="xlIn">Choose Excel</label><input type="file" id="xlIn" accept=".xlsx,.xls" hidden></span><div class="mf"><span class="no">“RD _ TP Details - Common Data.xlsx”: bank sheets and the Witness Master are read in this browser.</span></div></div>
         <div id="repList"></div></div>
       <div class="card"><h2>Witnesses</h2><p>Save each witness once. Mark W1 / W2 to fill new cases automatically; staff can change them per case.</p><div id="witList"></div>
@@ -2215,10 +2215,10 @@ $("bakIn").onchange=async e=>{const f=e.target.files[0];e.target.value="";if(!f)
 function renderMasters(ro){
   const P=cfg.profiles||{};
   const rq=($("repQ").value||"").trim().toLowerCase();$("repQ").oninput=()=>renderMasters(ro);$("xlBox").hidden=true;
-  $("repList").innerHTML=!cfg.banks.length?`<p class="sf-note">Add clients first.</p>`:!rq?`<p class="sf-note">${cfg.banks.length} companies · ${cfg.banks.filter(b=>(P[b]||{}).company&&P[b].company.addr_en).length} set up. Type a company name above.</p>`:cfg.banks.map((b,i)=>{if(!b.toLowerCase().includes(rq))return"";const p=P[b]||{},reps=p.reps||[],kyc=reps.filter(r=>(r.kyc||[]).length&&(r.idcard||[]).length).length,co=!!(p.company&&p.company.addr_en);
-    const ok=co&&reps.length&&kyc===reps.length;
-    return`<div class="mrow"><b>${esc(b)}</b><span>${ro?"":`<button class="btn" type="button" data-pe="${i}">${co||reps.length?"Edit":"Set up"}</button>`}</span>
-      <div class="mf"><span class="${co?"ok":"no"}">${co?"✓":"○"} Company address</span> · <span class="${reps.length?"ok":"no"}">${reps.length} rep${reps.length===1?"":"s"}</span> · <span class="${reps.length&&kyc===reps.length?"ok":"no"}">KYC + ID ${kyc}/${reps.length}</span>${ok?` · <span class="ok">ready</span>`:""}</div></div>`}).join("")||`<p class="sf-note">No company matches “${esc(rq)}”.</p>`;
+  $("repList").innerHTML=!cfg.banks.length?`<p class="sf-note">Add clients first.</p>`:!rq?`<p class="sf-note">${cfg.banks.length} companies · ${cfg.banks.filter(b=>((P[b]||{}).reps||[]).length).length} with a representative. Type a company name above.</p>`:cfg.banks.map((b,i)=>{if(!b.toLowerCase().includes(rq))return"";const p=P[b]||{},reps=p.reps||[],kyc=reps.filter(r=>(r.kyc||[]).length&&(r.idcard||[]).length).length,co=!!(p.company&&p.company.addr_en);
+    const ok=reps.length&&kyc===reps.length;
+    return`<div class="mrow"><b>${esc(b)}</b><span>${ro?"":`<button class="btn" type="button" data-pe="${i}">${reps.length?"Edit":"Add representative"}</button>`}</span>
+      <div class="mf"><span class="${reps.length?"ok":"no"}">${reps.length} rep${reps.length===1?"":"s"}</span> · <span class="${reps.length&&kyc===reps.length?"ok":"no"}">KYC + ID ${kyc}/${reps.length}</span>${ok?` · <span class="ok">ready</span>`:""}</div></div>`}).join("")||`<p class="sf-note">No company matches “${esc(rq)}”.</p>`;
   $("witList").innerHTML=(cfg.wit||[]).length?cfg.wit.map((w,i)=>`<div class="mrow"><b>${esc(w.name)}</b><span>${ro?(w.def?"W"+w.def:""):`<select data-wd="${i}" aria-label="Default slot for ${esc(w.name)}"><option value="">—</option><option value="1"${w.def===1?" selected":""}>W1</option><option value="2"${w.def===2?" selected":""}>W2</option></select><button class="btn" type="button" data-we="${i}">Edit</button>`}</span>
     <div class="mf"><span class="${digits(w.aadhaar).length===12?"ok":"no"}">${digits(w.aadhaar).length===12?"✓ Aadhaar":"○ Aadhaar"}</span> · ${(w.kyc||[]).length?fileLinks(w.kyc):'<span class="no">○ KYC</span>'}</div></div>`).join(""):`<p class="sf-note">No witnesses yet. Upload a witness's Aadhaar to add one.</p>`;
   $("witAdd").hidden=ro;if(ro)return;
@@ -2252,7 +2252,8 @@ function openProfile(bank){
 }
 function paintProfile(){
   const{bank,p}=pe,W=cfg.wit||[];
-  let h=`<div class="rvsec"><div class="sect">Mortgagee · company details</div><div class="fgrid">${CO_F.map(f=>fld("co_",f,p.company[f[0]])).join("")}</div></div>`;
+  /* company name and address come with each case from the MODT, so the profile keeps only the representatives */
+  let h=`<p class="sf-note" style="margin:0 0 10px">Company name and address are taken from each case's MODT. Add the company representative here: upload the Aadhaar and Claude fills the details.</p>`;
   p.reps.forEach((r,i)=>{h+=`<div class="rvsec"><div class="sect">Company representative ${i+1}${p.reps.length>1?` <button type="button" class="btn danger" data-rx="${i}" style="float:right">Remove</button>`:""}</div><div class="fgrid">${PERSON_F.map(f=>fld(`r${i}_`,f,r[f[0]])).join("")}</div>
     <div class="mf" style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">${upBtn("rk_"+i,(r.kyc||[]).length?"Replace Aadhaar (fills details)":"Upload Aadhaar · fills the details",false,1)}${upBtn("ri_"+i,(r.idcard||[]).length?"Replace ID":"Upload bank ID card")}${fileLinks(r.kyc)} ${fileLinks(r.idcard)}</div></div>`});
   h+=`<button type="button" class="btn" id="repAdd">+ Add another representative</button>`;
@@ -2345,15 +2346,11 @@ async function claudeRead(canvases){if(!window.__sb)return null;
 function verhoeff(n){const d=[[0,1,2,3,4,5,6,7,8,9],[1,2,3,4,0,6,7,8,9,5],[2,3,4,0,1,7,8,9,5,6],[3,4,0,1,2,8,9,5,6,7],[4,0,1,2,3,9,5,6,7,8],[5,9,8,7,6,0,4,3,2,1],[6,5,9,8,7,1,0,4,3,2],[7,6,5,9,8,2,1,0,4,3],[8,7,6,5,9,3,2,1,0,4],[9,8,7,6,5,4,3,2,1,0]],p=[[0,1,2,3,4,5,6,7,8,9],[1,5,7,6,2,8,3,0,9,4],[5,8,0,3,7,9,6,1,4,2],[8,9,1,6,0,4,3,5,2,7],[9,4,5,3,1,2,6,8,7,0],[4,2,8,6,5,7,3,9,0,1],[2,7,9,3,8,0,6,4,1,5],[7,0,4,6,9,1,3,2,5,8]];
   n=String(n||"");if(!/^[2-9]\d{11}$/.test(n))return false;let c=0;n.split("").reverse().forEach((x,i)=>{c=d[c][p[i%8][+x]]});return c===0}
 function aadhaarGood(o){return!!(o&&o.name&&o.name.split(/\s+/).join("").length>=3&&verhoeff(o.aadhaar)&&o.dob&&o.gender)}
-async function readAadhaar(files,say){const{canvases,text}=await canvasesOf(files,say);
-  const fin=async(o,how)=>{if(o.name)o.name=o.name.toUpperCase();if(o.rel_name)o.rel_name=o.rel_name.toUpperCase();
-    if(how!=="claude"){try{if(o.name&&!o.name_ta)o.name_ta=await toTamil(o.name);if(o.rel_name&&!o.rel_ta)o.rel_ta=await toTamil(o.rel_name)}catch(e){}}o._how=how;return o};
-  let o=parseAadhaar(text);if(aadhaarGood(o))return fin(o,"pdf text");
-  try{say("Reading the Aadhaar (free reader)… about 10–20 seconds.");await loadTess();if(!tessWorker)tessWorker=Tesseract.createWorker("eng");const w=await tessWorker;let all="";
-    for(const[i,c]of canvases.entries()){say(`Reading page ${i+1} of ${canvases.length}…`);const r=await w.recognize(sharpen(c));all+="\n"+r.data.text}
-    lastOcrText=all;const t=parseAadhaar(all);Object.keys(o).forEach(k=>{if(!t[k]&&o[k])t[k]=o[k]});delete t.name_ta;delete t.rel_ta;delete t.addr_ta;o=t;if(aadhaarGood(o))return fin(o,"free OCR")}catch(e){console.warn(e)}
-  try{say("Free reader was not sure. Reading with Claude… about 5 seconds.");const c=await claudeRead(canvases);if(c&&c.name)return fin(c,"claude")}catch(e){console.warn(e)}
-  return fin(o,"free OCR (unchecked)")}
+/* ID cards (Aadhaar of witness, representative, mortgagor, KYC): always read by Claude, no free OCR */
+async function readAadhaar(files,say){const{canvases}=await canvasesOf(files,say);
+  say("Reading the card with Claude… about 5–10 seconds.");const c=await claudeRead(canvases);
+  if(!c||!c.name)throw new Error(window.__noCredit?"Claude credit is finished":"Claude could not read this card. Try a clearer photo or PDF.");
+  if(c.name)c.name=c.name.toUpperCase();if(c.rel_name)c.rel_name=c.rel_name.toUpperCase();c._how="claude";return c}
 /* English → Tamil (same as TNREGINET's F8 typing), via Google Input Tools */
 async function toTamil(text){text=String(text||"").trim();if(!text)return"";const segs=text.split(/(\s*[,\/\-]\s*|\s+)/);const out=[];
   for(const sg of segs){if(!/[A-Za-z]/.test(sg)){out.push(sg);continue}

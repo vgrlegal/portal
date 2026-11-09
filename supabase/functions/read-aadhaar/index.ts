@@ -272,8 +272,8 @@ Deno.serve(async (req) => {
       });
       content.push({ type: "text", text: PROMPT });
     }
-    // simple jobs (sorting files, Aadhaar, translation) use the cheaper model; MODT reading keeps the stronger one
-    const model = ["classify", "aadhaar", "english", "tamil"].includes(kind) ? (Deno.env.get("CHEAP_MODEL") ?? "claude-haiku-5-5") : (Deno.env.get("AADHAAR_MODEL") ?? "claude-sonnet-5-5");
+    // sorting files and translation use the cheaper model; ID cards (Aadhaar) and MODT reading keep the stronger one for accuracy
+    const model = ["classify", "english", "tamil"].includes(kind) ? (Deno.env.get("CHEAP_MODEL") ?? "claude-haiku-5-5") : (Deno.env.get("AADHAAR_MODEL") ?? "claude-sonnet-5-5");
     const r = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: { "x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json" },
