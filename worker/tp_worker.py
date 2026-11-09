@@ -751,8 +751,8 @@ def apply_profile(case, t):
 def part_survey(t):
     """'22(Part)' / '22 Pt' with no other (sub-divided) survey number: TNREGINET will not make the TP. Revenue record needed."""
     sv = [g(t, k) for k in ("Survey number", "Survey No", "New survey no") if g(t, k)]
-    part = [x for x in sv if re.search(r"part|\bpt\b|\(p\)", x, re.I)]
-    other = [x for x in sv if re.search(r"\d", x) and not re.search(r"part|\bpt\b|\(p\)", x, re.I)]
+    part = [x for x in sv if re.search(r"\bpart\b|\bpt\b|\(p\)", x, re.I)]
+    other = [x for x in sv if re.search(r"\d", x) and not re.search(r"\bpart\b|\bpt\b|\(p\)", x, re.I)]
     return part[0] if part and not other else ""
 
 
