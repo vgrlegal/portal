@@ -957,7 +957,7 @@ $("bulkRun").onclick=async()=>{const cs=selCases().filter(c=>isRD(c.type));
     if(used.size>3){toast("At most 3 login IDs at once");return}
     const b="B"+Date.now().toString(36),w1=$("bvW1").value,w2=$("bvW2").value;$("bvStart").disabled=true;
     for(const [i,tr] of rows.entries()){const c=cases.find(x=>x._doc===tr.dataset.doc);if(!c)continue;const lid=tr.querySelector(".bvSel").value,l=logins.find(x=>x.id===lid)||{};
-      if(w1||w2){const tp={...(c.tp||{})};[1,2].forEach(n=>{const w=n===1?w1:w2;if(w)WPF(n).forEach(([k])=>delete tp[k])});const c2={...c,w1:w1||c.w1,w2:w2||c.w2};await patch(c,{w1:c2.w1,w2:c2.w2,tp:dorFill(c2,tp)},null)}
+      {const tp={...(c.tp||{})};[1,2].forEach(n=>{const w=n===1?w1:w2;if(w)WPF(n).forEach(([k])=>delete tp[k])});const c2={...c,w1:w1||c.w1,w2:w2||c.w2,tp};await patch(c,{w1:c2.w1||"",w2:c2.w2||"",tp:await prepTp(c2)},null)}
       const id=crypto.randomUUID();await db.doc("tp_jobs/"+id).set({kind:"dor",batch:b,seq:i,case:c._doc,caseId:c.id,login:lid,loginUser:l.username||"",status:"queued",by:who(),at:nowISO(),log:[]});
       await patch(c,{tpJob:id,tpLogin:l.username||""},`Bulk Run queued (${l.username||""})`);tr.dataset.job=id}
     BV.batch=b;bulkWatch(b);["bvPause","bvStop"].forEach(x=>$(x).hidden=false);toast("Bulk Run started")};
@@ -1675,16 +1675,23 @@ async function cloudTp(c,fresh){const box=$("rvLogin");box.innerHTML=`<div class
   const modt=!isRD(c.type),pool=l.filter(isPool),comp=l.filter(x=>!isPool(x)),mine=modt?pool:comp.filter(x=>x.client===c.bank),list=mine.length?mine:modt?l:comp;
   if(!list.length){box.innerHTML=`<div class="sect">Generate TP on TNREGINET</div><p class="banner">No TNREGINET login IDs yet. Add them in Clients &amp; Staff → TNREGINET login IDs.</p>`;return}
   const on=W.at&&Date.now()-new Date(W.at).getTime()<120000,hasTp=/^TP\//.test(c.tpNo||"");
-  box.innerHTML=`<div class="sect">${hasTp?"Upload documents to TNREGINET":"Generate TP on TNREGINET"}</div>${c.tpTiming?tmHtml(c.tpTiming):""}${on?"":`<p class="banner">The TP computer is offline right now. The job will wait and start when it comes online.</p>`}
+  box.innerHTML=`<div class="sect">${hasTp?"Upload documents to TNREGINET":"Generate TP on TNREGINET"}</div>${c.tpTiming?tmHtml(c.tpTiming):""}${repAsk(c)}${on?"":`<p class="banner">The TP computer is offline right now. The job will wait and start when it comes online.</p>`}
     <div class="fgrid"><label>Login ID${mine.length?"":modt?" (no MODT ID saved yet, showing all)":" (no ID saved for this company, showing all)"}<select id="rvUser">${list.map(x=>`<option value="${x.id}">${esc(x.username)} · ${esc(x.client)}</option>`).join("")}</select></label>
     <div style="display:flex;align-items:flex-end;gap:6px">${hasTp?`<button type="button" class="btn primary" id="rvUpOnly">Upload documents only</button>`:`<button type="button" class="btn primary" id="rvStart">Start TP</button>`}${modt?"":`<button type="button" class="btn" id="rvEc" title="Encumbrance certificate for the MODT property, 1 January of the MODT year to yesterday">Get EC</button>`}</div></div>${modt?`<p class="sf-note">MODT robot (first version): links the title deed(s), fills the title holders, company, witnesses and presenter, and saves the draft on TNREGINET. Property onward you finish by hand for now.</p>`:""}
     ${hasTp?`<p class="sf-note">TP already created: <b>${esc(c.tpNo)}</b>. A new TP will not be made. This only uploads the 5 documents and saves the TP print.</p>`:""}<div id="rvJob"></div>`;
   const go=async(kind,btn)=>{const sel=$("rvUser"),id=crypto.randomUUID(),u=sel.options[sel.selectedIndex].text.split(" · ")[0];btn.disabled=true;
-    try{await db.doc("tp_jobs/"+id).set({kind,case:c._doc,caseId:c.id,login:sel.value,loginUser:u,status:"queued",by:who(),at:nowISO(),log:[]});
+    try{if(kind==="dor"||kind==="dor_upload"){const d=await prepTp(c);await patch(c,{tp:d},null);c.tp=d}
+      await db.doc("tp_jobs/"+id).set({kind,case:c._doc,caseId:c.id,login:sel.value,loginUser:u,status:"queued",by:who(),at:nowISO(),log:[]});
       await patch(c,{tpJob:id,tpLogin:u},kind==="dor_upload"?`Upload documents started (${u})`:kind==="ec"?`EC request started (${u})`:`TP Generate started (${u})`);watchJob(c,id)}catch(e){fail(e);btn.disabled=false}};
   if($("rvStart"))$("rvStart").onclick=()=>go(isRD(c.type)?"dor":"modt",$("rvStart"));
   if($("rvUpOnly"))$("rvUpOnly").onclick=()=>go("dor_upload",$("rvUpOnly"));
-  if($("rvEc"))$("rvEc").onclick=()=>go("ec",$("rvEc"))}
+  if($("rvEc"))$("rvEc").onclick=()=>go("ec",$("rvEc"));
+  if($("repOk"))$("repOk").onclick=async()=>{const p=profOf(c.bank),r=repOf(c,c.tp||{});if(!p||!r)return;const name=r.name;
+    await saveCfg({...cfg,profiles:{...cfg.profiles,[c.bank]:{...p,reps:p.reps.map(x=>x.name===name?{...x,ok:nowISO()}:x)}}});$("repAskBox").remove()}}
+/* asked once per representative: the name and father's name must be exactly as on the Aadhaar */
+function repAsk(c){if(!isRD(c.type)||!isAdmin)return"";const r=repOf(c,c.tp||{});if(!r||r.ok)return"";
+  return`<div class="banner" id="repAskBox" style="margin:6px 0">🔔 <b>Check once:</b> is the representative exactly as on his Aadhaar?<br><b>${esc(r.name||"")}</b> (${esc(r.name_ta||"—")}) · ${esc(relFix(r.rel_type,r.gender)||"")} <b>${esc(r.rel_name||"")}</b> (${esc(r.rel_ta||"—")})<br>
+    <button type="button" class="btn primary" id="repOk" style="margin-top:6px">✓ Yes, exactly as Aadhaar</button> <span class="sf-note">If not, correct it in Settings → Clients → ${esc(c.bank)}; every open case of this company updates.</span></div>`}
 const mmss=x=>{x=+x||0;return x>=60?Math.floor(x/60)+"m "+(x%60)+"s":x+"s"};
 function tmHtml(t){if(!t||!t.steps)return"";return`<details style="margin-top:6px"><summary style="cursor:pointer;font-size:13px">⏱ Time taken: ${mmss(t.total)}</summary><table class="mini" style="margin-top:4px">${t.steps.filter(x=>x.sec>0).map(x=>`<tr><td>${esc(x.step)}</td><td class="r">${mmss(x.sec)}</td></tr>`).join("")}</table></details>`}
 function watchJob(c,id){if(W.unsub)W.unsub();const box=$("rvJob")||$("rvLogin");
@@ -2325,14 +2332,15 @@ function paintProfile(){
 function collectProfile(){const p=pe.p;return{...p,company:readF("co_",CO_F,p.company),reps:p.reps.map((r,i)=>readF(`r${i}_`,PERSON_F,r)),w1:$("pw1")?$("pw1").value:p.w1,w2:$("pw2")?$("pw2").value:p.w2}}
 function saveProfile(){const p=collectProfile();p.reps=p.reps.filter(r=>r.name||(r.kyc||[]).length);
   const bad=p.reps.find(r=>r.id_no&&digits(r.id_no).length!==12);if(bad){toast(`Aadhaar for ${bad.name||"the rep"} should be 12 digits`);return}
-  saveCfg({...cfg,profiles:{...(cfg.profiles||{}),[pe.bank]:p}});closePE()}
+  p.reps.forEach(r=>{r.rel_type=relFix(r.rel_type,r.gender)});
+  const bank=pe.bank;Promise.resolve(saveCfg({...cfg,profiles:{...(cfg.profiles||{}),[bank]:p}})).then(()=>syncSoon(bank));closePE()}
 function openWitness(i){const w={...cfg.wit[i]};pe={kind:"w",i,w};paintWitness()}
 function paintWitness(){const{w,i}=pe;
   const h=`<div class="rvsec"><div class="fgrid">${WIT_F.map(f=>fld("w_",f,w[f[0]])).join("")}</div>
     <div class="mf" style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">${upBtn("wkx",(w.kyc||[]).length?"Replace Aadhaar (fills details)":"Upload Aadhaar · fills the details",false,1)}${fileLinks(w.kyc)}</div></div>
     <button type="button" class="btn danger" id="wDel">Remove this witness</button>`;
   openPE("Witness · "+(w.name||""),h,()=>{const o=readF("w_",WIT_F,pe.w);if(!o.name){toast("Enter the name");return}if(o.aadhaar&&digits(o.aadhaar).length!==12){toast("Aadhaar should be 12 digits");return}
-    saveCfg({...cfg,wit:cfg.wit.map((x,j)=>j===i?o:x)});closePE()});
+    o.rel_type=relFix(o.rel_type,o.gender);Promise.resolve(saveCfg({...cfg,wit:cfg.wit.map((x,j)=>j===i?o:x)})).then(()=>syncSoon());closePE()});
   $("wkx").onchange=async e=>{const fs=[...e.target.files];if(!fs.length)return;pe.w=readF("w_",WIT_F,pe.w);try{const o=await readAadhaar(fs,toast);if(o&&o.name)pe.w={...pe.w,...aadhaarToPerson(o,"aadhaar")}}catch(err){console.warn(err)}const k=await makeKyc(fs,`${pe.w.name||"Witness"} - Witness KYC`);if(k){pe.w.kyc=k;paintWitness()}};
   $("wDel").onclick=()=>ask("Remove this witness?",`<p class="sf-note">${esc(w.name)} will no longer fill new cases. Past cases keep their files.</p>`,()=>{saveCfg({...cfg,wit:cfg.wit.filter((_,j)=>j!==i)});closePE()},"Remove");
 }
@@ -2625,7 +2633,27 @@ function dorFill(c,d){const set=(k,v)=>{if(v!=null&&String(v).trim()!==""&&!Stri
   const r=(p.reps||[]).find(x=>x.name===c.rep)||(p.reps||[])[0];if(r){set("Rep salutation",r.sal);set("Rep name",r.name);set("Rep name (Tamil)",r.name_ta);set("Rep relation",r.rel_type);set("Rep relative name",r.rel_name);set("Rep relative name (Tamil)",r.rel_ta);set("Rep age",ageOf(r.dob));set("Rep gender",r.gender);set("Rep Aadhaar",digits(r.id_no));set("Rep designation",r.designation);set("Rep state",r.state);set("Rep district",r.district);set("Rep address",r.addr);set("Rep address (Tamil)",r.addr_ta);set("Rep pincode",r.pincode);set("Rep mobile",r.mobile)}
   [1,2].forEach(n=>{const w=(cfg.wit||[]).find(x=>x.name===c["w"+n]);if(w){set(`Witness ${n} salutation`,w.sal);set(`Witness ${n} name`,w.name);set(`Witness ${n} name (Tamil)`,w.name_ta);set(`Witness ${n} relative name (Tamil)`,w.rel_ta);set(`Witness ${n} relation`,w.rel_type);set(`Witness ${n} relative name`,w.rel_name);set(`Witness ${n} age`,ageOf(w.dob));set(`Witness ${n} gender`,w.gender);set(`Witness ${n} Aadhaar`,digits(w.aadhaar));set(`Witness ${n} district`,w.district);set(`Witness ${n} address`,w.addr);set(`Witness ${n} pincode`,w.pincode)}});
   set("Mortgagor gender",/^(mrs|ms)/i.test(d["Mortgagor salutation"]||"")?"Female":"");
+  return forceProfile(c,d)}
+/* the saved client profile / witness list is the master copy: rep and witness details on every case not yet TP-created follow it */
+function relFix(r,gen){r=relNorm(r);return r==="Care of"?(/^f/i.test(gen||"")?"Daughter of":"Son of"):r}
+function repOf(c,d){const reps=(profOf(c.bank)||{}).reps||[],a=digits(d["Rep Aadhaar"]||"");return reps.find(x=>a&&digits(x.id_no)===a)||reps.find(x=>x.name&&x.name===d["Rep name"])||reps.find(x=>x.name&&x.name===c.rep)||reps[0]}
+function witOf(c,d,n){const a=digits(d[`Witness ${n} Aadhaar`]||"");return(cfg.wit||[]).find(x=>a&&digits(x.aadhaar)===a)||(cfg.wit||[]).find(x=>x.name&&x.name===c["w"+n])}
+function forceProfile(c,d){const put=(k,v)=>{if(v!=null&&String(v).trim()!=="")d[k]=String(v)};
+  const r=repOf(c,d);if(r){put("Rep salutation",r.sal);put("Rep name",r.name);put("Rep name (Tamil)",r.name_ta);put("Rep relation",relFix(r.rel_type,r.gender));put("Rep relative name",r.rel_name);put("Rep relative name (Tamil)",r.rel_ta);put("Rep age",ageOf(r.dob));put("Rep gender",r.gender);put("Rep Aadhaar",digits(r.id_no));put("Rep designation",r.designation);put("Rep state",r.state);put("Rep district",r.district);put("Rep address",r.addr);put("Rep address (Tamil)",r.addr_ta);put("Rep pincode",r.pincode);put("Rep mobile",r.mobile)}
+  [1,2].forEach(n=>{const w=witOf(c,d,n);if(w){put(`Witness ${n} salutation`,w.sal);put(`Witness ${n} name`,w.name);put(`Witness ${n} name (Tamil)`,w.name_ta);put(`Witness ${n} relative name (Tamil)`,w.rel_ta);put(`Witness ${n} relation`,relFix(w.rel_type,w.gender));put(`Witness ${n} relative name`,w.rel_name);put(`Witness ${n} age`,ageOf(w.dob));put(`Witness ${n} gender`,w.gender);put(`Witness ${n} Aadhaar`,digits(w.aadhaar));put(`Witness ${n} district`,w.district);put(`Witness ${n} address`,w.addr);put(`Witness ${n} pincode`,w.pincode)}});
+  const co=(profOf(c.bank)||{}).company||{};if(co.addr_ta&&co.addr_en&&d["Company address"]===co.addr_en)d["Company address (Tamil)"]=co.addr_ta;
   return d}
+/* dorFill + the Tamil company address (Google transliteration, the same as TNREGINET's F8 typing; no document is read again) */
+const TA_CACHE={};
+async function prepTp(c){const d=dorFill(c,{...(c.tp||{})}),en=d["Company address"];
+  if(en&&!/[\u0B80-\u0BFF]/.test(d["Company address (Tamil)"]||"")){try{const ta=TA_CACHE[en]||(TA_CACHE[en]=await toTamil(en));if(/[\u0B80-\u0BFF]/.test(ta))d["Company address (Tamil)"]=ta}catch(e){}}
+  return d}
+/* push profile / witness corrections into every DoR case not yet TP-created (Draft Pending, TP Creation, TNREGINET draft) */
+async function syncProfileCases(bank){if(!db||!canWrite||!CFG_OK)return 0;let n=0;
+  for(const c of cases.slice()){if(c.mergedInto||/^TP\//.test(c.tpNo||"")||!isRD(c.type)||(bank&&c.bank!==bank))continue;
+    const d=await prepTp(c),o=c.tp||{};if(Object.keys(d).some(k=>String(d[k]??"")!==String(o[k]??""))){if(await patch(c,{tp:d},null))n++}}
+  return n}
+function syncSoon(bank){clearTimeout(syncSoon.t);syncSoon.t=setTimeout(async()=>{const n=await syncProfileCases(bank);if(n)toast(`Updated ${n} case(s) with the saved representative / witness details`)},1500)}
 
 /* ---------- boot ---------- */
 function ensureKycEngine(){if(window.kycHeadless)return Promise.resolve();kycOpen();return new Promise((ok,no)=>{const t0=Date.now();const iv=setInterval(()=>{if(window.kycHeadless){clearInterval(iv);ok()}else if(Date.now()-t0>60000){clearInterval(iv);no(new Error("KYC tools did not load"))}},300)})}
@@ -2640,6 +2668,8 @@ setInterval(()=>{if(!$("v-list").hidden||!$("v-dash").hidden)render()},60000);
   user=await claude.use("user");
   if(user){const w=await user.can("data.write");if(w===false){canWrite=false;banner("You can view this portal but not change it. Ask the Admin for access.")}
     try{isAdmin=await user.canEdit();isMD=await user.isOwner()}catch(e){}
+    /* once per page load (Admin): bring every open DoR case in line with the saved profiles and fill missing Tamil company addresses */
+    setTimeout(()=>{if(isMD)syncSoon()},15000);
     try{const p=await user.me();SELF_EMAIL=String(p&&p.email||"").toLowerCase()}catch(e){}
     if(isMD){$("mdBadge").hidden=false;if(!me||me===MD_OLD){me=MD_NAME;lsSet("vgr.me",me)}}}
   const timer=setTimeout(()=>{if(!cases.length)$("empty").innerHTML="<h2>Can't reach the case list yet</h2>Check your internet connection. It will load on its own once connected."},10000);

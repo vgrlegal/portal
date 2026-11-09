@@ -684,8 +684,60 @@ def current_age(P, t):
 
 
 
+def rel_fix(r, gender):
+    r = str(r or "").strip()
+    m = re.sub(r"[^a-z]", "", r.lower())
+    if not m:
+        return ""
+    if m.startswith("c"):
+        return "Daughter of" if str(gender or "").lower().startswith("f") else "Son of"
+    return {"w": "Wife of", "d": "Daughter of", "h": "Husband of", "f": "Father of"}.get(m[0], "Son of")
+
+
+def apply_profile(case, t):
+    """The saved client profile and witness list are the master copy: their rep / witness details replace the case's
+    (a correction made once in Settings reaches every case, including ones started earlier)."""
+    try:
+        lists = kv_get("config", "lists") or {}
+    except Exception as e:
+        log("profile read failed", e)
+        return t
+    t = dict(t)
+    dg = lambda x: re.sub(r"\D", "", str(x or ""))
+    def put(k, v):
+        if v not in (None, "") and str(v).strip():
+            t[k] = str(v).strip()
+    reps = (((lists.get("profiles") or {}).get(case.get("bank") or "") or {}).get("reps") or [])
+    a = dg(t.get("Rep Aadhaar"))
+    r = next((x for x in reps if a and dg(x.get("id_no")) == a), None) or \
+        next((x for x in reps if x.get("name") and x.get("name") == t.get("Rep name")), None) or \
+        next((x for x in reps if x.get("name") and x.get("name") == case.get("rep")), None) or (reps[0] if reps else None)
+    if r:
+        for k, v in (("Rep salutation", r.get("sal")), ("Rep name", r.get("name")), ("Rep name (Tamil)", r.get("name_ta")),
+                     ("Rep relation", rel_fix(r.get("rel_type"), r.get("gender"))), ("Rep relative name", r.get("rel_name")),
+                     ("Rep relative name (Tamil)", r.get("rel_ta")), ("Rep age", age_from(r.get("dob"))), ("Rep gender", r.get("gender")),
+                     ("Rep Aadhaar", dg(r.get("id_no"))), ("Rep designation", r.get("designation")), ("Rep state", r.get("state")),
+                     ("Rep district", r.get("district")), ("Rep address", r.get("addr")), ("Rep address (Tamil)", r.get("addr_ta")),
+                     ("Rep pincode", r.get("pincode")), ("Rep mobile", r.get("mobile"))):
+            put(k, v)
+    wits = lists.get("wit") or []
+    for n in (1, 2):
+        a = dg(t.get(f"Witness {n} Aadhaar"))
+        w = next((x for x in wits if a and dg(x.get("aadhaar")) == a), None) or \
+            next((x for x in wits if x.get("name") and x.get("name") == case.get(f"w{n}")), None)
+        if not w:
+            continue
+        for k, v in (("salutation", w.get("sal")), ("name", w.get("name")), ("name (Tamil)", w.get("name_ta")),
+                     ("relative name (Tamil)", w.get("rel_ta")), ("relation", rel_fix(w.get("rel_type"), w.get("gender"))),
+                     ("relative name", w.get("rel_name")), ("age", age_from(w.get("dob"))), ("gender", w.get("gender")),
+                     ("Aadhaar", dg(w.get("aadhaar"))), ("district", w.get("district")), ("address", w.get("addr")),
+                     ("pincode", w.get("pincode"))):
+            put(f"Witness {n} {k}", v)
+    return t
+
+
 def run_dor(page, job, case):
-    t = case.get("tp") or {}
+    t = apply_profile(case, case.get("tp") or {})
     P = Portal(page, job)
     # 1. create & link previous document
     job.step("1 · Create document & link the MODT")
@@ -1488,7 +1540,7 @@ def save_print(P, job, page, case_id, tp):
 
 def upload_only(page, job, case):
     """TP already created: log in, upload the 5 documents, save the print. Never creates a TP."""
-    t = case.get("tp") or {}
+    t = apply_profile(case, case.get("tp") or {})
     tp = case.get("tpNo") or ""
     if not tp.startswith("TP/"):
         raise Stop("This case has no TP number yet.")
