@@ -96,6 +96,7 @@ def download(url, dest):
 class Job:
     def __init__(self, jid, data):
         self.id, self.d = jid, data
+        self.last = ""
 
     def upd(self, **kv):
         self.d.update(kv)
@@ -109,6 +110,8 @@ class Job:
 
     def step(self, text, page=None):
         log(self.id[:8], text)
+        if text not in ("Stopped here", "Problem at login"):
+            self.last = text
         patch = {"step": text, "at": now()}
         if page is not None:
             try:
@@ -641,7 +644,7 @@ def run_dor(page, job, case):
         # Supplementary MODT: same party / property / company - link it too (loan amounts are added later)
         link_doc(P, job, page, g(t, "Supp MODT SRO") or g(t, "SRO"), g(t, "Supp MODT Book") or "1", g(t, "Supp MODT Doc No"),
                  g(t, "Supp MODT Year") or g(t, "Year"), "Regular Document", "Supplementary MODT")
-    P.click("createDocProceed", 6)
+    grab_draft(P, job, P.click("createDocProceed", 6))
     job.step("2 · Mortgagee (company)", page)
     if P.p.evaluate("()=>{const t=document.getElementById('tableForExecutantDtls');return !!(t&&t.offsetParent&&t.rows.length>1)}"):
         mortgagee_edit(P, job, page, t)
@@ -813,7 +816,7 @@ def rep_witness_presenter(P, job, page, t):
     job.step("7 · Presenter", page)
     wait_for(P, "()=>document.getElementById('cmb_presenter').options.length>1", 15)
     P.fuzzy("cmb_presenter", g(t, "Rep name"), 1)
-    P.click("btnMainSaveAsDraft", 4)
+    grab_draft(P, job, P.click("btnMainSaveAsDraft", 4))
 
 
 ACTIVE_TAB_JS = """()=>{const clean=x=>(x.textContent||'').replace(/["\\s]+/g,' ').trim();
@@ -1089,6 +1092,10 @@ def press_create(P, job, page, attempt):
         job.step("Create Document button not found", page)
         raise Stop("The Create Document button did not appear. The draft is saved - send the screen to Claude.")
     job.upd(createClicked=now(), createCount=attempt)
+    try:
+        kv_merge("cases", job.d.get("case", ""), {"createPressedAt": now()})
+    except Exception:
+        pass
     job.step(f"12 · Create Document (press {attempt})", page)
     btn.first.click()
     wait_loader(page)
@@ -1604,13 +1611,53 @@ MON = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NO
 
 
 def dob_tn(d):
-    """'04-01-1963' / '04/01/1963' -> '04-JAN-1963' (TNREGINET date-of-birth format)."""
-    m = re.match(r"^\s*(\d{1,2})[-/. ](\d{1,2}|[A-Za-z]{3})[-/. ](\d{4})", d or "")
+    """'04-01-1963' / '04/01/1963' / '1963-01-04' / '4 Jan 1963' -> '04-JAN-1963' (TNREGINET date format DD-MON-YYYY)."""
+    d = str(d or "")
+    iso = re.match(r"^\s*(\d{4})-(\d{1,2})-(\d{1,2})", d)
+    if iso:
+        d = f"{iso.group(3)}-{iso.group(2)}-{iso.group(1)}"
+    m = re.match(r"^\s*(\d{1,2})[-/. ](\d{1,2}|[A-Za-z]{3})[A-Za-z]*[-/. ](\d{4})", d)
     if not m:
         return ""
     mo = m.group(2)
     mo = MON[int(mo) - 1] if mo.isdigit() and 1 <= int(mo) <= 12 else mo.upper()
     return f"{int(m.group(1)):02d}-{mo}-{m.group(3)}"
+
+
+def age_from(raw):
+    """Age from a date of birth, or from the year alone when the Aadhaar shows only the year of birth."""
+    d = dob_tn(raw)
+    if d:
+        return age_of(d)
+    m = re.match(r"^\s*(19\d{2}|20\d{2})\s*$", str(raw or ""))
+    return str(datetime.date.today().year - int(m.group(1))) if m else ""
+
+
+def record_stop(job, case_id, reason):
+    """Keep on the case where and why the robot stopped (and the TNREGINET draft number if one was seen)."""
+    try:
+        kv_merge("cases", case_id, {"tpStop": {"at": now(), "step": job.last, "reason": str(reason)[:400],
+                                               "draftNo": job.d.get("draftNo", ""), "job": job.id}})
+    except Exception as e:
+        log("stop note failed", e)
+
+
+DRAFT_RE = re.compile(r"(?:draft|application|reference|ref)\s*(?:no|number|id)\.?\s*[:\-]?\s*([A-Z0-9][A-Z0-9/\-]{5,})", re.I)
+
+
+def grab_draft(P, job, said=""):
+    """TNREGINET shows a draft / document number after Proceed or Save as draft: keep it for the case."""
+    try:
+        txt = said + " " + P.p.evaluate("()=>document.body.innerText.slice(0,4000)")
+    except Exception:
+        txt = said
+    m = DRAFT_RE.search(txt)
+    if m and not job.d.get("draftNo"):
+        job.upd(draftNo=m.group(1))
+        try:
+            kv_merge("cases", job.d.get("case", ""), {"tnDraftNo": m.group(1)})
+        except Exception:
+            pass
 
 
 def age_of(dob):
@@ -1660,6 +1707,8 @@ def modt_party(P, job, page, d, n):
         P.js("(()=>{const e=document.getElementById('dob');if(e){e.dispatchEvent(new Event('change',{bubbles:true}));e.dispatchEvent(new Event('blur',{bubbles:true}))}})()")
         P.wait(1)
         P.set("age", age_of(dob))
+    elif age_from(g(d, f"{pre} date of birth")):
+        P.set("age", age_from(g(d, f"{pre} date of birth")))  # Aadhaar shows only the year of birth
     P.sel("genderId", "^Female" if sal.lower().startswith(("mrs", "ms", "miss")) else "^Male")
     P.sel("identificationTypeId", "Aadhaar")
     P.set("identificationNo", re.sub(r"\D", "", g(d, f"{pre} Aadhaar")))
@@ -1729,9 +1778,9 @@ def run_modt(page, job, case):
                      ("Aadhaar", re.sub(r"\D", "", str(w.get("aadhaar") or ""))), ("district", w.get("district")), ("address", w.get("addr")), ("pincode", w.get("pincode"))):
             if v:
                 t[f"Witness {n} {k}"] = str(v)
-        dob = dob_tn(str(w.get("dob") or ""))
-        if dob:
-            t[f"Witness {n} age"] = age_of(dob)
+        a = age_from(str(w.get("dob") or ""))
+        if a:
+            t[f"Witness {n} age"] = a
     open_subtab(P, "Witness Details", "chkWitnessType0")
     for n in (1, 2):
         if not t.get(f"Witness {n} name"):
@@ -1828,11 +1877,16 @@ def handle(pw, jid, data):
             raise Stop("Only Deed of Receipt and MODT are automated so far")
         if str(case.get("tpNo") or "").startswith("TP/"):
             raise Stop(f"This case already has {case['tpNo']}. Use 'Upload documents only' - a new TP is not created.")
+        if case.get("createPressedAt"):
+            raise Stop("Create Document was already pressed for this case earlier but no TP number was saved. Check My Documents on TNREGINET first "
+                       "(if a TP is there, use Enter TP No.; if not, press 'Allow a new TP' on the case).")
         try:
             tp = run_dor(page, job, case)
-        except Exception:
+        except Exception as e:
             job.step("Stopped here", page)
+            record_stop(job, data.get("case", ""), e)
             raise
+        kv_merge("cases", data["case"], {"tpStop": None})
         if tp and tp.startswith("TP/"):
             kv_merge("cases", data["case"], {"tpNo": tp})
         # keep the browser open a while so a follow-up step can continue (future); then close
@@ -1997,14 +2051,17 @@ def run_chain(batch, login, first_id, first_data):
                             page.goto("https://tnreginet.gov.in/portal/", wait_until="domcontentloaded", timeout=90000)
                             page.wait_for_timeout(2500)
                             to_english(page)
+                        if case.get("createPressedAt"):
+                            raise Stop("Create Document was already pressed for this case earlier but no TP number was saved. Check My Documents on TNREGINET first.")
                         tp = run_dor(page, job, case)
                         if tp and tp.startswith("TP/"):
-                            kv_merge("cases", data["case"], {"tpNo": tp})
+                            kv_merge("cases", data["case"], {"tpNo": tp, "tpStop": None})
                     except Stop as e:
                         try:
                             job.step("Stopped here", page)
                         except Exception:
                             pass
+                        record_stop(job, data.get("case", ""), e)
                         job.upd(status="cancelled" if "portal" in str(e) else "error", message=str(e), at=now())
                     except Exception as e:
                         traceback.print_exc()

@@ -690,7 +690,7 @@ const DOCS={
 };
 const docsFor=t=>isRD(t)?DOCS.dor:flowOf(t)==="legal"?DOCS.legal:DOCS.modt;
 const DOR_FIELDS=[["Link previous document",["SRO","Doc No","Year","SRO 2","Doc No 2","Year 2"]],["Mortgagee",["Bank Sheet","Govt Body Name"]],["Mortgagor",["Mortgagor","Mortgagor Age","Mortgagor Aadhaar"]],["Property boundaries",["Boundary North","Boundary East","Boundary West","Boundary South"]],["Loan",["Loan Amount"]],["Place of execution",["SRO Tamil"]]];
-const DOR_NEED=["Mortgagor","Bank Sheet","Govt Body Name","SRO","Doc No","Year","Loan Amount","Mortgagor Age","MODT File"];
+const DOR_NEED=["Mortgagor","Bank Sheet","Govt Body Name","SRO","Doc No","Year","Loan Amount","MODT File"];
 const MSAL=["Mr.","Mrs.","Ms."],MREL=["S/o","W/o","D/o","C/o"],MSTATES=["Tamil Nadu","Karnataka","Kerala","Andhra Pradesh","Telangana","Maharashtra","Delhi","Gujarat","West Bengal","Uttar Pradesh","Haryana","Rajasthan","Puducherry"];
 const MP=n=>[[`Mortgagor ${n} salutation`,"s",MSAL],`Mortgagor ${n} name`,`Mortgagor ${n} name Tamil`,[`Mortgagor ${n} relation`,"s",MREL],`Mortgagor ${n} relative name`,`Mortgagor ${n} relative name Tamil`,`Mortgagor ${n} date of birth`,`Mortgagor ${n} Aadhaar`,`Mortgagor ${n} district`,[`Mortgagor ${n} address`,"w"],[`Mortgagor ${n} address Tamil`,"w"],`Mortgagor ${n} pincode`,`Mortgagor ${n} phone`];
 /* MODT drafting, in the same order as TNREGINET's Deposit of Title Deeds screens */
@@ -848,7 +848,7 @@ function actionsFor0(c){
     return a;
   }
   if(s==="Draft Pending")a.push(["draft","Drafting"]);
-  if(s==="TP Creation"||s==="TP On Hold"){if(canTp())a.push(["tpgen",s==="TP On Hold"?"Retry TP Generate":"TP Generate"]);a.push(["draft","Edit Draft"],["tpno","Enter TP No."])}
+  if(s==="TP Creation"||s==="TP On Hold"){if(canTp())a.push(["tpgen",s==="TP On Hold"?"Retry TP Generate":"TP Generate"]);a.push(["draft","Edit Draft"],["tpno","Enter TP No."]);if(c.createPressedAt&&!c.tpNo&&(isMD||isPartner()))a.push(["allowtp","Allow a new TP"])}
   if(s==="Photo/Biometric")a.push(["mv:Payment","Biometric Done"]);
   if(s==="Payment"){a.push(["paylink","Send Payment"]);if(!c.paid)a.push(["paid","Payment Received"]);else a.push(["sropaid","SRO Payment Done"])}
   if(TRACKED.has(s)){if(isMD&&H.ok&&c.tpNo)a.push(["check","Check Status"]);a.push(["setst","Update Status"])}
@@ -888,7 +888,7 @@ function render(){
   $("tbody").innerHTML=rows.map(c=>{
     const cm=(c.comments||[]).length;
     return`<tr data-id="${esc(c._doc)}">
-    <td>${bulkOk()&&isRD(c.type)?`<input type="checkbox" class="selbox" data-sel="${esc(c._doc)}" ${SEL.has(c._doc)?"checked":""} aria-label="Select ${esc(c.applicant)}">`:""}${c.applicantFromMail?`<span class="strong">⏳ Reading documents…</span><span class="sub">${esc((c.mailSubject||c.applicant||"").slice(0,70))}</span>`:`<span class="strong">${esc(c.applicant)}</span>`}${c.loanNo?`<span class="sub mono">Loan ${esc(c.loanNo)}</span>`:""}${c.noModt?`<span class="pill p-bad" style="margin-top:4px">No MODT</span> `:""}${doubtful(c)?`<span class="pill p-warn" style="margin-top:4px" title="${c.dupOf?"Looks like the same customer as "+esc(c.dupOf):"This mail may hold more than one customer"}. Open the mail files and press Same case / Split / Separate.">🔔 Check this mail${c.dupOf?" · same as "+esc(c.dupOf)+"?":" · 2 customers?"}</span> `:""}${c.source==="mail"&&!c.bank?`<span class="pill p-warn" style="margin-top:4px">Company?</span> `:""}${!c.phone&&!FINAL.has(c.stage)?`<span class="pill p-info" style="margin-top:4px;font-size:11px" title="Customer phone needed for payment">📞 Phone needed</span>`:""}<span class="sub mono">${esc(c.id)}</span>${tab==="__all"?`<span class="sub">${esc(c.type)}</span>`:""}</td>
+    <td>${bulkOk()&&isRD(c.type)?`<input type="checkbox" class="selbox" data-sel="${esc(c._doc)}" ${SEL.has(c._doc)?"checked":""} aria-label="Select ${esc(c.applicant)}">`:""}${c.applicantFromMail?`<span class="strong">⏳ Reading documents…</span><span class="sub">${esc((c.mailSubject||c.applicant||"").slice(0,70))}</span>`:`<span class="strong">${esc(c.applicant)}</span>`}${c.loanNo?`<span class="sub mono">Loan ${esc(c.loanNo)}</span>`:""}${c.noModt?`<span class="pill p-bad" style="margin-top:4px">No MODT</span> `:""}${c.tpStop&&!c.tpNo?`<span class="pill p-bad" style="margin-top:4px;white-space:normal" title="${esc(c.tpStop.reason||"")}">⛔ Robot stopped: ${esc(String(c.tpStop.step||"").slice(0,50))}${c.tpStop.draftNo||c.tnDraftNo?" · Draft "+esc(c.tpStop.draftNo||c.tnDraftNo):""}</span><span class="sub" style="color:#b42318;white-space:normal">${esc(String(c.tpStop.reason||"").slice(0,160))}</span>`:""}${doubtful(c)?`<span class="pill p-warn" style="margin-top:4px" title="${c.dupOf?"Looks like the same customer as "+esc(c.dupOf):"This mail may hold more than one customer"}. Open the mail files and press Same case / Split / Separate.">🔔 Check this mail${c.dupOf?" · same as "+esc(c.dupOf)+"?":" · 2 customers?"}</span> `:""}${c.source==="mail"&&!c.bank?`<span class="pill p-warn" style="margin-top:4px">Company?</span> `:""}${!c.phone&&!FINAL.has(c.stage)?`<span class="pill p-info" style="margin-top:4px;font-size:11px" title="Customer phone needed for payment">📞 Phone needed</span>`:""}<span class="sub mono">${esc(c.id)}</span>${tab==="__all"?`<span class="sub">${esc(c.type)}</span>`:""}</td>
     <td><span class="strong">${esc(c.bank||"—")}</span><span class="sub">${esc(c.branch||"")}</span></td>
     <td>${datesCell(c)}</td>
     <td>${statusCell(c)}</td>
@@ -1102,6 +1102,7 @@ function runAction(c,k){
     ()=>patch(c,{stage:"Submitted Online",comments:[...(c.comments||[]),{at:nowISO(),by:who(),text:"Resubmitted after correction (same TP)",internal:"false"}].slice(-100)},"Resubmitted after refusal (same TP)"),"Resubmit");
   if(k==="split")return splitCase(c);
   if(k==="merge")return mergeCase(c);
+  if(k==="allowtp")return ask("Allow a new TP?",`<p class="sf-note">Create Document was pressed for this case on ${esc(new Date(c.createPressedAt).toLocaleString("en-IN"))} but no TP number was saved. Open <b>My Documents</b> on TNREGINET first. If a TP is there, use <b>Enter TP No.</b> instead. Allow a new TP only if none was made.</p>`,()=>patch(c,{createPressedAt:null},"Checked My Documents: no TP made, new TP allowed"),"Allow");
   if(k==="notdup")return patch(c,{dupOf:null,multiCustomer:false},"Checked: this mail is a separate case");
   if(k==="undo"){const p=prevStage(c);if(!p||!canBack())return;return ask("Move back a stage?",`<p class="sf-note">${esc(c.applicant||c.id)}: <b>${esc(c.stage)}</b> → <b>${esc(p)}</b>. This is recorded in the case history.</p>`,()=>patch(c,{stage:p},`Stage moved back: ${c.stage} → ${p} (${isMD?"Admin":who()})`),"Move back")}
   if(k==="draft")return openReview(c,false);
@@ -1446,6 +1447,23 @@ async function renderTime(from,to,want,on){const t=$("timeTbl");if(!t)return;let
    reads only the MODT in full, and flags: no MODT · several customers · phone needed ---- */
 function lanOf(t){const m=String(t||"").match(/(?:LAN|loan(?:\s*(?:no|number|a\/c))?)\s*[:.#-]*\s*'?([A-Z]{0,8}\d[\w]{6,24})/i)||String(t||"").match(/\b([A-Z]{2,12}\d{8,20}|\d{10,20})\b/);return m?m[1]:""}
 function cleanCust(n){return String(n||"").replace(/\(.*$/,"").replace(/\b(S|W|D|C)\s*\/\s*O\b.*$/i,"").replace(/^\s*(MR|MRS|MS|SMT|THIRU|TMT|SRI|SHRI|SELVI|KUMARI)\b\.?\s*/i,"").replace(/[,.\s]+$/,"").trim().toUpperCase()}
+/* combined PDF (all documents in one file): look at pages 2–4 of each multi-page PDF, then the rest (up to page 16);
+   when a page is the registered MODT, its pages are saved as a separate MODT copy so only they are read */
+async function pdfDocOf(file){await ensureKycEngine();return pdfjsLib.getDocument({data:(await file.arrayBuffer()).slice(0)}).promise}
+async function pageImg(doc,i){const pg=await doc.getPage(i),vp=pg.getViewport({scale:1.6}),c=document.createElement("canvas");c.width=vp.width;c.height=vp.height;await pg.render({canvasContext:c.getContext("2d"),viewport:vp}).promise;return jpegOf(c,900)}
+let PDFLIB=null;async function loadPdfLib(){if(window.PDFLib)return window.PDFLib;if(!PDFLIB)PDFLIB=new Promise((ok,no)=>{const s=document.createElement("script");s.src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js";s.onload=()=>ok(window.PDFLib);s.onerror=no;document.head.appendChild(s)});return PDFLIB}
+async function extractPages(file,from,to,name){const L=await loadPdfLib(),src=await L.PDFDocument.load(await file.arrayBuffer(),{ignoreEncryption:true}),out=await L.PDFDocument.create();
+  const idx=[];for(let i=from;i<=to;i++)idx.push(i-1);(await out.copyPages(src,idx)).forEach(p=>out.addPage(p));return new File([await out.save()],name,{type:"application/pdf"})}
+async function findModtInside(F){const pdfs=[];for(const [j,x] of F.entries()){if(!/\.pdf$/i.test(x.f.name))continue;try{const file=await fileOfDoc(x.f),doc=await pdfDocOf(file);if(doc.numPages>1)pdfs.push({j,x,file,doc,n:doc.numPages})}catch(e){}}
+  if(!pdfs.length)return null;
+  for(const [a,b] of [[2,4],[5,16]]){const imgs=[],labels=[],where=[];
+    for(const P of pdfs)for(let i=a;i<=Math.min(b,P.n);i++){if(imgs.length>=20)break;imgs.push(await pageImg(P.doc,i));labels.push(`File ${P.j+1}: ${P.x.f.name} · page ${i}`);where.push([P,i])}
+    if(!imgs.length)continue;
+    const{data,error}=await window.__sb.functions.invoke("read-aadhaar",{body:{kind:"classify",images:imgs,labels}});if(error||!data||!data.fields)throw new Error("classify (pages) failed");
+    const hit=(data.fields.files||[]).find(r=>r.type==="modt"&&where[+r.n-1]);if(!hit)continue;
+    const[P,pg]=where[+hit.n-1],to=Math.min(P.n,pg+11),nm=P.x.f.name.replace(/\.pdf$/i,"")+` - MODT pages ${pg}-${to}.pdf`;
+    const up=await uploadFile(await extractPages(P.file,pg,to,nm));if(!up)return null;return{doc:{...up,kind:"modt",fromCombined:P.x.f.name},name:P.x.f.name,from:pg,to}}
+  return null}
 /* free first: a PDF that already carries its text is sorted without Claude, only when it is clearly a registered MODT or an NOC */
 function freeType(t){t=String(t||"").replace(/\s+/g," ");if(t.length<300)return null;
   if(/no objection certificate|தடையில்லா/i.test(t)&&!/memorandum of deposit/i.test(t.slice(0,600)))return"noc";
@@ -1465,7 +1483,9 @@ async function classifyMail(c){const seen=new Set(),F=allFiles(c).filter(x=>{con
   idx.forEach((j,i)=>{const r=freeModt?{}:(R.find(x=>+x.n===i+1)||{});let k=slot[r.type]||"other";if(k==="modt"&&docs.modt)k="other";(docs[k]=docs[k]||[]).push({...F[j].f,kind:r.type||""});if(r.type==="modt"&&r.customer)custs.add(String(r.customer).trim().toLowerCase())});
   F.forEach((x,j)=>{if(!idx.includes(j)&&!(j in free))(docs.other=docs.other||[]).push(x.f)});
   const multi=custs.size>1||R.filter(x=>x.type==="modt").length>1||Object.values(free).filter(t=>t==="modt").length>1;
+  let inside=null;if(!docs.modt){try{inside=await findModtInside(F);if(inside)docs.modt=[inside.doc]}catch(e){console.warn("MODT inside a combined PDF",e)}}
   const ch={docs,classified:true,noModt:!docs.modt,multiCustomer:multi,needsRead:docs.modt?"modt":null};
+  if(inside)ch.log=[...(c.log||[]),{at:nowISO(),by:"Claude",text:`MODT found inside ${inside.name}, pages ${inside.from}–${inside.to}; those pages saved as the MODT copy`}].slice(-80);
   if(!c.phone&&data.fields.phone)ch.phone=String(data.fields.phone).replace(/\D/g,"").slice(-10);
   const ln=(R.find(x=>x.type==="modt"&&x.loan_no)||R.find(x=>x.loan_no)||{}).loan_no||lanOf(c.mailSubject);if(!c.loanNo&&ln)ch.loanNo=String(ln);
   const nm=(R.find(x=>x.type==="modt"&&x.customer)||R.find(x=>x.customer)||{}).customer;if(c.applicantFromMail&&nm){ch.applicant=cleanCust(nm)}
@@ -2463,10 +2483,10 @@ function parseModt(raw){const t=String(raw||"").replace(/[ \t]+/g," "),f=(re,g=1
   if(/^(mrs|ms)/i.test(d["Mortgagor salutation"]||""))d["Mortgagor gender"]="Female";else if(d["Mortgagor salutation"]==="Mr")d["Mortgagor gender"]="Male";
   if(/wife/i.test(d["Mortgagor relation"]||""))d["Mortgagor marital status"]="Married";
   return d}
-async function claudeModt(file){if(!window.__sb)return null;const{canvases,text}=await canvasesOf([file],()=>{},10);if(!canvases.length)return null;
+async function claudeModt(file){if(!window.__sb)return null;const{canvases,text}=await canvasesOf([file],()=>{},12);if(!canvases.length)return null;
   const hints=[...ruleHints(),...learned().slice(0,40).map(x=>`${x.field}: "${x.read}" → "${x.fixed}"`)].slice(0,40);
   const tx=String(text||"").replace(/\s+/g," ").trim(),junk=(tx.match(/[\u0080-\u00ff\ufffd]/g)||[]).length/Math.max(1,tx.length),useText=tx.length>=Math.max(1500,canvases.length*500)&&/\d{4}/.test(tx)&&/mortgag|deposit|loan|அடமான/i.test(tx)&&junk<0.01;
-  const{data,error}=await window.__sb.functions.invoke("read-aadhaar",{body:useText?{kind:"modt",pdfText:tx,hints}:{kind:"modt",images:canvases.slice(0,10).map(c=>jpegOf(c,1300)),hints}});
+  const{data,error}=await window.__sb.functions.invoke("read-aadhaar",{body:useText?{kind:"modt",pdfText:tx,hints}:{kind:"modt",images:canvases.slice(0,12).map(c=>jpegOf(c,1300)),hints}});
   if(error||!data||!data.fields){console.warn("Claude MODT",error||data);try{if(/credit balance/i.test(await error.context.text())){window.__noCredit=true;toast("Claude credit is finished — top up at console.anthropic.com (Plans & Billing).")}}catch(e){}return null}
   const f=data.fields,d={},put=(k,v)=>{v=String(v??"").trim();if(v)d[k]=v};
   (Array.isArray(f.co_mortgagors)?f.co_mortgagors:[]).slice(0,4).forEach((m,i)=>{const n=i+2;put(`Mortgagor ${n} name`,String(m.name||"").toUpperCase());put(`Mortgagor ${n} name (Tamil)`,m.name_ta);put(`Mortgagor ${n} age`,m.age);put(`Mortgagor ${n} relation`,m.rel_type);put(`Mortgagor ${n} relative name`,String(m.rel_name||"").toUpperCase())});
@@ -2558,7 +2578,7 @@ const DOR_PAGES=[
   ["8 · Property",[["Property district"],["Property SRO","sro"],["Village","vil"],["Survey number"],["Extent"],["Boundary North","w"],["Boundary East","w"],["Boundary West","w"],["Boundary South","w"]]],
   ["9 · Loan repayment",[["Loan Amount"],["Supp loan amount"],["Loan closure date"]]],
   ["10 · Place of execution",[["Execution SRO","sro"],["SRO Tamil"]]]];
-const DOR_REQ=["SRO","Doc No","Year","Company name","Mortgagor","Mortgagor Age","Rep name","Rep Aadhaar","Witness 1 name","Witness 1 Aadhaar","Witness 2 name","Witness 2 Aadhaar","Loan Amount"];
+const DOR_REQ=["SRO","Doc No","Year","Company name","Mortgagor","Rep name","Rep Aadhaar","Witness 1 name","Witness 1 Aadhaar","Witness 2 name","Witness 2 Aadhaar","Loan Amount"];
 function dorFill(c,d){const set=(k,v)=>{if(v!=null&&String(v).trim()!==""&&!String(d[k]||"").trim())d[k]=String(v)};
   set("Deed type","Deed Of Receipt");set("Execution SRO",d.SRO);set("Book","1");set("Document type","Regular Document");set("Presenter","Company representative");
   set("Loan Amount",c.loanAmount);set("Mortgagor",c.applicant);set("Mortgagor mobile",c.phone);
