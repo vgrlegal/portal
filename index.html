@@ -643,6 +643,7 @@ const TRACKED=new Set(["Submitted Online","Under Verification","Under Processing
 const tone=s=>({"Draft Pending":"p-info","TP Creation":"p-info","Docs Received":"p-info","Drafting":"p-info","Photo/Biometric":"p-warn","Payment":"p-warn","Submitted Online":"p-warn","Under Verification":"p-warn","Under Processing":"p-warn","Report Sent":"p-warn","TP On Hold":"p-bad","Returned":"p-bad","Query Raised":"p-bad","Registered":"p-ok","Completed":"p-ok"}[s]||"p-info");
 const DOCS={
   modt:[
+    {k:"mdraft",l:"MODT draft (Word copy)",h:"Loan amount, company address, extent, boundaries, legal conditions, list of documents",req:1},
     {k:"th_kyc",l:"Title holder Aadhaar + signature",h:"A ready KYC PDF is used as it is. Photos (front, back, signature) are made into one KYC PDF with the signature background erased.",kyc:1,req:1},
     {k:"revenue",l:"Revenue documents",h:"Online Patta or TSLR"},
     {k:"photos",l:"Property photographs",h:"With GPS location",multi:1},
@@ -654,6 +655,7 @@ const DOCS={
     {k:"legal",l:"Legal report",grp:"title"},
     {k:"sanction",l:"Sanction letter",h:"Loan amount"},
     {k:"deed",l:"Title deed",h:"Colour copy, or bank letter + Xerox",grp:"title",multi:1},
+    {k:"other",l:"Other certificates (if any)",multi:1},
     {k:"tpcopy",l:"TP copy, before biometric",auto:1},
     {k:"payshot",l:"Payment screenshot",auto:1}],
   dor:[
@@ -669,7 +671,34 @@ const DOCS={
 const docsFor=t=>isRD(t)?DOCS.dor:flowOf(t)==="legal"?DOCS.legal:DOCS.modt;
 const DOR_FIELDS=[["Link previous document",["SRO","Doc No","Year","SRO 2","Doc No 2","Year 2"]],["Mortgagee",["Bank Sheet","Govt Body Name"]],["Mortgagor",["Mortgagor","Mortgagor Age","Mortgagor Aadhaar"]],["Property boundaries",["Boundary North","Boundary East","Boundary West","Boundary South"]],["Loan",["Loan Amount"]],["Place of execution",["SRO Tamil"]]];
 const DOR_NEED=["Mortgagor","Bank Sheet","Govt Body Name","SRO","Doc No","Year","Loan Amount","Mortgagor Age","MODT File"];
-const MODT_FIELDS=[["Mortgagee",["Company name","Branch address"]],["Mortgagor (title holder)",["Name","Relation (S/o, W/o, D/o)","Relative name","Age","Aadhaar","Address","Pincode","Phone"]],["Witness 1",["Witness 1 name","Witness 1 Aadhaar"]],["Witness 2",["Witness 2 name","Witness 2 Aadhaar"]],["Property",["District","SRO","Village","Survey number","Extent","Boundary North","Boundary East","Boundary West","Boundary South"]],["Loan",["Loan amount","Sanction date"]],["Place of execution",["Execution SRO"]]];
+const MSAL=["Mr.","Mrs.","Ms."],MREL=["S/o","W/o","D/o","C/o"],MSTATES=["Tamil Nadu","Karnataka","Kerala","Andhra Pradesh","Telangana","Maharashtra","Delhi","Gujarat","West Bengal","Uttar Pradesh","Haryana","Rajasthan","Puducherry"];
+const MP=n=>[[`Mortgagor ${n} salutation`,"s",MSAL],`Mortgagor ${n} name`,`Mortgagor ${n} name Tamil`,[`Mortgagor ${n} relation`,"s",MREL],`Mortgagor ${n} relative name`,`Mortgagor ${n} relative name Tamil`,`Mortgagor ${n} date of birth`,`Mortgagor ${n} Aadhaar`,`Mortgagor ${n} district`,[`Mortgagor ${n} address`,"w"],[`Mortgagor ${n} address Tamil`,"w"],`Mortgagor ${n} pincode`,`Mortgagor ${n} phone`];
+/* MODT drafting, in the same order as TNREGINET's Deposit of Title Deeds screens */
+const MODT_FIELDS=[
+  ["1 · Linked documents (title deeds)",[["Deed 1 SRO","sro"],"Deed 1 Doc No",["Deed 1 Year","year"],["Deed 2 SRO","sro"],"Deed 2 Doc No",["Deed 2 Year","year"],["Deed 3 SRO","sro"],"Deed 3 Doc No",["Deed 3 Year","year"]]],
+  ["2 · Mortgagor (title holders)",[["Title holders","s",["1","2","3","4"]]]],
+  ["2 · Title holder 1",MP(1)],["2 · Title holder 2",MP(2)],["2 · Title holder 3",MP(3)],["2 · Title holder 4",MP(4)],
+  ["3 · Mortgagee (company)",["Govt Body Name",["Company state","s",MSTATES],["Company address","w"],["Company address Tamil","w"],"Company pincode","Branch"]],
+  ["4 · Company representative",[["Representative","note","Skipped for MODT. Needed only when the property belongs to a company."]]],
+  ["5 · Witnesses",[["Witness 1","wsel"],["Witness 2","wsel"]]],
+  ["6 · Presenter",[["Presenter","s",["Title holder 1","Title holder 2","Title holder 3","Title holder 4"]]]],
+  ["7 · Property",[["Property type","s",["Plot with building","Vacant plot"]],["Property SRO","sro"],["Village","vil"],"Patta No",["Land type","s",["Urban","Rural","Natham"]],["Unit","s",["Sq.ft","Sq.m"]],"New survey no","Subdivision","Sheet name",["Old survey numbers","w"],"Extent"]],
+  ["8 · Boundaries",[["Boundary type","s",["Regular","Irregular"]],"Boundary North","Boundary South","Boundary East","Boundary West","Boundary North Tamil","Boundary South Tamil","Boundary East Tamil","Boundary West Tamil"]],
+  ["9 · Building details",[["Building","note","The robot skips this page. Fill building details by hand on TNREGINET."]]],
+  ["10 · Linear measurement",["North length","South length","East length","West length"]],
+  ["11 · Property remarks",[["Property remarks","ta"],["Property remarks Tamil","ta"]]],
+  ["12 · Loan",["Loan amount"]],
+  ["13 · Legal conditions",[["Legal conditions","ta"],["List of documents deposited","ta"]]],
+  ["14 · Supporting details",[["Execution SRO","sro"],"SRO Tamil"]]];
+function modtFill(c,d){const set=(k,v)=>{if(v!=null&&String(v).trim()!==""&&!String(d[k]||"").trim())d[k]=String(v)};
+  set("Mortgagor 1 name",d.Name||c.applicant);set("Mortgagor 1 phone",d.Phone||c.phone);set("Mortgagor 1 Aadhaar",d.Aadhaar);set("Mortgagor 1 address",d.Address);set("Mortgagor 1 pincode",d.Pincode);set("Mortgagor 1 relative name",d["Relative name"]);
+  set("Loan amount",c.loanAmount);set("Branch",c.branch);set("Title holders","1");set("Presenter","Title holder 1");set("Property SRO",d.SRO||c.sro);set("Execution SRO",d["Property SRO"]||c.sro);
+  ["North","South","East","West"].forEach(x=>set("Boundary "+x,d["Boundary "+x]));set("Extent",d.Extent);set("New survey no",d["Survey number"]);
+  const p=profOf(c.bank)||{},co=p.company||{};set("Govt Body Name",co.full_name||d["Company name"]||c.bank);set("Company state",co.state);set("Company address",co.addr_en||d["Branch address"]);set("Company address Tamil",co.addr_ta);set("Company pincode",co.pincode);
+  return d}
+function modtRemarks(){const v=k=>{const e=$("rv_"+k.replace(/\W+/g,"_"));return e?e.value.trim():""};
+  const sn=v("New survey no")+(v("Subdivision")?"/"+v("Subdivision"):""),old=v("Old survey numbers");
+  return `Situated in ${v("Village")||"…"} village, ${v("Property SRO")||"…"} Sub-Registration District, Survey No. ${sn||"…"}${old?" (Old S.No. "+old+")":""} as per patta, measuring an extent of ${v("Extent")||"…"} ${v("Unit")||""}${v("Patta No")?", Patta No. "+v("Patta No"):""} – all the land therein.`.replace(/\s+/g," ")}
 const BANK_SHEETS=["VISTAAR","Manapuram","Digimoney","CA Grameen-Rep","Chola HL-Rep","Chola LAP-Rep","Chola SME-Rep","Chola SBPL-Rep","APAC-Rep","Infinity_Rep","AMBIT-Rep","Vastu-Rep","Indostar-Rep"];
 
 /* ================= state & utils ================= */
@@ -1153,7 +1182,7 @@ function renderDocs(type){
   $("docList").innerHTML=mrows.join("")+list.filter(d=>!hideK.has(d.k)).map(d=>{const files=draftDocs[d.k]||[];
     return`<div class="docrow"><div class="docl"><b>${esc(d.l)}${d.req?" *":""}${d.grp?" †":""}</b>${d.h?`<span class="sub">${esc(d.h)}</span>`:""}
       ${files.map((f,i)=>`<span class="docf"><a href="${esc(f.url)}" target="_blank" rel="noopener" title="View">${f.kyc?"🗂 ":""}${esc(f.name)}</a><button type="button" class="xbtn" data-dl="${esc(f.url)}" data-name="${esc(f.name)}" title="Download" aria-label="Download ${esc(f.name)}">⬇</button>${canWrite&&!d.auto?`<button type="button" class="xbtn" data-rmk="${d.k}" data-rmi="${i}" title="Remove this file" aria-label="Remove ${esc(f.name)}">×</button>`:""}</span>${f.from?`<span class="sub">auto · saved ${f.from==="rep"?"bank rep":"witness"}</span>`:""}`).join("")||`<span class="sub">${d.auto?"Added automatically":"Not uploaded"}</span>`}</div>
-      ${canWrite&&!d.auto?`<label class="btn" for="up_${d.k}">${files.length?(d.multi?"Add more":"Replace"):"Upload"}</label><input type="file" id="up_${d.k}" data-k="${d.k}" ${d.kyc||d.multi?"multiple":""} accept="${d.k==="photos"?"image/*":"image/*,application/pdf,.pdf"}" hidden>`:""}</div>`}).join("")+
+      ${canWrite&&!d.auto?`<label class="btn" for="up_${d.k}">${files.length?(d.multi?"Add more":"Replace"):"Upload"}</label><input type="file" id="up_${d.k}" data-k="${d.k}" ${d.kyc||d.multi?"multiple":""} accept="${d.k==="photos"?"image/*":d.k==="mdraft"?".doc,.docx,application/pdf,image/*":"image/*,application/pdf,.pdf"}" hidden>`:""}</div>`}).join("")+
     (isRD(type)&&!suppOn&&canWrite?`<div class="docrow"><button type="button" class="btn" id="addSupp">+ Supplementary MODT</button><span class="sub" style="margin-left:8px">Only if this case has a second (supplementary) MODT</span></div>`:"")+
     (list.some(d=>d.grp)?`<p class="sf-note">† Title deed or legal report: one of the two is enough to create the case.</p>`:"");
   if($("addSupp"))$("addSupp").onclick=()=>{window.__showSupp=1;renderDocs(type)};
@@ -1217,15 +1246,17 @@ async function addComment(){const t=fv("cmIn");if(!t||!editing)return;const c=ed
 /* ================= Review panel (Drafting / TP Generate) ================= */
 let rv={c:null,gen:false};
 function openReview(c,gen){
-  if(isRD(c.type)&&!SF.G){(SF.loading||(SF.loading=sfLoad())).then(()=>openReview(c,gen)).catch(()=>{SF.G={sro:{},dro:{},vil:[]};openReview(c,gen)});return}
+  if(flowOf(c.type)!=="legal"&&!SF.G){(SF.loading||(SF.loading=sfLoad())).then(()=>openReview(c,gen)).catch(()=>{SF.G={sro:{},dro:{},vil:[]};openReview(c,gen)});return}
   rv={c,gen};const dor=isRD(c.type),data=dor?dorFill(c,{...(c.tp||{})}):{...(c.draft||{})},sections=dor?DOR_PAGES:MODT_FIELDS;
-  if(!dor){data["Company name"]=data["Company name"]||c.bank;data.Name=data.Name||c.applicant;data.Phone=data.Phone||c.phone;data["Loan amount"]=data["Loan amount"]||c.loanAmount;[1,2].forEach(i=>{const w=(cfg.wit||[]).find(x=>x.name===c["w"+i]);if(w){data[`Witness ${i} name`]=data[`Witness ${i} name`]||w.name;data[`Witness ${i} Aadhaar`]=data[`Witness ${i} Aadhaar`]||w.aadhaar||""}})}
+  if(!dor)modtFill(c,data);
   $("rvTitle").textContent=(gen?"TP Generate · ":"Drafting · ")+c.applicant;
   let h=`<p class="sf-note">${dor?"Pages 1–10 in the same order as TNREGINET's Deed of Receipt. Company, representative and witnesses come from the saved details; borrower and property from the MODT and NOC. Correct anything wrong, then save.":"Laid out like TNREGINET's MODT screens. Check and correct every field before generating the TP."}</p>`;
   if(c.tpNotes)h+=`<p class="banner">OCR check: ${esc(c.tpNotes)}</p>`;
   const suppUsed=dor&&(data["Supp MODT Doc No"]||((c.docs||{}).modt2||[]).length);
   sections.forEach(([sec,fields])=>{if(dor&&!suppUsed)fields=fields.filter(ff=>!/^Supp /.test(Array.isArray(ff)?ff[0]:ff));h+=`<div class="rvsec"><div class="sect">${esc(sec)}</div><div class="fgrid">`+fields.map(ff=>{const [f,t,o]=Array.isArray(ff)?ff:[ff],id="rv_"+f.replace(/\W+/g,"_");
       if(t==="s")return`<label>${esc(f)}${dor&&DOR_REQ.includes(f)?" *":""}<select id="${id}"><option value=""></option>${[...new Set([...o,data[f]].filter(Boolean))].map(x=>`<option${x===data[f]?" selected":""}>${esc(x)}</option>`).join("")}</select></label>`;
+      if(t==="note")return`<p class="sf-note full" style="grid-column:1/-1">${esc(o)}</p>`;
+      if(t==="ta"&&!dor){const ta=/Tamil/.test(f);return`<label class="full">${esc(f)}${ta?' <span class="lg ta">தமிழ்</span>':""}<textarea id="${id}" rows="${/Legal|List/.test(f)?6:3}"${ta?' lang="ta"':""}>${esc(data[f]||"")}</textarea></label>`}
       if(t==="ro")return`<label>${esc(f)}<input id="${id}" value="${esc(data[f]||"")}" readonly></label>`;
       const req=dor&&DOR_REQ.includes(f)?" *":"";
       if(t==="sro"){const L=sroNames(),m=bestOf(L,data[f]);const bad=data[f]&&!m;return`<label>${esc(f)}${req} <span class="lg en">EN</span><select id="${id}" data-sro="1"><option value="">— select SRO —</option>${bad?`<option selected value="${esc(data[f])}">⚠ ${esc(data[f])} (not in list, pick the right one)</option>`:""}${L.map(x=>`<option${x===m?" selected":""}>${esc(x)}</option>`).join("")}</select></label>`}
@@ -1234,7 +1265,7 @@ function openReview(c,gen){
       if(t==="wsel"){const n=f.slice(-1),cur=c["w"+n]||data[`Witness ${n} name`]||((cfg.wit||[]).find(x=>x.def===+n)||{}).name||"";return`<label class="full">${esc(f)} name<select id="${id}" data-wsel="${n}"><option value="">— select —</option>${(cfg.wit||[]).map(w=>`<option${w.name===cur?" selected":""}>${esc(w.name)}</option>`).join("")}</select><span class="sub">Aadhaar, address and KYC come from KYC Master.</span></label>`}
       if(dor){const ta=/Tamil/.test(f),txt=!/Age|age|Aadhaar|pincode|Pincode|mobile|Doc No|Loan|date|Extent|Survey/.test(f);return`<label class="${t==="w"?"full":""}">${esc(f)}${req}${txt?` <span class="lg ${ta?"ta":"en"}">${ta?"தமிழ்":"EN"}</span>`:""}<input id="${id}" value="${esc(data[f]||"")}"${ta?' lang="ta"':""}></label>`}
       if(f==="Bank Sheet")return`<label>${f} *<select id="${id}"><option value="">— select —</option>${[...new Set([...BANK_SHEETS,data[f]].filter(Boolean))].map(x=>`<option${x===data[f]?" selected":""}>${esc(x)}</option>`).join("")}</select></label>`;
-      return`<label class="${/Address|Boundary|Govt/.test(f)?"full":""}">${esc(f)}${dor&&DOR_NEED.includes(f)?" *":""}<input id="${id}" value="${esc(data[f]||"")}"></label>`}).join("")+`</div>`;
+      {const ta=!dor&&/Tamil/.test(f);return`<label class="${t==="w"||/address|boundary|govt/i.test(f)?"full":""}">${esc(f)}${dor&&DOR_NEED.includes(f)?" *":""}${ta?' <span class="lg ta">தமிழ்</span>':""}<input id="${id}" value="${esc(data[f]||"")}"${ta?' lang="ta"':""}></label>`}}).join("")+`</div>`;
     if(dor&&/^3 /.test(sec)&&data.Mortgagor&&!sameName(c.applicant,data.Mortgagor))h+=`<p class="banner">⚠ Name check: the MODT says “${esc(data.Mortgagor)}” but the case name is “${esc(c.applicant)}”. Check which is right.</p>`;
     if(dor&&/^2 /.test(sec)&&!profOf(c.bank))h+=`<p class="banner">No client profile for “${esc(c.bank)}” yet. Set it up in Clients &amp; Staff so the company, representative and witnesses fill in automatically.</p>`;
     h+=`</div>`});
@@ -1254,8 +1285,11 @@ function openReview(c,gen){
     v.innerHTML=`<option value="">${L.length?"— select village —":"Pick the SRO first"}</option>${raw&&!m?`<option value="${esc(raw)}"${!cur||cur===raw?" selected":""}>⚠ ${esc(raw)} (not in list, pick the right one)</option>`:""}${L.map(x=>`<option${x===cur?" selected":""}>${esc(x)}</option>`).join("")}`};
   fillVil();document.querySelectorAll("[data-sro]").forEach(x=>x.addEventListener("change",fillVil));
   {const ex=$("rv_Execution_SRO"),ta=$("rv_SRO_Tamil");if(ex&&ta){
-    if(!ex.value&&$("rv_SRO")&&$("rv_SRO").value){ex.value=$("rv_SRO").value}
+    {const ps=$("rv_SRO")||$("rv_Property_SRO");if(!ex.value&&ps&&ps.value)ex.value=ps.value}
     const syncTa=()=>{const t=sroTamil(ex.value);if(t)ta.value=t};if(!ta.value)syncTa();ex.addEventListener("change",syncTa)}}
+  if(!dor){const th=$("rv_Title_holders"),showTh=()=>document.querySelectorAll("#rvBody .rvsec").forEach(sx=>{const m=(sx.querySelector(".sect")||{}).textContent.match(/Title holder (\d)$/);if(m)sx.hidden=+m[1]>(+(th&&th.value)||1)});if(th){th.onchange=showTh;showTh()}
+    const L=["North","South","East","West"].map(x=>$("rv_"+x+"_length")),bt=$("rv_Boundary_type"),reg=()=>{const n=L.map(e=>parseFloat(e.value));if(n.some(isNaN))return;bt.value=n[0]===n[1]&&n[2]===n[3]?"Regular":"Irregular"};L.forEach(e=>e&&e.addEventListener("input",reg));
+    const pr=$("rv_Property_remarks");if(pr){const b=document.createElement("button");b.type="button";b.className="btn";b.textContent="✎ Build remarks from the property fields";b.onclick=()=>{pr.value=modtRemarks()};pr.closest("label").after(b)}}
   $("rvSplit").onclick=()=>$("rvDocPane").hidden?openDocPane(c):closeDocPane();
   if($("rvReread")){$("rvReread").onclick=()=>rereadModt(c,false);$("rvRereadAll").onclick=()=>ask("Replace all fields?",`<p class="sf-note">Every field the MODT has will replace what is in Drafting now, including your corrections.</p>`,()=>rereadModt(c,true),"Replace")}
   const wantWide=(()=>{try{return localStorage.getItem("vgrFormWide")==="1"}catch(e){return false}})();
