@@ -54,8 +54,12 @@ def kv_get(col, id_):
     return rows[0]["data"] if rows else None
 
 
-def kv_list(col):
-    r = HTTP.get(f"{SB}/rest/v1/kv", headers=H, params={"collection": f"eq.{col}", "select": "id,data"}, timeout=20)
+def kv_list(col, **where):
+    # where: data field -> value, e.g. status="queued" (filters on the server so only matching rows are downloaded)
+    params = {"collection": f"eq.{col}", "select": "id,data"}
+    for k, v in where.items():
+        params[f"data->>{k}"] = f"eq.{v}"
+    r = HTTP.get(f"{SB}/rest/v1/kv", headers=H, params=params, timeout=20)
     r.raise_for_status()
     return r.json()
 
@@ -1621,7 +1625,7 @@ MAX_CHAINS = 3          # logins running side by side (Admin's Bulk Run)
 
 
 def next_in_chain(batch, login):
-    rows = [r for r in kv_list("tp_jobs") if not r["id"].startswith("_") and (r["data"] or {}).get("batch") == batch
+    rows = [r for r in kv_list("tp_jobs", batch=batch, status="queued") if not r["id"].startswith("_") and (r["data"] or {}).get("batch") == batch
             and (r["data"] or {}).get("login") == login and (r["data"] or {}).get("status") == "queued"]
     rows.sort(key=lambda r: (r["data"].get("seq", 0), r["data"].get("at", "")))
     return rows[0] if rows else None
@@ -1766,7 +1770,7 @@ def main():
                 if time.time() - last_beat > 30:
                     kv_set("tp_jobs", "_worker", {"at": now(), "host": os.uname().nodename, "probe": PROBE["res"]})
                     last_beat = time.time()
-                for row in kv_list("tp_jobs"):
+                for row in kv_list("tp_jobs", status="queued"):
                     if row["id"].startswith("_") or (row["data"] or {}).get("status") != "queued":
                         continue
                     jid, data = row["id"], row["data"]
