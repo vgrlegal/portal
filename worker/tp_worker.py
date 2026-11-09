@@ -54,6 +54,22 @@ def kv_get(col, id_):
     return rows[0]["data"] if rows else None
 
 
+def kv_status(col, id_):
+    """Only the status of one row (a few bytes) - used for the frequent 'was it stopped?' check."""
+    r = HTTP.get(f"{SB}/rest/v1/kv", headers=H, params={"collection": f"eq.{col}", "id": f"eq.{id_}", "select": "st:data->>status"}, timeout=20)
+    r.raise_for_status()
+    rows = r.json()
+    return (rows[0] or {}).get("st") if rows else None
+
+
+def job_poll(id_):
+    """Status + typed captcha only (small), for the captcha wait loops."""
+    r = HTTP.get(f"{SB}/rest/v1/kv", headers=H, params={"collection": "eq.tp_jobs", "id": f"eq.{id_}", "select": "status:data->>status,captcha:data->>captcha"}, timeout=20)
+    r.raise_for_status()
+    rows = r.json()
+    return rows[0] if rows else {}
+
+
 def kv_list(col, **where):
     # where: data field -> value, e.g. status="queued" (filters on the server so only matching rows are downloaded)
     params = {"collection": f"eq.{col}", "select": "id,data"}
@@ -131,7 +147,9 @@ class Job:
         patch = {"step": text, "at": now()}
         if page is not None:
             try:
-                patch["shot"] = "data:image/jpeg;base64," + base64.b64encode(page.screenshot(type="jpeg", quality=55, full_page=False)).decode()
+                # the screenshot lives in its own row, so polling the job row stays small
+                kv_set("tp_shots", self.id, {"shot": "data:image/jpeg;base64," + base64.b64encode(page.screenshot(type="jpeg", quality=55, full_page=False)).decode(), "at": now()})
+                patch["shotAt"] = now()
             except Exception:
                 pass
         self.upd(**patch)
@@ -144,7 +162,15 @@ class Job:
         return self.d
 
     def cancelled(self):
-        return self.fresh().get("status") == "cancel"
+        # checked at every wait: fetch only the status, and at most every 4 seconds (the full row carried the screenshot)
+        if time.time() - getattr(self, "_cc", 0) < 4:
+            return False
+        self._cc = time.time()
+        try:
+            return kv_status("tp_jobs", self.id) == "cancel"
+        except Exception as e:
+            log(self.id[:8], "status poll failed:", e)
+            return False
 
 
 import threading
@@ -380,7 +406,11 @@ def do_login(page, job, acc):
         job.upd(status="captcha", captchaImg=captcha_png(page), captcha="", step="Waiting for the captcha", at=now())
         t0 = time.time()
         while True:
-            d = job.fresh()
+            try:
+                d = job_poll(job.id)
+            except Exception as e:
+                log(job.id[:8], "poll failed:", e)
+                d = {}
             if d.get("status") == "cancel":
                 raise Stop("Stopped from the portal")
             if d.get("status") == "captcha_sent" and d.get("captcha"):
@@ -1499,7 +1529,11 @@ def ask_captcha(page, job, img_sel, label):
             captcha="", step=label, at=now())
     t0 = time.time()
     while True:
-        d = job.fresh()
+        try:
+            d = job_poll(job.id)
+        except Exception as e:
+            log(job.id[:8], "poll failed:", e)
+            d = {}
         if d.get("status") == "cancel":
             raise Stop("Stopped from the portal")
         if d.get("status") == "captcha_sent" and d.get("captcha"):
