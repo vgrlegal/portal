@@ -1685,6 +1685,8 @@ async function cloudTp(c,fresh){const box=$("rvLogin");box.innerHTML=`<div class
   if($("rvStart"))$("rvStart").onclick=()=>go(isRD(c.type)?"dor":"modt",$("rvStart"));
   if($("rvUpOnly"))$("rvUpOnly").onclick=()=>go("dor_upload",$("rvUpOnly"));
   if($("rvEc"))$("rvEc").onclick=()=>go("ec",$("rvEc"))}
+const mmss=x=>{x=+x||0;return x>=60?Math.floor(x/60)+"m "+(x%60)+"s":x+"s"};
+function tmHtml(t){if(!t||!t.steps)return"";return`<details style="margin-top:6px"><summary style="cursor:pointer;font-size:13px">⏱ Time taken: ${mmss(t.total)}</summary><table class="mini" style="margin-top:4px">${t.steps.filter(x=>x.sec>0).map(x=>`<tr><td>${esc(x.step)}</td><td class="r">${mmss(x.sec)}</td></tr>`).join("")}</table></details>`}
 function watchJob(c,id){if(W.unsub)W.unsub();const box=$("rvJob")||$("rvLogin");
   W.unsub=db.doc("tp_jobs/"+id).onSnapshot(s=>{const j=s.exists?s.data():{};if(!$("rvLogin")){W.unsub&&W.unsub();W.unsub=null;return}
     if(j.status==="translate"&&j.toEnglish&&!j.english&&W.trReq!==j.trId){W.trReq=j.trId;
@@ -1693,7 +1695,7 @@ function watchJob(c,id){if(W.unsub)W.unsub();const box=$("rvJob")||$("rvLogin");
         const f=!error&&data&&data.fields?data.fields:{};db.doc("tp_jobs/"+id).update({english:f,trErr:error?String(error.message||error):"",status:"filling"}).catch(()=>{})})}
     const tgt=$("rvJob")||$("rvLogin"),lbl={translate:"Turning Tamil into English…",queued:"Waiting for the TP computer…",starting:"Opening TNREGINET…",captcha:"Type the captcha",captcha_sent:"Signing in…",filling:"Filling TNREGINET",uploading:"Uploading documents",review:"Stopped for your check",done:"TP created",error:"Stopped with a problem",cancelled:"Stopped",cancel:"Stopping…"}[j.status]||j.status;
     const stale=j.at&&Date.now()-new Date(j.at).getTime()>(j.status==="captcha"?11*60000:180000),ended=["done","error","cancelled","review"].includes(j.status)||(j.status==="cancel"&&j.at&&Date.now()-new Date(j.at).getTime()>15000)||stale;
-    let h=`<div class="kv"><span>Status</span><b>${esc(lbl||"")}</b></div>${j.step?`<div class="kv"><span>Step</span><b>${esc(j.step)}</b></div>`:""}${j.message?`<p class="${j.status==="error"?"banner":"sf-note"}">${esc(j.message)}</p>`:""}${j.tpNo?`<div class="kv"><span>TP number</span><b>${esc(j.tpNo)}</b></div>`:""}`;
+    let h=`<div class="kv"><span>Status</span><b>${esc(lbl||"")}</b></div>${j.step?`<div class="kv"><span>Step</span><b>${esc(j.step)}</b></div>`:""}${j.message?`<p class="${j.status==="error"?"banner":"sf-note"}">${esc(j.message)}</p>`:""}${j.tpNo?`<div class="kv"><span>TP number</span><b>${esc(j.tpNo)}</b></div>`:""}+tmHtml(j.timing)}`;
     if(j.status==="captcha"&&j.captchaImg)h+=`<div class="capt"><img src="${j.captchaImg}" alt="Captcha from TNREGINET"><input id="rvCapIn" placeholder="Type the code" autocomplete="off"><button type="button" class="btn primary" id="rvCapGo">Sign in</button></div>`;
     if(j.shot)h+=`<details style="margin-top:8px"><summary style="cursor:pointer;font-size:13px">Latest TNREGINET screen</summary><img src="${j.shot}" alt="TNREGINET screen" style="width:100%;border:1px solid var(--line);border-radius:8px;margin-top:6px"></details>`;
     if(stale&&!["done","error","cancelled","review"].includes(j.status))h+=`<p class="banner">No news from the TP computer for a while. Check that the Mac is on, then start again.</p>`;
@@ -2385,7 +2387,7 @@ function jpegOf(c,max=1800){const k=Math.min(1,max/Math.max(c.width,c.height)),d
 async function claudeRead(canvases){if(!window.__sb)return null;
   const{data,error}=await window.__sb.functions.invoke("read-aadhaar",{body:{images:canvases.slice(0,4).map(c=>jpegOf(c))}});
   if(error||!data||!data.fields){console.warn("Claude read",error||data);return null}
-  const f=data.fields,o={},rt={"S/O":"Son of","W/O":"Wife of","D/O":"Daughter of","C/O":"Care of"}[String(f.rel_type||"").toUpperCase().replace(/\s/g,"")]||"";
+  const f=data.fields,o={},fem0=/^f/i.test(f.gender||""),rt={"S/O":"Son of","W/O":"Wife of","D/O":"Daughter of","C/O":fem0?"Daughter of":"Son of"}[String(f.rel_type||"").toUpperCase().replace(/\s/g,"")]||"";
   const put=(k,v)=>{v=String(v||"").trim();if(v)o[k]=v};
   put("name",f.name);put("name_ta",f.name_ta);put("rel_name",f.rel_name);put("rel_ta",f.rel_name_ta);put("dob",f.dob);put("gender",/^f/i.test(f.gender||"")?"Female":/^m/i.test(f.gender||"")?"Male":"");
   put("aadhaar",String(f.aadhaar||"").replace(/\D/g,"").length===12?String(f.aadhaar).replace(/\D/g,""):"");put("addr",f.address_en);put("addr_ta",f.address_ta);put("district",f.district);put("state",f.state);put("pincode",f.pincode);put("mobile",f.mobile);
@@ -2536,6 +2538,8 @@ async function claudeModt(file){if(!window.__sb)return null;const{canvases,text}
   if(!d["SRO Tamil"]&&d.SRO){try{if(!SF.G)await(SF.loading||(SF.loading=sfLoad()));d["SRO Tamil"]=sroTamil(d.SRO)}catch(e){}}
   if(!d["SRO Tamil"]&&d.SRO){try{const r=await window.__sb.functions.invoke("read-aadhaar",{body:{kind:"tamil",texts:{sro:d.SRO}}});const ta=r.data&&r.data.fields&&r.data.fields.sro;if(ta&&/[\u0B80-\u0BFF]/.test(ta))d["SRO Tamil"]=ta}catch(e){}}
   const nl=applyLearned(d);if(nl)console.info("applied",nl,"learned corrections");
+  /* the MODT often prints the company address only in English: make the Tamil one the same way TNREGINET's F8 typing does */
+  if(d["Company address"]&&!/[\u0B80-\u0BFF]/.test(d["Company address (Tamil)"]||"")){try{const ta=await toTamil(d["Company address"]);if(ta&&/[\u0B80-\u0BFF]/.test(ta))d["Company address (Tamil)"]=ta}catch(e){}}
   return{d,bankText:[f.bank,f.bank_branch].filter(Boolean).join(" ")}}
 async function fileOfDoc(f){const u=await docUrl(f.url);const b=await (await fetch(u)).blob();return new File([b],f.name,{type:b.type||(/\.pdf$/i.test(f.name)?"application/pdf":"image/jpeg")})}
 /* ---- MODT case: Claude reads the MODT draft (Word), title deed, title holders' Aadhaar and patta ---- */

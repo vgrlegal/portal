@@ -97,6 +97,21 @@ class Job:
     def __init__(self, jid, data):
         self.id, self.d = jid, data
         self.last = ""
+        self.times = [("Start", time.time())]
+
+    def timing(self):
+        """Seconds spent on each main step (the number before ' · '), for the case."""
+        out, prev = [], None
+        for text, t0 in self.times:
+            key = text.split(" · ")[0] + (" · " + text.split(" · ")[1].split(":")[0][:30] if " · " in text else "")
+            if prev and prev[0] == key:
+                continue
+            if prev:
+                out.append({"step": prev[0], "sec": round(t0 - prev[1])})
+            prev = (key, t0)
+        if prev:
+            out.append({"step": prev[0], "sec": round(time.time() - prev[1])})
+        return {"total": round(time.time() - self.times[0][1]), "steps": out[-40:]}
 
     def upd(self, **kv):
         self.d.update(kv)
@@ -112,6 +127,7 @@ class Job:
         log(self.id[:8], text)
         if text not in ("Stopped here", "Problem at login"):
             self.last = text
+        self.times.append((text, time.time()))
         patch = {"step": text, "at": now()}
         if page is not None:
             try:
@@ -169,7 +185,7 @@ window.selre = (id,pat) => {const s=vis(id); if(!s) return 'NOFIELD '+id; const 
 window.lev = (a,b) => {const m=a.length,n=b.length;if(!m||!n)return m||n;let p=[...Array(n+1).keys()];for(let i=1;i<=m;i++){const q=[i];for(let j=1;j<=n;j++)q[j]=Math.min(p[j]+1,q[j-1]+1,p[j-1]+(a[i-1]===b[j-1]?0:1));p=q}return p[n]};
 window.selfuzzy = (id,txt) => {const s=vis(id); if(!s) return 'NOFIELD '+id; const t=String(txt).toLowerCase().replace(/[^a-z]/g,'');
   let best=null,score=0; for(const o of s.options){const n=o.text.toLowerCase().replace(/[^a-z]/g,''); if(!n) continue;
-    const sc=n===t?1:(n.startsWith(t)||t.startsWith(n))?0.9:1-lev(n,t)/Math.max(n.length,t.length); if(sc>score){score=sc;best=o}}
+    const sc=n===t?1:1-lev(n,t)/Math.max(n.length,t.length); if(sc>score){score=sc;best=o}}
   if(!best||score<0.5) return 'NOOPT '+id+' '+txt;
   if(window.jQuery) jQuery(s).val(best.value).trigger('change').trigger('chosen:updated'); else {s.value=best.value; s.dispatchEvent(new Event('change',{bubbles:true}))}
   return 'ok '+best.text+' '+score.toFixed(2)};
@@ -414,8 +430,8 @@ def sal_re(s):
 
 def rel_re(s):
     s = s.lower().strip()
-    return ("^Wife of" if s.startswith("w") else "^Daughter of" if s.startswith("d") else "^Care of|^C/O" if s.startswith("c")
-            else "^Husband of" if s.startswith("h") else "^Father of" if s.startswith("f") else "^Son of")
+    return ("^Wife of" if s.startswith("w") else "^Daughter of" if s.startswith("d") else "^Husband of" if s.startswith("h")
+            else "^Father of" if s.startswith("f") else "^Son of")
 
 
 FORM_ERR_JS = """()=>[...document.querySelectorAll('span,div,label,small,p')].filter(e=>{if(!e.offsetParent||e.children.length||!/^\\s*(please (select|enter|choose)|invalid|is required)/i.test(e.textContent||''))return false;const c=getComputedStyle(e).color.match(/\\d+/g)||[0,0,0];return /error|invalid|danger|validat/i.test(e.className+' '+(e.parentElement||{}).className)||(+c[0]>150&&+c[1]<110&&+c[2]<110)}).map(e=>e.textContent.trim()).filter((x,i,a)=>a.indexOf(x)===i).slice(0,6)"""
@@ -447,6 +463,9 @@ def person(P, t, pre, designation=True):
     P.set("fullName", g(t, f"{pre} name", pre))
     P.tamil("fullNameLL", g(t, f"{pre} name (Tamil)"), g(t, f"{pre} name", pre))
     rel = g(t, f"{pre} relation") or "Son of"
+    if rel.lower().startswith("c"):  # TNREGINET has no "Care of": Aadhaar C/O -> Son of for Mr, Daughter of for a woman
+        fem0 = (g(t, f"{pre} gender") or "").lower().startswith("f") or g(t, f"{pre} salutation").lower().startswith(("mrs", "ms", "miss"))
+        rel = "Daughter of" if fem0 else "Son of"
     r = P.sel("firstRelationTypeId", rel_re(rel))
     if not str(r).startswith("ok"):
         # TNREGINET has no "Care of" (Aadhaar C/O is usually the father): use Son of / Daughter of by gender
@@ -702,7 +721,7 @@ def mortgagee_edit(P, job, page, t):
     fill_missing_district(P, g(t, "Company district"))
     b = click_btn_text(P, r"^update$")
     P.wait(3); msg = P.popup_ok()
-    errs = form_errors(P)
+    errs = [] if re.search(r"success|updated|added", msg or "", re.I) else form_errors(P)
     if errs:
         job.step("Mortgagee not accepted", page)
         raise Stop(f"Mortgagee (company): TNREGINET wants: {'; '.join(errs)}. Fill it in Drafting (Company state / district) and start again.")
@@ -756,7 +775,7 @@ def mortgagor(P, job, page, t):
                 P.js("tick('aadhaarConsentCheckBox')")
                 b = click_btn_text(P, r"^update$")
                 P.wait(3); msg = P.popup_ok()
-                errs = form_errors(P)
+                errs = [] if re.search(r"success|updated|also going to execute", msg or "", re.I) else form_errors(P)
                 if errs:
                     job.step(f"Mortgagor {i + 1} not accepted", page)
                     raise Stop(f"Mortgagor {i + 1}: TNREGINET wants: {'; '.join(errs)}. Fill it in Drafting (e.g. Mortgagor district) and start again.")
@@ -812,7 +831,7 @@ def rep_witness_presenter(P, job, page, t):
         person(P, t, f"Witness {n}", designation=False)
         address(P, "Tamil Nadu", g(t, f"Witness {n} district"), addr=g(t, f"Witness {n} address"), pin=g(t, f"Witness {n} pincode"))
         msg = P.click("addExecutantDetailsInGrid", 3)
-        errs = form_errors(P)
+        errs = [] if re.search(r"success|added", msg or "", re.I) else form_errors(P)
         if errs:
             job.step(f"Witness {n} not accepted", page)
             raise Stop(f"Witness {n}: TNREGINET wants: {'; '.join(errs)}. Check the witness in Clients & Staff and start again.")
@@ -1643,7 +1662,7 @@ def record_stop(job, case_id, reason):
     """Keep on the case where and why the robot stopped (and the TNREGINET draft number if one was seen)."""
     try:
         kv_merge("cases", case_id, {"tpStop": {"at": now(), "step": job.last, "reason": str(reason)[:400],
-                                               "draftNo": job.d.get("draftNo", ""), "job": job.id}})
+                                               "draftNo": job.d.get("draftNo", ""), "job": job.id, "timing": job.timing()}})
     except Exception as e:
         log("stop note failed", e)
 
@@ -1943,7 +1962,12 @@ def modt_second_half(P, job, page, d, case, comments):
         note += "CHECK: " + " · ".join(comments) + ". "
     if P.warn:
         note += "Warnings: " + "; ".join(P.warn[:8])
-    job.upd(status="done", tpNo=tp, message=note.strip(), comments=comments)
+    tm = job.timing()
+    job.upd(status="done", tpNo=tp, message=note.strip(), comments=comments, timing=tm)
+    try:
+        kv_merge("cases", job.d.get("case", ""), {"tpTiming": tm})
+    except Exception:
+        pass
     return tp
 
 
@@ -1959,7 +1983,12 @@ def finish_dor(P, job, page, t, case, comments):
     if P.warn:
         note += "Warnings: " + "; ".join(P.warn[:8])
     job.step("Finished - stopped before payment", page)
-    job.upd(status="done", tpNo=tp, message=note.strip(), comments=comments)
+    tm = job.timing()
+    job.upd(status="done", tpNo=tp, message=note.strip(), comments=comments, timing=tm)
+    try:
+        kv_merge("cases", job.d.get("case", ""), {"tpTiming": tm})
+    except Exception:
+        pass
     return tp
 
 
