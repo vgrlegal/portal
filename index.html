@@ -679,7 +679,7 @@ const MODT_FIELDS=[
   ["1 · Linked documents (title deeds)",[["Deed 1 SRO","sro"],"Deed 1 Doc No",["Deed 1 Year","year"],["Deed 2 SRO","sro"],"Deed 2 Doc No",["Deed 2 Year","year"],["Deed 3 SRO","sro"],"Deed 3 Doc No",["Deed 3 Year","year"]]],
   ["2 · Mortgagor (title holders)",[["Title holders","s",["1","2","3","4"]]]],
   ["2 · Title holder 1",MP(1)],["2 · Title holder 2",MP(2)],["2 · Title holder 3",MP(3)],["2 · Title holder 4",MP(4)],
-  ["3 · Mortgagee (company)",["Govt Body Name",["Company state","s",MSTATES],["Company address","w"],["Company address Tamil","w"],"Company pincode","Branch"]],
+  ["3 · Mortgagee (company)",["Govt Body Name",["Company state","s",MSTATES],"Company district",["Company address","w"],["Company address Tamil","w"],"Company pincode"]],
   ["4 · Company representative",[["Representative","note","Skipped for MODT. Needed only when the property belongs to a company."]]],
   ["5 · Witnesses",[["Witness 1","wsel"],["Witness 2","wsel"]]],
   ["6 · Presenter",[["Presenter","s",["Title holder 1","Title holder 2","Title holder 3","Title holder 4"]]]],
@@ -693,7 +693,7 @@ const MODT_FIELDS=[
   ["14 · Supporting details",[["Execution SRO","sro"],"SRO Tamil"]]];
 function modtFill(c,d){const set=(k,v)=>{if(v!=null&&String(v).trim()!==""&&!String(d[k]||"").trim())d[k]=String(v)};
   set("Mortgagor 1 name",d.Name||c.applicant);set("Mortgagor 1 phone",d.Phone||c.phone);set("Mortgagor 1 Aadhaar",d.Aadhaar);set("Mortgagor 1 address",d.Address);set("Mortgagor 1 pincode",d.Pincode);set("Mortgagor 1 relative name",d["Relative name"]);
-  set("Loan amount",c.loanAmount);set("Branch",c.branch);set("Title holders","1");set("Presenter","Title holder 1");set("Property SRO",d.SRO||c.sro);set("Execution SRO",d["Property SRO"]||c.sro);
+  set("Loan amount",c.loanAmount);set("Title holders","1");set("Presenter","Title holder 1");set("Property SRO",d.SRO||c.sro);set("Execution SRO",d["Property SRO"]||c.sro);
   ["North","South","East","West"].forEach(x=>set("Boundary "+x,d["Boundary "+x]));set("Extent",d.Extent);set("New survey no",d["Survey number"]);
   const p=profOf(c.bank)||{},co=p.company||{};set("Govt Body Name",co.full_name||d["Company name"]||c.bank);set("Company state",co.state);set("Company address",co.addr_en||d["Branch address"]);set("Company address Tamil",co.addr_ta);set("Company pincode",co.pincode);
   return d}
@@ -1291,6 +1291,9 @@ function openReview(c,gen){
     const syncTa=()=>{const t=sroTamil(ex.value);if(t)ta.value=t};if(!ta.value)syncTa();ex.addEventListener("change",syncTa)}}
   if(!dor){const th=$("rv_Title_holders"),showTh=()=>document.querySelectorAll("#rvBody .rvsec").forEach(sx=>{const m=(sx.querySelector(".sect")||{}).textContent.match(/Title holder (\d)$/);if(m)sx.hidden=+m[1]>(+(th&&th.value)||1)});if(th){th.onchange=showTh;showTh()}
     const L=["North","South","East","West"].map(x=>$("rv_"+x+"_length")),bt=$("rv_Boundary_type"),reg=()=>{const n=L.map(e=>parseFloat(e.value));if(n.some(isNaN))return;bt.value=n[0]===n[1]&&n[2]===n[3]?"Regular":"Irregular"};L.forEach(e=>e&&e.addEventListener("input",reg));
+    {const dsec=$("rv_Deed_1_Doc_No")&&$("rv_Deed_1_Doc_No").closest(".rvsec");if(dsec){const grp=n=>["SRO","Doc_No","Year"].map(k=>$(`rv_Deed_${n}_${k}`)).filter(Boolean).map(e=>e.closest("label"));
+      const has=n=>["Doc No","Year"].some(k=>String(data[`Deed ${n} ${k}`]||"").trim());let shown=1;[2,3].forEach(n=>{const h=has(n);grp(n).forEach(l=>l.hidden=!h);if(h)shown=n});
+      const b=document.createElement("button");b.type="button";b.className="btn";b.textContent="+ Add another title deed";b.hidden=shown>=3;b.onclick=()=>{shown++;grp(shown).forEach(l=>l.hidden=false);b.hidden=shown>=3};dsec.appendChild(b)}}
     const pt=$("rv_Property_type"),ex=$("rv_Extent"),linSec=$("rv_North_length")&&$("rv_North_length").closest(".rvsec"),agri=()=>/agricultural/i.test(pt.value);
     const showLin=()=>{if(linSec)linSec.hidden=agri()};
     const autoAgri=()=>{if(/\b(cents?|acres?|ac\.?|hectares?|ஏக்கர்|சென்ட்)\b/i.test(ex.value)&&!agri()){pt.value=/building/i.test(pt.value)?"Agricultural land with building":"Agricultural land";showLin()}};
@@ -1381,13 +1384,7 @@ async function approveReview(){
   if(dor){const miss=DOR_REQ.filter(k=>!String(data[k]||"").trim());if(miss.length){toast("Fill these first: "+miss.join(", "));return}
     const bad=["Rep Aadhaar","Witness 1 Aadhaar","Witness 2 Aadhaar","Mortgagor Aadhaar"].filter(k=>data[k]&&digits(data[k]).length!==12);if(bad.length){toast("Check: "+bad.join(", ")+" (12 digits)");return}}
   await patch(c,dor?{tp:data,...witPicks()}:{draft:data},"Draft approved for TP");
-  if(!dor){const box=$("rvLogin");let l=[];try{l=await tnLogins()}catch(e){}const pool=l.filter(isPool),L=pool.length?pool:l;
-    box.innerHTML=`<div class="sect">Generate TP</div><p class="banner">The MODT robot is not built yet. First record this MODT once: the TP computer opens a visible browser and signs in (type the captcha here), you fill the MODT by hand on that computer and stop before payment. From that recording the robot is built. After you create the TP, use “Enter TP No.”.</p>
-      ${isMD&&L.length?`<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:flex-end"><label>Login ID<select id="rvRecLogin">${L.map(x=>`<option value="${esc(x.id)}">${esc(x.username)} · ${esc(x.client)}</option>`).join("")}</select></label><button class="btn primary" type="button" id="rvRecStart">🎥 Record this MODT on the TP computer</button></div>`:""}<div id="rvRecJob" style="margin-top:8px"></div>`;
-    const last=lsGet("vgr.rec."+c._doc);if(last)recWatch(last,"rvRecJob");
-    if($("rvRecStart"))$("rvRecStart").onclick=async()=>{const sel=$("rvRecLogin"),id=crypto.randomUUID();$("rvRecStart").disabled=true;
-      await db.doc("tp_jobs/"+id).set({kind:"record",what:"MODT",case:c._doc,caseId:c.id,login:sel.value,loginUser:sel.options[sel.selectedIndex].text.split(" · ")[0],status:"queued",by:who(),at:nowISO(),log:[]});lsSet("vgr.rec."+c._doc,id);lsSet("vgr.rec",id);recWatch(id,"rvRecJob")};
-    return}
+  if(!dor){cloudTp(c);return}
   cloudTp(c);
 }
 async function loginStep(c){
@@ -1457,7 +1454,7 @@ async function cloudTp(c,fresh){const box=$("rvLogin");box.innerHTML=`<div class
   const on=W.at&&Date.now()-new Date(W.at).getTime()<120000,hasTp=/^TP\//.test(c.tpNo||"");
   box.innerHTML=`<div class="sect">${hasTp?"Upload documents to TNREGINET":"Generate TP on TNREGINET"}</div>${on?"":`<p class="banner">The TP computer is offline right now. The job will wait and start when it comes online.</p>`}
     <div class="fgrid"><label>Login ID${mine.length?"":modt?" (no MODT ID saved yet, showing all)":" (no ID saved for this company, showing all)"}<select id="rvUser">${list.map(x=>`<option value="${x.id}">${esc(x.username)} · ${esc(x.client)}</option>`).join("")}</select></label>
-    <div style="display:flex;align-items:flex-end;gap:6px">${hasTp?`<button type="button" class="btn primary" id="rvUpOnly">Upload documents only</button>`:`<button type="button" class="btn primary" id="rvStart">Start TP</button>`}<button type="button" class="btn" id="rvEc" title="Encumbrance certificate for the MODT property, 1 January of the MODT year to yesterday">Get EC</button></div></div>
+    <div style="display:flex;align-items:flex-end;gap:6px">${hasTp?`<button type="button" class="btn primary" id="rvUpOnly">Upload documents only</button>`:`<button type="button" class="btn primary" id="rvStart">Start TP</button>`}${modt?"":`<button type="button" class="btn" id="rvEc" title="Encumbrance certificate for the MODT property, 1 January of the MODT year to yesterday">Get EC</button>`}</div></div>${modt?`<p class="sf-note">MODT robot (first version): links the title deed(s), fills the title holders, company, witnesses and presenter, and saves the draft on TNREGINET. Property onward you finish by hand for now.</p>`:""}
     ${hasTp?`<p class="sf-note">TP already created: <b>${esc(c.tpNo)}</b>. A new TP will not be made. This only uploads the 5 documents and saves the TP print.</p>`:""}<div id="rvJob"></div>`;
   const go=async(kind,btn)=>{const sel=$("rvUser"),id=crypto.randomUUID(),u=sel.options[sel.selectedIndex].text.split(" · ")[0];btn.disabled=true;
     try{await db.doc("tp_jobs/"+id).set({kind,case:c._doc,caseId:c.id,login:sel.value,loginUser:u,status:"queued",by:who(),at:nowISO(),log:[]});

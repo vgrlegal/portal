@@ -1553,6 +1553,165 @@ def run_ec(page, job, case):
             + (" Warnings: " + "; ".join(P.warn) if P.warn else ""))
 
 
+# ---------------- MODT (Deposit of Title Deeds) ----------------
+MON = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"]
+
+
+def dob_tn(d):
+    """'04-01-1963' / '04/01/1963' -> '04-JAN-1963' (TNREGINET date-of-birth format)."""
+    m = re.match(r"^\s*(\d{1,2})[-/. ](\d{1,2}|[A-Za-z]{3})[-/. ](\d{4})", d or "")
+    if not m:
+        return ""
+    mo = m.group(2)
+    mo = MON[int(mo) - 1] if mo.isdigit() and 1 <= int(mo) <= 12 else mo.upper()
+    return f"{int(m.group(1)):02d}-{mo}-{m.group(3)}"
+
+
+def age_of(dob):
+    m = re.match(r"^(\d{2})-([A-Z]{3})-(\d{4})$", dob or "")
+    if not m:
+        return ""
+    b = datetime.date(int(m.group(3)), MON.index(m.group(2)) + 1, int(m.group(1)))
+    t = datetime.date.today()
+    return str(t.year - b.year - ((t.month, t.day) < (b.month, b.day)))
+
+
+def clean_addr(a, district=""):
+    """Address only up to the district (state/district/pincode have their own boxes); no ':' characters."""
+    a = (a or "").replace("：", " ").replace(":", " ")
+    if district:
+        i = a.lower().find(district.lower())
+        if i > 8:
+            a = a[:i]
+    a = re.sub(r"\b\d{6}\b", "", a)
+    return re.sub(r"\s+", " ", re.sub(r"[,\s]+$", "", a)).strip(" ,-")
+
+
+def same_len_tamil(ta, en):
+    """The Tamil name must match the English one: 'Singumani' -> keep only the first Tamil word."""
+    if not ta or not en:
+        return ta
+    n = len(en.split())
+    w = ta.split()
+    return " ".join(w[:n]) if len(w) > n else ta
+
+
+def modt_party(P, job, page, d, n):
+    pre = f"Mortgagor {n}"
+    name = g(d, f"{pre} name")
+    job.step(f"2 · Title holder {n}: {name}", page)
+    P.sel("partyType", "Individual", 2)
+    sal = g(d, f"{pre} salutation") or "Mr."
+    P.sel("salutationId", sal_re(sal))
+    P.set("fullName", name)
+    P.tamil("fullNameLL", same_len_tamil(g(d, f"{pre} name Tamil"), name), name)
+    P.sel("firstRelationTypeId", rel_re(g(d, f"{pre} relation") or "S/o"))
+    P.set("firstRelativeName", g(d, f"{pre} relative name"))
+    P.tamil("firstRelativeNameLL", g(d, f"{pre} relative name Tamil"), g(d, f"{pre} relative name"))
+    dob = dob_tn(g(d, f"{pre} date of birth"))
+    if dob:
+        P.set("dob", dob)
+        P.js("(()=>{const e=document.getElementById('dob');if(e){e.dispatchEvent(new Event('change',{bubbles:true}));e.dispatchEvent(new Event('blur',{bubbles:true}))}})()")
+        P.wait(1)
+        P.set("age", age_of(dob))
+    P.sel("genderId", "^Female" if sal.lower().startswith(("mrs", "ms", "miss")) else "^Male")
+    P.sel("identificationTypeId", "Aadhaar")
+    P.set("identificationNo", re.sub(r"\D", "", g(d, f"{pre} Aadhaar")))
+    P.js("tick('aadhaarConsentCheckBox')")
+    dist = g(d, f"{pre} district")
+    address(P, "Tamil Nadu", dist, addr=clean_addr(g(d, f"{pre} address"), dist),
+            addr_ta=clean_addr(g(d, f"{pre} address Tamil")), pin=g(d, f"{pre} pincode"), mobile=g(d, f"{pre} phone"))
+    msg = P.click("addExecutantDetailsInGrid", 3)
+    if msg and not re.search(r"success|added|also going", msg, re.I):
+        raise Stop(f"Title holder {n}: TNREGINET said '{msg[:160]}'")
+
+
+def run_modt(page, job, case):
+    """MODT robot, part 1 (from the recording of 9 Nov): create document, link the title deed(s), title holders,
+    mortgagee company, skip representative, witnesses, presenter, save as draft. Property onward is still by hand."""
+    d = case.get("draft") or {}
+    P = Portal(page, job)
+    job.step("1 · Create document & link the title deed(s)")
+    open_presenceless(page, job)
+    if not page.locator("#deedType").count():
+        job.step("Create Document page not found", page)
+        raise Stop("The Create Document page did not open. Send the screen to Claude.")
+    P.sel("deedType", "Deposit of Title", 2)
+    P.js("tick('linkPrevDoc')"); P.wait(2)
+    deeds = [n for n in (1, 2, 3) if g(d, f"Deed {n} Doc No")]
+    if not deeds:
+        raise Stop("No title deed in Drafting (1 · Linked documents). Fill Deed 1 SRO, Doc No and Year.")
+    for n in deeds:
+        link_doc(P, job, page, g(d, f"Deed {n} SRO") or g(d, "Property SRO"), "1", g(d, f"Deed {n} Doc No"),
+                 g(d, f"Deed {n} Year"), "Regular Document", f"title deed {n}")
+    P.click("createDocProceed", 6)
+    # 2. Mortgagors (title holders)
+    wait_for(P, "()=>{const e=document.getElementById('partyType');return !!(e&&e.offsetParent)}", 20)
+    holders = int(re.sub(r"\D", "", g(d, "Title holders")) or "1")
+    for n in range(1, min(holders, 4) + 1):
+        if g(d, f"Mortgagor {n} name"):
+            modt_party(P, job, page, d, n)
+    job.step("2 · Title holders added", page)
+    P.click("btnChildNext", 4)
+    # 3. Mortgagee company
+    job.step("3 · Mortgagee (company)", page)
+    wait_for(P, "()=>{const e=document.getElementById('partyType');return !!(e&&e.offsetParent)}", 15)
+    P.sel("partyType", "Company", 3)
+    co = g(d, "Govt Body Name")
+    r = P.js(f"selco('govtBodyList',{co!r})"); P.wait(2)
+    if not str(r).startswith("ok"):
+        job.step("Company not found in TNREGINET list", page)
+        raise Stop(f"TNREGINET's company list has no match for '{co}'. Check Govt Body Name in Drafting.")
+    address(P, g(d, "Company state") or "Tamil Nadu", g(d, "Company district"), addr=g(d, "Company address").replace(":", " "),
+            addr_ta=g(d, "Company address Tamil").replace(":", " "), pin=g(d, "Company pincode"))
+    add_and_next(P, "Company")
+    # 4. Representative: not needed for MODT
+    job.step("4 · Representative: skipped for MODT", page)
+    P.click("btnChildNext", 4)
+    # 5. Witnesses from the saved witness list
+    lists = kv_get("config", "lists") or {}
+    wl = lists.get("wit") or []
+    t = {}
+    for n in (1, 2):
+        nm = g(d, f"Witness {n}") or case.get(f"w{n}") or ""
+        w = next((x for x in wl if x.get("name") == nm), None)
+        if not w:
+            P.warn.append(f"Witness {n} '{nm}' not in the saved witness list")
+            continue
+        for k, v in (("salutation", w.get("sal")), ("name", w.get("name")), ("name (Tamil)", w.get("name_ta")), ("relation", w.get("rel_type")),
+                     ("relative name", w.get("rel_name")), ("relative name (Tamil)", w.get("rel_ta")), ("gender", w.get("gender")),
+                     ("Aadhaar", re.sub(r"\D", "", str(w.get("aadhaar") or ""))), ("district", w.get("district")), ("address", w.get("addr")), ("pincode", w.get("pincode"))):
+            if v:
+                t[f"Witness {n} {k}"] = str(v)
+        dob = dob_tn(str(w.get("dob") or ""))
+        if dob:
+            t[f"Witness {n} age"] = age_of(dob)
+    open_subtab(P, "Witness Details", "chkWitnessType0")
+    for n in (1, 2):
+        if not t.get(f"Witness {n} name"):
+            continue
+        job.step(f"5 · Witness {n}: {t[f'Witness {n} name']}", page)
+        P.js("tick('chkWitnessType0')")
+        person(P, t, f"Witness {n}", designation=False)
+        address(P, "Tamil Nadu", t.get(f"Witness {n} district", ""), addr=t.get(f"Witness {n} address", ""), pin=t.get(f"Witness {n} pincode", ""))
+        msg = P.click("addExecutantDetailsInGrid", 3)
+        if msg and not re.search(r"success|added", msg, re.I):
+            raise Stop(f"Witness {n}: TNREGINET said '{msg[:160]}'")
+    # 6. Presenter: the chosen title holder (default the first)
+    open_subtab(P, "Presenter Details", "cmb_presenter")
+    job.step("6 · Presenter", page)
+    wait_for(P, "()=>document.getElementById('cmb_presenter').options.length>1", 15)
+    pn = re.sub(r"\D", "", g(d, "Presenter")) or "1"
+    P.fuzzy("cmb_presenter", g(d, f"Mortgagor {pn} name") or g(d, "Mortgagor 1 name"), 1)
+    P.click("btnMainSaveAsDraft", 4)
+    note = ("Parties are filled on TNREGINET and saved as a draft: title deed linked, title holder(s), company, witnesses, presenter. "
+            "Continue from Property details by hand in My Documents (the robot learns property, loan, legal conditions and uploads next).")
+    if P.warn:
+        note += " Warnings: " + "; ".join(P.warn[:8])
+    job.step("Parties done - draft saved", page)
+    job.upd(status="done", message=note)
+
+
 def finish_dor(P, job, page, t, case, comments):
     tp = loan_to_create(P, job, page, t, case, comments)
     done = upload_docs(P, job, page, t, case, comments)
@@ -1599,8 +1758,17 @@ def handle(pw, jid, data):
         if data.get("kind") == "dor_upload":
             upload_only(page, job, case)
             return
+        if data.get("kind") == "modt":
+            if str(case.get("tpNo") or "").startswith("TP/"):
+                raise Stop(f"This case already has {case['tpNo']}. A new TP is not created.")
+            try:
+                run_modt(page, job, case)
+            except Exception:
+                job.step("Stopped here", page)
+                raise
+            return
         if data.get("kind", "dor") != "dor":
-            raise Stop("Only Deed of Receipt is automated so far")
+            raise Stop("Only Deed of Receipt and MODT are automated so far")
         if str(case.get("tpNo") or "").startswith("TP/"):
             raise Stop(f"This case already has {case['tpNo']}. Use 'Upload documents only' - a new TP is not created.")
         try:
