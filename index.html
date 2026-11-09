@@ -653,11 +653,9 @@ const DOCS={
     {k:"ec",l:"SRO EC or online EC"},
     {k:"w1_kyc",l:"Witness 1 Aadhaar + signature",h:"Filled from the saved witness. Or upload here.",kyc:1,req:1},
     {k:"w2_kyc",l:"Witness 2 Aadhaar + signature",h:"Filled from the saved witness. Or upload here.",kyc:1,req:1},
-    {k:"rep_kyc",l:"Bank rep Aadhaar + signature",h:"Filled from the client's saved rep. Or upload here.",kyc:1},
-    {k:"rep_id",l:"Bank rep ID card",h:"Filled from the client's saved rep."},
-    {k:"legal",l:"Legal report",grp:"title"},
-    {k:"sanction",l:"Sanction letter",h:"Loan amount"},
-    {k:"deed",l:"Title deed",h:"Colour copy, or bank letter + Xerox",grp:"title",multi:1},
+    {k:"legal",l:"Legal report (optional)"},
+    {k:"sanction",l:"Sanction letter (optional)",h:"Loan amount"},
+    {k:"deed",l:"Title deed",h:"Colour copy, or bank letter + Xerox",req:1,multi:1},
     {k:"other",l:"Other certificates (if any)",multi:1},
     {k:"tpcopy",l:"TP copy, before biometric",auto:1},
     {k:"payshot",l:"Payment screenshot",auto:1}],
@@ -1254,7 +1252,7 @@ function openReview(c,gen){
   if(!dor)modtFill(c,data);
   $("rvTitle").textContent=(gen?"TP Generate · ":"Drafting · ")+c.applicant;
   let h=`<p class="sf-note">${dor?"Pages 1–10 in the same order as TNREGINET's Deed of Receipt. Company, representative and witnesses come from the saved details; borrower and property from the MODT and NOC. Correct anything wrong, then save.":"Laid out like TNREGINET's MODT screens. Check and correct every field before generating the TP."}</p>`;
-  if(c.tpNotes)h+=`<p class="banner">OCR check: ${esc(c.tpNotes)}</p>`;
+  if(c.tpNotes)h+=`<p class="banner">${dor?"OCR check":"Claude's doubts, please check"}: ${esc(c.tpNotes)}</p>`;
   h+=robotQsHtml(c);
   const suppUsed=dor&&(data["Supp MODT Doc No"]||((c.docs||{}).modt2||[]).length);
   sections.forEach(([sec,fields])=>{if(dor&&!suppUsed)fields=fields.filter(ff=>!/^Supp /.test(Array.isArray(ff)?ff[0]:ff));h+=`<div class="rvsec"><div class="sect">${esc(sec)}</div><div class="fgrid">`+fields.map(ff=>{const [f,t,o]=Array.isArray(ff)?ff:[ff],id="rv_"+f.replace(/\W+/g,"_");
@@ -1274,7 +1272,7 @@ function openReview(c,gen){
     if(dor&&/^2 /.test(sec)&&!profOf(c.bank))h+=`<p class="banner">No client profile for “${esc(c.bank)}” yet. Set it up in Clients &amp; Staff so the company, representative and witnesses fill in automatically.</p>`;
     h+=`</div>`});
   const docs=docsFor(c.type).filter(d=>(c.docs||{})[d.k]&&c.docs[d.k].length);
-  h=`<div style="margin-bottom:8px;display:flex;gap:6px;flex-wrap:wrap"><button type="button" class="btn" id="rvSplit">📄 Show documents side by side</button>${dor?`<button type="button" class="btn" id="rvReread" title="Fills the empty fields from the MODT copy">🔄 Read MODT again</button><button type="button" class="btn" id="rvRereadAll" title="Replaces every field with what the MODT says">Read MODT · replace all</button>`:""}</div>`+h;
+  h=`<div style="margin-bottom:8px;display:flex;gap:6px;flex-wrap:wrap"><button type="button" class="btn" id="rvSplit">📄 Show documents side by side</button>${dor?`<button type="button" class="btn" id="rvReread" title="Fills the empty fields from the MODT copy">🔄 Read MODT again</button><button type="button" class="btn" id="rvRereadAll" title="Replaces every field with what the MODT says">Read MODT · replace all</button>`:`<button type="button" class="btn" id="rvMread" title="Claude reads the MODT draft, title deed, Aadhaar and patta and fills the empty fields">🔄 Read documents with Claude</button><button type="button" class="btn" id="rvMreadAll" title="Replaces every field with what the documents say">Read · replace all</button>`}</div>`+h;
   h+=`<div class="rvsec"><div class="sect">${dor?"10 · ":""}Documents to upload on TNREGINET</div>${docs.length?docs.map(d=>`<div class="kv"><span>${esc(d.l)}</span><b>${c.docs[d.k].map(f=>esc(f.name)).join(", ")}</b></div>`).join(""):`<p class="sf-note">No documents uploaded yet.</p>`}</div>`;
   if(gen)h+=`<div class="rvsec" id="rvLogin"></div>`;
   $("rvBody").innerHTML=h;
@@ -1299,6 +1297,8 @@ function openReview(c,gen){
     if(pt&&ex){pt.addEventListener("change",showLin);ex.addEventListener("change",autoAgri);autoAgri();showLin()}
     const pr=$("rv_Property_remarks");if(pr){const b=document.createElement("button");b.type="button";b.className="btn";b.textContent="✎ Build remarks from the property fields";b.onclick=()=>{pr.value=modtRemarks()};pr.closest("label").after(b)}}
   wireRobotQs(c);
+  if($("rvMread")){$("rvMread").onclick=()=>readModtCase(c,false);$("rvMreadAll").onclick=()=>ask("Replace all fields?",`<p class="sf-note">Every field Claude reads will replace what is in Drafting now, including your corrections.</p>`,()=>readModtCase(c,true),"Replace");
+    if(!c.tpAuto&&!MREAD.has(c._doc)&&((c.docs||{}).mdraft||[]).length&&((c.docs||{}).deed||[]).length&&canWrite){MREAD.add(c._doc);setTimeout(()=>readModtCase(c,false),300)}}
   $("rvSplit").onclick=()=>$("rvDocPane").hidden?openDocPane(c):closeDocPane();
   if($("rvReread")){$("rvReread").onclick=()=>rereadModt(c,false);$("rvRereadAll").onclick=()=>ask("Replace all fields?",`<p class="sf-note">Every field the MODT has will replace what is in Drafting now, including your corrections.</p>`,()=>rereadModt(c,true),"Replace")}
   const wantWide=(()=>{try{return localStorage.getItem("vgrFormWide")==="1"}catch(e){return false}})();
@@ -1371,7 +1371,7 @@ function learned(){const m=new Map();cases.forEach(c=>(c.fixes||[]).forEach(x=>{
 function applyLearned(d){const L=learned();let n=0;Object.keys(d).forEach(k=>{const x=L.find(y=>y.field===k&&y.read===String(d[k]).trim());if(x){d[k]=x.fixed;n++}});return n}
 async function saveReview(done){
   const c=rv.c,dor=isRD(c.type),data=readReview(),ch=dor?{tp:data,...witPicks()}:{draft:data};
-  if(dor&&c.tpAuto){const fx=fixesOf(c,data);if(fx.length!==(c.fixes||[]).length||JSON.stringify(fx)!==JSON.stringify(c.fixes||[]))ch.fixes=fx}
+  if(c.tpAuto){const fx=fixesOf(c,data);if(fx.length!==(c.fixes||[]).length||JSON.stringify(fx)!==JSON.stringify(c.fixes||[]))ch.fixes=fx}
   if(!dor&&data.SRO)ch.sro=data.SRO;if(dor&&data.SRO)ch.sro=data.SRO;
   if(done)ch.stage="TP Creation";
   if(await patch(c,ch,done?"Draft done":"Draft saved")){if(done)closeReview()}
@@ -2244,6 +2244,31 @@ async function claudeModt(file){if(!window.__sb)return null;const{canvases}=awai
   const nl=applyLearned(d);if(nl)console.info("applied",nl,"learned corrections");
   return{d,bankText:[f.bank,f.bank_branch].filter(Boolean).join(" ")}}
 async function fileOfDoc(f){const u=await docUrl(f.url);const b=await (await fetch(u)).blob();return new File([b],f.name,{type:b.type||(/\.pdf$/i.test(f.name)?"application/pdf":"image/jpeg")})}
+/* ---- MODT case: Claude reads the MODT draft (Word), title deed, title holders' Aadhaar and patta ---- */
+const MREAD=new Set();
+function loadScript(u){return new Promise((ok,no)=>{if([...document.scripts].some(x=>x.src===u))return ok();const sc=document.createElement("script");sc.src=u;sc.onload=ok;sc.onerror=()=>no(new Error("Could not load "+u));document.head.appendChild(sc)})}
+async function docxText(file){await loadScript("https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js");
+  const z=await JSZip.loadAsync(await file.arrayBuffer()),x=await z.file("word/document.xml").async("string");
+  return x.replace(/<w:tab\/>/g,"\t").replace(/<\/w:tc>/g," | ").replace(/<\/w:p>/g,"\n").replace(/<[^>]+>/g,"").replace(/&amp;/g,"&").replace(/&lt;/g,"<").replace(/&gt;/g,">").replace(/&quot;/g,'"').replace(/&apos;/g,"'").replace(/\n{3,}/g,"\n\n").trim()}
+async function readModtCase(c,force){const D=c.docs||{};if(!(D.mdraft||[]).length&&!(D.deed||[]).length){toast("Upload the MODT draft and title deed first");return}
+  toast("Claude is reading the MODT draft, title deed, Aadhaar and patta… about 1 minute.");
+  try{let draft="";const imgs=[],labels=[];
+    const add=async(list,label,maxPages,cap)=>{let n=0;for(const f of list||[]){if(n>=cap)break;const file=await fileOfDoc(f);const{canvases}=await canvasesOf([file],()=>{},maxPages);for(const cv of canvases){if(n>=cap||imgs.length>=20)break;imgs.push(jpegOf(cv,1400));labels.push(label);n++}}};
+    for(const f of D.mdraft||[]){const file=await fileOfDoc(f);if(/\.docx$/i.test(f.name))draft+=await docxText(file)+"\n";else{const r=await canvasesOf([file],()=>{},4);draft+=r.text||"";if(!r.text.trim())r.canvases.slice(0,4).forEach(cv=>{imgs.push(jpegOf(cv,1400));labels.push("MODT DRAFT page")})}}
+    await add(D.th_kyc,"TITLE HOLDER AADHAAR / KYC",3,6);
+    await add(D.deed,"TITLE DEED page",6,9);
+    await add(D.revenue,"PATTA / REVENUE page",2,3);
+    if(!imgs.length&&!draft.trim()){toast("Nothing readable in the uploaded documents");return}
+    const hints=[...ruleHints(),...learned().slice(0,30).map(x=>`${x.field}: "${x.read}" → "${x.fixed}"`)].slice(0,40);
+    const{data,error}=await window.__sb.functions.invoke("read-aadhaar",{body:{kind:"modt_case",draft:draft.slice(0,30000),images:imgs,labels,hints}});
+    if(error||!data||!data.fields)throw new Error((data&&data.error)||(error&&error.message)||"no reply");
+    const F=data.fields,doubts=String(F.Doubts||"").trim();delete F.Doubts;
+    const d={...(c.draft||{})};let n=0;Object.entries(F).forEach(([k,v])=>{v=Array.isArray(v)?v.join("\n"):String(v??"").trim();if(!v)return;if(force||!String(d[k]||"").trim()){if(d[k]!==v)n++;d[k]=v}});
+    const ch={draft:d,tpAuto:{...(c.tpAuto||{}),...Object.fromEntries(Object.entries(F).map(([k,v])=>[k,String(v??"")]))},tpNotes:doubts};
+    if(/urban|rural|natham/i.test(doubts)&&!(c.robotQs||[]).some(q=>q.field==="Land type"&&!q.answer))ch.robotQs=[...(c.robotQs||[]),{id:crypto.randomUUID(),q:"Is this property Urban, Rural or Natham?",options:["Urban","Rural","Natham"],field:"Land type",hint:doubts.slice(0,300)}];
+    await patch(c,ch,`MODT documents read by Claude (${n} fields filled)`);toast(`Claude filled ${n} field${n===1?"":"s"}. Check every field${doubts?" and the doubts at the top":""}.`);
+    const fresh=cases.find(x=>x._doc===c._doc)||{...c,...ch};if(rv.c&&rv.c._doc===c._doc)openReview(fresh,rv.gen)}
+  catch(e){console.warn(e);toast("Could not read the MODT documents: "+(e.message||e))}}
 async function rereadModt(c,force){const f=((c.docs||{}).modt||[])[0];if(!f){toast("Upload the MODT copy first");return}
   toast("Reading the MODT with Claude… about 10–20 seconds.");
   try{const r=await claudeModt(await fileOfDoc(f));if(!r||!Object.keys(r.d).length){toast("Could not read the MODT. Check that it is clear and try again.");return}

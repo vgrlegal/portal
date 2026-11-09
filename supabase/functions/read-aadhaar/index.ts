@@ -10,6 +10,19 @@ const cors = {
 const json = (b: unknown, s = 200) => new Response(JSON.stringify(b), { status: s, headers: { ...cors, "Content-Type": "application/json" } });
 
 const PROMPTS: Record<string, string> = {
+  modt_case: `You are preparing a Tamil Nadu TNREGINET "Deposit of Title Deeds" (MODT) entry for a law office. You get, each labelled: the bank's MODT DRAFT (Word text), the TITLE DEED pages (often Tamil), the title holders' AADHAAR/KYC pages, and PATTA / revenue pages. Read them and return ONLY one JSON object with exactly these keys (use "" when unknown):
+{"Deed 1 SRO":"SRO of the 1st title deed, English","Deed 1 Doc No":"","Deed 1 Year":"4 digits","Deed 2 SRO":"","Deed 2 Doc No":"","Deed 2 Year":"","Deed 3 SRO":"","Deed 3 Doc No":"","Deed 3 Year":"",
+"Title holders":"number of title holders / mortgagors, 1-4",
+"Mortgagor 1 salutation":"", "Mortgagor 1 name":"", "Mortgagor 1 name Tamil":"", "Mortgagor 1 relation":"", "Mortgagor 1 relative name":"", "Mortgagor 1 relative name Tamil":"", "Mortgagor 1 date of birth":"", "Mortgagor 1 Aadhaar":"", "Mortgagor 1 district":"", "Mortgagor 1 address":"", "Mortgagor 1 address Tamil":"", "Mortgagor 1 pincode":"", "Mortgagor 1 phone":"", "Mortgagor 2 salutation":"", "Mortgagor 2 name":"", "Mortgagor 2 name Tamil":"", "Mortgagor 2 relation":"", "Mortgagor 2 relative name":"", "Mortgagor 2 relative name Tamil":"", "Mortgagor 2 date of birth":"", "Mortgagor 2 Aadhaar":"", "Mortgagor 2 district":"", "Mortgagor 2 address":"", "Mortgagor 2 address Tamil":"", "Mortgagor 2 pincode":"", "Mortgagor 2 phone":"", "Mortgagor 3 salutation":"", "Mortgagor 3 name":"", "Mortgagor 3 name Tamil":"", "Mortgagor 3 relation":"", "Mortgagor 3 relative name":"", "Mortgagor 3 relative name Tamil":"", "Mortgagor 3 date of birth":"", "Mortgagor 3 Aadhaar":"", "Mortgagor 3 district":"", "Mortgagor 3 address":"", "Mortgagor 3 address Tamil":"", "Mortgagor 3 pincode":"", "Mortgagor 3 phone":"", "Mortgagor 4 salutation":"", "Mortgagor 4 name":"", "Mortgagor 4 name Tamil":"", "Mortgagor 4 relation":"", "Mortgagor 4 relative name":"", "Mortgagor 4 relative name Tamil":"", "Mortgagor 4 date of birth":"", "Mortgagor 4 Aadhaar":"", "Mortgagor 4 district":"", "Mortgagor 4 address":"", "Mortgagor 4 address Tamil":"", "Mortgagor 4 pincode":"", "Mortgagor 4 phone":"",
+"Govt Body Name":"mortgagee company full legal name","Company state":"state of the company's head office address","Company address":"head office address (and branch if the draft gives it), English","Company address Tamil":"same address in Tamil script","Company pincode":"","Branch":"lender branch name",
+"Property type":"one of: Plot with building, Vacant plot, Agricultural land, Agricultural land with building","Property SRO":"SRO of the property, English","Village":"revenue village, English","Patta No":"from the patta if given","Land type":"one of: Urban, Rural, Natham","Unit":"Sq.ft or Sq.m","New survey no":"new survey number without subdivision, e.g. 125","Subdivision":"e.g. 3","Sheet name":"town survey ward/block/sheet of the PROPERTY from the title deed or patta, never from Aadhaar","Old survey numbers":"comma separated, e.g. 55/4, 10/2","Extent":"extent with unit exactly as in the MODT draft",
+"Boundary type":"Regular or Irregular","Boundary North":"English","Boundary South":"","Boundary East":"","Boundary West":"","Boundary North Tamil":"Tamil script","Boundary South Tamil":"","Boundary East Tamil":"","Boundary West Tamil":"",
+"North length":"number only, in the Unit's linear measure","South length":"","East length":"","West length":"",
+"Property remarks":"English, pattern: Situated in <village> village, <SRO> Sub-Registration District, Survey No. <new/sub> (Old S.No. <old>) as per patta, measuring an extent of <extent><, Plot No. x> – all the land therein.","Property remarks Tamil":"the same sentence in Tamil",
+"Loan amount":"digits only, from the MODT draft","List of documents deposited":"the 'list of documents deposited' / schedule of title documents from the MODT draft, one per line, numbered as in the draft",
+"Execution SRO":"SRO where the MODT is registered (normally the property SRO), English","SRO Tamil":"that SRO name in Tamil",
+"Doubts":"short list of things you were unsure about, for the office to check"}
+Rules: names, relation, date of birth (DD-MM-YYYY), Aadhaar number, district, address and pincode of each holder come from that holder's AADHAAR exactly as printed (English and Tamil); check them against the title deed. Mr./Mrs./Ms. as in the ID. Relation is S/o, W/o, D/o or C/o. Holder order as in the MODT draft. Loan amount, company address, extent, boundaries, linear measurements and list of documents come from the MODT DRAFT; compare with the title deed and mention differences in Doubts. Tamil boundary text from the title deed where available. Extent in cents/acres/hectares means agricultural land. Boundary type Regular only when North length = South length and East length = West length, else Irregular. Urban when the deed or patta shows Town Survey / T.S. No / Ward / Block; Natham when it says natham; otherwise Rural — if unsure, say so in Doubts. Never invent numbers; leave "" if not printed.`,
   aadhaar: `You are reading an Indian Aadhaar card (front/back photo, or the e-Aadhaar letter). Return ONLY a JSON object with these keys (use "" when not printed):
 {"name":"English name exactly as printed","name_ta":"Tamil name exactly as printed in Tamil script","rel_type":"S/O, W/O, D/O or C/O as printed in the address","rel_name":"relative's name in English","rel_name_ta":"relative's name in Tamil script","dob":"DD-MM-YYYY, or YYYY if only year of birth","gender":"Male or Female","aadhaar":"12-digit Aadhaar number, digits only (NOT the 16-digit VID, NOT the enrolment number)","address_en":"full English address after the relation part, as one line, ending with the pincode","address_ta":"full Tamil address after the relation part, as one line","district":"district from the English address","state":"state from the English address","pincode":"6-digit pincode","mobile":"10-digit mobile if printed"}
 Copy text exactly; do not translate or guess. If Tamil is not printed, leave the Tamil keys empty.`,
@@ -97,18 +110,22 @@ Deno.serve(async (req) => {
       for (const [k, v] of Object.entries(texts).slice(0, 40)) t[String(k).slice(0, 60)] = String(v).slice(0, 1500);
       content.push({ type: "text", text: PROMPT + "\n\nFields:\n" + JSON.stringify(t, null, 1) });
     } else {
-      if (!Array.isArray(images) || !images.length || images.length > 10) return json({ error: "Send 1-10 images" }, 400);
-      content = images.map((d: string) => {
+      const max = kind === "modt_case" ? 20 : 10;
+      if (!Array.isArray(images) || !images.length || images.length > max) return json({ error: `Send 1-${max} images` }, 400);
+      const labels: string[] = Array.isArray(body.labels) ? body.labels : [];
+      if (kind === "modt_case" && body.draft) content.push({ type: "text", text: "MODT DRAFT (Word text):\n" + String(body.draft).slice(0, 30000) });
+      images.forEach((d: string, i: number) => {
         const m = /^data:(image\/(?:jpeg|png|webp));base64,(.+)$/.exec(d);
         if (!m) throw new Error("Bad image");
-        return { type: "image", source: { type: "base64", media_type: m[1], data: m[2] } };
+        if (labels[i] && labels[i] !== labels[i - 1]) content.push({ type: "text", text: String(labels[i]).slice(0, 80) + ":" });
+        content.push({ type: "image", source: { type: "base64", media_type: m[1], data: m[2] } });
       });
       content.push({ type: "text", text: PROMPT });
     }
     const r = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: { "x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json" },
-      body: JSON.stringify({ model: Deno.env.get("AADHAAR_MODEL") ?? "claude-sonnet-5-5", max_tokens: 2000, messages: [{ role: "user", content }] }),
+      body: JSON.stringify({ model: Deno.env.get("AADHAAR_MODEL") ?? "claude-sonnet-5-5", max_tokens: kind === "modt_case" ? 6000 : 2000, messages: [{ role: "user", content }] }),
     });
     const out = await r.json();
     if (!r.ok) return json({ error: out?.error?.message ?? "Claude error" }, 502);
