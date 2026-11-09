@@ -379,7 +379,7 @@ tr.hf input,tr.hf select{font-size:12.5px;padding:5px 7px;margin:2px 0}
         <select id="pageSize" style="width:auto"><option value="25">Showing 25 rows</option><option value="50" selected>Showing 50 rows</option><option value="100">Showing 100 rows</option></select>
       </div>
       <div class="bulkbar" id="bulkBar" hidden><b id="bulkCount">0 selected</b><span class="sub">Tick cases on the left.</span><span class="sp"></span>
-        <button type="button" class="bmove" id="bulkMove">➜ Move to TP Creation</button><button type="button" class="brun" id="bulkRun">⚡ Bulk Run TP</button><button type="button" class="bclr" id="bulkClr">Clear</button></div>
+        <button type="button" class="bmove" id="bulkMove">➜ Move to TP Creation</button><button type="button" class="brun" id="bulkRun">⚡ Bulk Run TP</button><select id="bulkAsgTo" aria-label="Assign selected cases to"></select><button type="button" class="bclr" id="bulkAsg">Assign</button><button type="button" class="bclr" id="bulkClr">Clear</button></div>
       <div class="tablebox">
         <table>
           <thead>
@@ -460,33 +460,36 @@ tr.hf input,tr.hf select{font-size:12.5px;padding:5px 7px;margin:2px 0}
   <section id="v-set" hidden>
     <p class="banner" id="setNote" hidden>Only the Admin can change clients, staff and payment details.</p>
     <div class="grid2">
-      <div class="card"><h2>Clients · Banks &amp; NBFCs</h2><p>Companies that send work.</p><details class="fold"><summary id="banksSum">Companies</summary><input id="bankQ" class="fq" placeholder="Search company…"><div class="chips" id="ch-banks"></div></details><form class="addline" data-k="banks"><input placeholder="e.g. Lendingkart Finance"><button class="btn primary">Add</button></form></div>
-      <div class="card"><h2>Payment details</h2><p>Used in the WhatsApp payment message to customers.</p>
+      <div class="card" data-part="set"><h2>Clients · Banks &amp; NBFCs</h2><p>Companies that send work.</p><details class="fold"><summary id="banksSum">Companies</summary><input id="bankQ" class="fq" placeholder="Search company…"><div class="chips" id="ch-banks"></div></details><form class="addline" data-k="banks"><input placeholder="e.g. Lendingkart Finance"><button class="btn primary">Add</button></form></div>
+      <div class="card" data-part="tools"><h2>Payment details</h2><p>Used in the WhatsApp payment message to customers.</p>
         <div class="fgrid"><label class="full">Account details<textarea id="pay_account" placeholder="Account name, number, IFSC, bank"></textarea></label><label>UPI ID<input id="pay_upi"></label><label>Default service charge (₹)<input id="pay_service" type="number" min="0"></label><label class="full">Payment link (optional)<input id="pay_link" placeholder="https://"></label></div>
         <div style="margin-top:10px"><button class="btn primary" id="paySave" type="button">Save payment details</button></div></div>
-      <div class="card"><h2>TNREGINET login IDs</h2><p>One or more IDs per company. The password is saved but can never be shown again, not even to the Admin; only the TP computer uses it.</p><input id="tnQ" class="fq" placeholder="Type a company name to see its login IDs…"><div id="tnList"></div>
+      <div class="card" data-part="reg" style="grid-column:1/-1"><h2>TNREGINET login IDs</h2><p>The password is saved but can never be shown again, not even to the Admin; only the TP computer uses it. MODT IDs are used for any company; Receipt IDs belong to one company and are never used for MODT.</p>
+        <div class="grid2" style="gap:14px"><div><h3 style="margin:4px 0">MODT logins</h3><div id="tnListM"></div></div><div><h3 style="margin:4px 0">Receipt logins</h3><input id="tnQ" class="fq" placeholder="Type a company name to see its login IDs…"><div id="tnList"></div></div></div>
         <div id="tnImp" style="margin-top:10px"><label class="btn" for="tnCsv">⬆ Import from Chrome passwords (CSV)</label><input type="file" id="tnCsv" accept=".csv,text/csv" hidden>
         <span class="sf-note"> Google Password Manager → Settings → Export passwords. Only TNREGINET logins whose company is recognised are imported. Delete the CSV after importing.</span><div id="tnImpBox"></div></div>
         <div id="recBox" style="margin-top:12px"></div>
         <form class="fgrid" id="tnAdd" style="margin-top:10px"><label title="Deed of Receipt IDs belong to one company. MODT IDs are individual IDs used for any company.">Company (or MODT · all companies)<select id="tn_client"></select></label><label>Login ID<input id="tn_user" autocomplete="off"></label><label>Password<input id="tn_pass" type="password" autocomplete="new-password"></label><div style="display:flex;align-items:flex-end"><button class="btn primary">Add ID</button></div></form></div>
     </div>
     <div class="grid2" style="margin-top:16px">
-      <div class="card"><h2>Client profiles · Deed of Receipt</h2><p>Company representatives for each client (details from the Aadhaar + bank ID card). Company name and address come from each case's MODT.</p>
+      <div class="card" data-part="reg"><h2>Witnesses</h2><p>Save each witness once. Mark W1 / W2 to fill new cases automatically; staff can change them per case.</p><div id="witList"></div>
+        <div id="witAdd" style="margin-top:10px"><label class="btn primary" for="witAadhaar">＋ Add witness · upload Aadhaar</label><input type="file" id="witAadhaar" accept="image/*,application/pdf,.pdf" multiple hidden><span class="sf-note"> Front and back (photos or one PDF). Claude fills the details; check and save.</span></div></div>
+      <div class="card" data-part="reg"><h2>Client profiles · Deed of Receipt</h2><p>Company representatives for each client (details from the Aadhaar + bank ID card). Company name and address come from each case's MODT.</p>
         <input id="repQ" class="fq" placeholder="Type a company name…"><div id="xlBox" hidden class="mrow" style="border:1px dashed var(--line);border-radius:10px;padding:10px 12px;margin-bottom:8px"><b>Import from your Excel</b><span><label class="btn primary" for="xlIn">Choose Excel</label><input type="file" id="xlIn" accept=".xlsx,.xls" hidden></span><div class="mf"><span class="no">“RD _ TP Details - Common Data.xlsx”: bank sheets and the Witness Master are read in this browser.</span></div></div>
         <div id="repList"></div></div>
-      <div class="card"><h2>Witnesses</h2><p>Save each witness once. Mark W1 / W2 to fill new cases automatically; staff can change them per case.</p><div id="witList"></div>
-        <div id="witAdd" style="margin-top:10px"><label class="btn primary" for="witAadhaar">＋ Add witness · upload Aadhaar</label><input type="file" id="witAadhaar" accept="image/*,application/pdf,.pdf" multiple hidden><span class="sf-note"> Front and back (photos or one PDF). Claude fills the details; check and save.</span></div></div>
     </div>
-    <div class="card" style="margin-top:16px"><h2>Staff</h2><p>Tick the work each person can open. Staff sign in with this email. Save, then press <b>Invite</b>: they get an email link and set their own password. They see only the work you tick.</p>
+    <div class="card" style="margin-top:16px" data-part="set"><h2>Staff</h2><p>Tick the work each person can open. Staff sign in with this email. Save, then press <b>Invite</b>: they get an email link and set their own password. They see only the work you tick.</p>
       <div style="overflow-x:auto"><table class="mini stafft" id="staffTbl"></table></div>
       <div style="display:flex;gap:8px;margin-top:10px"><button class="btn" id="staffAdd" type="button">+ Add staff</button><button class="btn primary" id="staffSave" type="button">Save staff</button></div></div>
-    <details class="card fold" style="margin-top:16px" id="rulesCard"><summary><h2 style="display:inline">Learning list</h2> <span class="sf-note" id="rulesSum"></span></summary><p>Rules Claude and the TP robot follow when reading documents and filling TNREGINET, for example how to tell Urban, Rural or Natham. When the robot is unsure it asks a question on the case; your answer and its reason become a rule here. Only the Admin can change this list.</p>
+    <details class="card fold" style="margin-top:16px" id="rulesCard" data-part="tools"><summary><h2 style="display:inline">Learning list</h2> <span class="sf-note" id="rulesSum"></span></summary><p>Rules Claude and the TP robot follow when reading documents and filling TNREGINET, for example how to tell Urban, Rural or Natham. When the robot is unsure it asks a question on the case; your answer and its reason become a rule here. Only the Admin can change this list.</p>
       <div id="rulesList"></div>
       <form class="addline" id="ruleAdd" style="margin-top:8px;display:flex;gap:6px"><input id="ruleIn" placeholder="New rule, e.g. Extent in cents or acres means Agricultural land"><button class="btn primary" type="submit">Add rule</button></form></details>
-    <details class="card fold" style="margin-top:16px" id="clientCard"><summary><h2 style="display:inline">Client logins (banks)</h2></summary><p>A bank person signs in and sees only their company's Deed of Receipt cases (all branches, or one branch): stage, TP copy, their documents, queries and messages. They can file new cases with the MODT and NOC; those land in Drafting. Internal comments, staff and settings are never shown to them.</p>
+    <details class="card fold" style="margin-top:16px" id="clientCard" data-part="set" open><summary><h2 style="display:inline">Client logins (banks)</h2></summary><p>A bank person signs in and sees only their company's Deed of Receipt cases (all branches, or one branch): stage, TP copy, their documents, queries and messages. They can file new cases with the MODT and NOC; those land in Drafting. Internal comments, staff and settings are never shown to them.</p>
       <div style="overflow-x:auto"><table class="mini" id="clientTbl"></table></div>
       <div style="display:flex;gap:8px;margin-top:10px"><button class="btn" id="clientAdd" type="button">+ Add client login</button><button class="btn primary" id="clientSave" type="button">Save client logins</button></div></details>
-    <div class="card" style="margin-top:16px" id="bakCard"><h2>Backup</h2><p>One file with everything: settings (staff, companies, witnesses, client profiles, rules) and all cases. The Mac also saves this file every night to the VGR-Backup folder (one file, replaced each day). Restore puts the settings back from a backup file; cases are not touched.</p>
+    <div class="card" style="margin-top:16px" id="stageCard" data-part="tools"><h2>Change a case's stage</h2><p>Search by VGR number, loan number, customer name or company, then move that one case to any stage. It is recorded in the case history.</p>
+      <input id="stQ" class="fq" placeholder="VGR number, loan number, name or company…"><div id="stList"></div></div>
+    <div class="card" style="margin-top:16px" id="bakCard" data-part="tools"><h2>Backup</h2><p>One file with everything: settings (staff, companies, witnesses, client profiles, rules) and all cases. The Mac also saves this file every night to the VGR-Backup folder (one file, replaced each day). Restore puts the settings back from a backup file; cases are not touched.</p>
       <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn primary" id="bakDown" type="button">⬇ Download backup</button><label class="btn" for="bakIn">Restore settings from a backup…</label><input type="file" id="bakIn" accept=".json,application/json" hidden></div></div>
   </section>
 </main>
@@ -517,13 +520,15 @@ tr.hf input,tr.hf select{font-size:12.5px;padding:5px 7px;margin:2px 0}
 #authGate{position:fixed;inset:0;z-index:9999;background:var(--bg,#f6f5f2);display:flex;align-items:center;justify-content:center;padding:16px}
 #authGate[hidden]{display:none}
 #authGate .ab{width:100%;max-width:360px;background:var(--card,#fff);border:1px solid var(--line,#ddd);border-radius:14px;padding:26px 22px;box-shadow:0 8px 30px rgba(0,0,0,.08);text-align:center}
-#authGate img{width:150px;max-width:60%;margin:0 auto 10px;display:block}
+#authGate .ab>img{width:300px;max-width:90%;margin:0 auto 10px;display:block}
+#authGate .pw{position:fixed;bottom:22px;left:0;right:0;display:flex;align-items:center;justify-content:center;gap:8px;color:#999;font-size:12px}
+#authGate .pw img{height:24px;width:auto}
 #authGate h1{font-size:18px;margin:4px 0 2px}#authGate p{margin:0 0 16px;color:var(--mut,#777);font-size:13px}
 #authGate input{width:100%;box-sizing:border-box;padding:11px 12px;margin:0 0 10px;border:1px solid var(--line,#ccc);border-radius:9px;font:inherit;font-size:15px;background:transparent;color:inherit}
-#authGate button{width:100%;padding:11px;border:0;border-radius:9px;background:#1f3b63;color:#fff;font:inherit;font-weight:600;font-size:15px;cursor:pointer}
+#authGate button{width:100%;padding:11px;border:0;border-radius:9px;background:#7a1f1f;color:#fff;font:inherit;font-weight:600;font-size:15px;cursor:pointer}
 #authGate button:disabled{opacity:.6}
 #authGate .am{min-height:18px;font-size:13px;color:#b42318;margin-top:10px}
-#authGate .lk{background:none;color:#1f3b63;font-weight:500;margin-top:8px;padding:6px;font-size:13px}
+#authGate .lk{background:none;color:#7a1f1f;font-weight:500;margin-top:8px;padding:6px;font-size:13px}
 [hidden]{display:none!important}
 .fq{width:100%;box-sizing:border-box;padding:8px 10px;margin:6px 0 8px;border:1px solid var(--line,#ccc);border-radius:8px;font:inherit;background:transparent;color:inherit}
 details.fold>summary{cursor:pointer;list-style:revert;padding:4px 0}
@@ -531,8 +536,8 @@ details.fold>summary{cursor:pointer;list-style:revert;padding:4px 0}
 #acctBar button{border:1px solid var(--line,#ccc);background:transparent;color:inherit;border-radius:7px;padding:4px 8px;font:inherit;font-size:12px;cursor:pointer}
 </style>
 <div id="authGate" hidden><div class="ab">
-  <img id="agLogo" src="logo.webp" alt="VGR Legal">
-  <h1>VGR Legal · Working Portal</h1><p>Staff sign in</p>
+  <img id="agLogo" src="oo-logo-wide.png" alt="Opinion &amp; Ownership">
+  <h1>Working Portal</h1><p>Sign in</p>
   <form id="agForm" autocomplete="on">
     <input id="agEmail" type="email" placeholder="Email" autocomplete="username" required>
     <input id="agPass" type="password" placeholder="Password" autocomplete="current-password" required>
@@ -540,7 +545,7 @@ details.fold>summary{cursor:pointer;list-style:revert;padding:4px 0}
   </form>
   <button class="lk" id="agForgot" type="button">Forgot password?</button>
   <div class="am" id="agMsg"></div>
-</div></div>
+</div><div class="pw">Powered by <img src="logo.webp" alt="VGR Legal"></div></div>
 <script>
 (function(){
 const SB_URL="https://kxngtgtgycatottekcwb.supabase.co",SB_KEY="sb_publishable_dsx2czFgeZe4SSEqHmlbVA_2UAxabmo",BUCKET="docs";
@@ -744,7 +749,7 @@ function myOrg(){return myStaff?(myStaff.partner||myStaff.team||""):""}
 function isPartner(){return !!(myStaff&&myStaff.partner)}
 function canTp(){return isMD||!!(myStaff&&myStaff.tp===true)}
 function staffObj(x){return typeof x==="string"?{name:x,email:"",phone:"",tabs:TAB_KEYS.map(t=>t[0])}:{tabs:TAB_KEYS.map(t=>t[0]),...x}}
-function allowedTab(t){if(t==="__team")return isPartner();if(t==="__rep")return isMD||isPartner();if(isMD||isAdmin)return true;if(t==="__set"||t==="__ppl")return false;if(t==="dash"||t==="__all")return true;if(!myStaff)return false;return (myStaff.tabs||[]).includes(t)}
+function allowedTab(t){if(t==="__team")return isPartner();if(t==="__rep")return isMD||isPartner();if(t==="__tools")return isMD||isAdmin||isPartner();if(t==="__reg")return isMD||isAdmin;if(isMD||isAdmin)return true;if(t==="__set"||t==="__ppl")return false;if(t==="dash"||t==="__all")return true;if(!myStaff)return false;return (myStaff.tabs||[]).includes(t)}
 
 /* ================= tabs & ranges ================= */
 function renderTabs(){
@@ -757,6 +762,8 @@ function renderTabs(){
     (false&&allowedTab("__kyc")?`<button role="tab" data-t="__kyc" aria-selected="${tab==="__kyc"}">Drafting</button>`:"")+
     (isMD||isAdmin?`<button role="tab" data-t="__ppl" aria-selected="${tab==="__ppl"}">KYC Master</button>`:"")+
     (isMD||isAdmin?`<button role="tab" data-t="__set" aria-selected="${tab==="__set"}">Clients &amp; Staff</button>`:"")+
+    (isMD||isAdmin?`<button role="tab" data-t="__reg" aria-selected="${tab==="__reg"}">TNREGINET</button>`:"")+
+    (isMD||isAdmin||isPartner()?`<button role="tab" data-t="__tools" aria-selected="${tab==="__tools"}">Tools</button>`:"")+
     (isPartner()?`<button role="tab" data-t="__team" aria-selected="${tab==="__team"}">My team</button>`:"")+
     (isMD||isPartner()?`<button role="tab" data-t="__rep" aria-selected="${tab==="__rep"}">Reports</button>`:"");
 }
@@ -837,7 +844,7 @@ function missingReq(type,docs){
 function prevStage(c){const L=stageLog(c).filter(e=>e.s!=="Case Created");for(let i=L.length-2;i>=0;i--)if(L[i].s!==c.stage)return L[i].s;return""}
 function canBack(){return isMD||isPartner()||!!(myStaff&&myStaff.back===true)}
 function doubtful(c){return c.source==="mail"&&c.stage==="Draft Pending"&&(c.multiCustomer||c.dupOf)}
-function actionsFor(c){const a0=actionsFor0(c);if(canBack()&&canWrite&&prevStage(c))a0.push(["undo","↩ Back to "+prevStage(c)]);if(canWrite&&doubtful(c)){a0.push(["split","Split case"],["merge","Same case · merge into…"]);if(c.dupOf||c.multiCustomer)a0.push(["notdup","Separate · no change"])}return a0}
+function actionsFor(c){const a0=actionsFor0(c);if(canWrite&&doubtful(c)){a0.push(["split","Split case"],["merge","Same case · merge into…"]);if(c.dupOf||c.multiCustomer)a0.push(["notdup","Separate · no change"])}return a0}
 function actionsFor0(c){
   const s=c.stage,a=[],fl=flowOf(c.type);
   if(fl==="legal"){
@@ -869,17 +876,17 @@ function render(){
   if(!allowedTab(tab))tab="dash";
   ["v-dash","v-list","v-set","v-sro","v-kyc","v-ppl","v-team","v-rep"].forEach(id=>$(id).hidden=true);
   if(tab==="__rep"){$("v-rep").hidden=false;$("ranges").style.visibility="hidden";$("customRow").hidden=true;renderReport();return}
-  const tool=tab==="__set"||tab==="__sro"||tab==="__kyc"||tab==="__ppl"||tab==="__team";
+  const tool=tab==="__set"||tab==="__reg"||tab==="__tools"||tab==="__sro"||tab==="__kyc"||tab==="__ppl"||tab==="__team";
   if(tab==="__team"){$("v-team").hidden=false;renderTeam();$("ranges").style.visibility="hidden";return}
   $("ranges").style.visibility=tool?"hidden":"visible";$("customRow").hidden=tool||range!=="cus";
-  if(tab==="__set"){$("v-set").hidden=false;renderSettings();return}
+  if(tab==="__set"||tab==="__reg"||tab==="__tools"){$("v-set").hidden=false;renderSettings();return}
   if(tab==="__ppl"){$("v-ppl").hidden=false;renderPeople();return}
   if(tab==="__sro"){$("v-sro").hidden=false;sfOpen();return}
   if(tab==="__kyc"){$("v-kyc").hidden=false;kycOpen();return}
   if(tab==="dash"){$("v-dash").hidden=false;renderDash();return}
   $("v-list").hidden=false;
   $("tpbar").hidden=!(isRD(tab)||tab==="MODT");if(!$("tpbar").hidden)renderHelperChip();
-  renderSegs(baseList());$("bulkBar").hidden=!(bulkOk()&&(isRD(tab)||tab==="__all"));bulkCount();
+  renderSegs(baseList());$("bulkBar").hidden=!bulkOk();bulkCount();
   {const n=baseList().filter(needsAttn).length;let bar=$("attnBar");if(!bar){bar=document.createElement("div");bar.id="attnBar";bar.style.margin="8px 0";$("tbody").closest("table").before(bar)}
     bar.innerHTML=n||ATTN?`<div class="banner" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">${ATTN?`Showing ${n} mail case(s) that need attention: no MODT, or company not known.`:`⚠ ${n} mail case(s) need attention (no MODT or company not known). They are kept out of this list.`}<button class="btn" type="button" id="attnBtn">${ATTN?"Back to the normal list":"Show them"}</button></div>`:"";
     if($("attnBtn"))$("attnBtn").onclick=()=>{ATTN=!ATTN;page=0;render()}}
@@ -888,7 +895,7 @@ function render(){
   $("tbody").innerHTML=rows.map(c=>{
     const cm=(c.comments||[]).length;
     return`<tr data-id="${esc(c._doc)}">
-    <td>${bulkOk()&&isRD(c.type)?`<input type="checkbox" class="selbox" data-sel="${esc(c._doc)}" ${SEL.has(c._doc)?"checked":""} aria-label="Select ${esc(c.applicant)}">`:""}${c.applicantFromMail?`<span class="strong">⏳ Reading documents…</span><span class="sub">${esc((c.mailSubject||c.applicant||"").slice(0,70))}</span>`:`<span class="strong">${esc(c.applicant)}</span>`}${c.loanNo?`<span class="sub mono">Loan ${esc(c.loanNo)}</span>`:""}${c.noModt?`<span class="pill p-bad" style="margin-top:4px">No MODT</span> `:""}${c.tpStop&&!c.tpNo?`<span class="pill p-bad" style="margin-top:4px;white-space:normal" title="${esc(c.tpStop.reason||"")}">⛔ Robot stopped: ${esc(String(c.tpStop.step||"").slice(0,50))}${c.tpStop.draftNo||c.tnDraftNo?" · Draft "+esc(c.tpStop.draftNo||c.tnDraftNo):""}</span><span class="sub" style="color:#b42318;white-space:normal">${esc(String(c.tpStop.reason||"").slice(0,160))}</span>`:""}${doubtful(c)?`<span class="pill p-warn" style="margin-top:4px" title="${c.dupOf?"Looks like the same customer as "+esc(c.dupOf):"This mail may hold more than one customer"}. Open the mail files and press Same case / Split / Separate.">🔔 Check this mail${c.dupOf?" · same as "+esc(c.dupOf)+"?":" · 2 customers?"}</span> `:""}${c.source==="mail"&&!c.bank?`<span class="pill p-warn" style="margin-top:4px">Company?</span> `:""}${!c.phone&&!FINAL.has(c.stage)?`<span class="pill p-info" style="margin-top:4px;font-size:11px" title="Customer phone needed for payment">📞 Phone needed</span>`:""}<span class="sub mono">${esc(c.id)}</span>${tab==="__all"?`<span class="sub">${esc(c.type)}</span>`:""}</td>
+    <td>${bulkOk()?`<input type="checkbox" class="selbox" data-sel="${esc(c._doc)}" ${SEL.has(c._doc)?"checked":""} aria-label="Select ${esc(c.applicant)}">`:""}${c.applicantFromMail?`<span class="strong">⏳ Reading documents…</span><span class="sub">${esc((c.mailSubject||c.applicant||"").slice(0,70))}</span>`:`<span class="strong">${esc(c.applicant)}</span>`}${c.loanNo?`<span class="sub mono">Loan ${esc(c.loanNo)}</span>`:""}${c.noModt?`<span class="pill p-bad" style="margin-top:4px">No MODT</span> `:""}${c.tpStop&&!c.tpNo?`<span class="pill p-bad" style="margin-top:4px;white-space:normal" title="${esc(c.tpStop.reason||"")}">⛔ Robot stopped: ${esc(String(c.tpStop.step||"").slice(0,50))}${c.tpStop.draftNo||c.tnDraftNo?" · Draft "+esc(c.tpStop.draftNo||c.tnDraftNo):""}</span><span class="sub" style="color:#b42318;white-space:normal">${esc(String(c.tpStop.reason||"").slice(0,160))}</span>`:""}${doubtful(c)?`<span class="pill p-warn" style="margin-top:4px" title="${c.dupOf?"Looks like the same customer as "+esc(c.dupOf):"This mail may hold more than one customer"}. Open the mail files and press Same case / Split / Separate.">🔔 Check this mail${c.dupOf?" · same as "+esc(c.dupOf)+"?":" · 2 customers?"}</span> `:""}${c.source==="mail"&&!c.bank?`<span class="pill p-warn" style="margin-top:4px">Company?</span> `:""}${!c.phone&&!FINAL.has(c.stage)?`<span class="pill p-info" style="margin-top:4px;font-size:11px" title="Customer phone needed for payment">📞 Phone needed</span>`:""}<span class="sub mono">${esc(c.id)}</span>${tab==="__all"?`<span class="sub">${esc(c.type)}</span>`:""}</td>
     <td><span class="strong">${esc(c.bank||"—")}</span><span class="sub">${esc(c.branch||"")}</span></td>
     <td>${datesCell(c)}</td>
     <td>${statusCell(c)}</td>
@@ -905,7 +912,11 @@ $("tbody").onclick=e=>{const b=e.target.closest("button[data-a]");if(!b)return;c
 /* ================= Bulk (Admin only): tick cases → move to TP Creation, or Bulk Run TP on up to 3 logins ================= */
 const SEL=new Set();
 function bulkOk(){return (isMD||isPartner())&&canWrite}
-function bulkCount(){const n=SEL.size;$("bulkCount").textContent=n+" selected";$("bulkMove").disabled=!n;$("bulkRun").disabled=!n}
+function bulkCount(){const n=SEL.size;$("bulkCount").textContent=n+" selected";$("bulkMove").disabled=!n;$("bulkRun").disabled=!n;$("bulkAsg").disabled=!n;
+  const names=[...new Set([...(isMD?[MD_NAME]:[]),...cfg.staff.map(staffObj).filter(m=>!isPartner()||isMD||(m.team||m.partner)===myOrg()).map(m=>m.name)])],v=$("bulkAsgTo").value;
+  $("bulkAsgTo").innerHTML=`<option value="">Assign to…</option><option value="__none">Unassigned</option>`+names.map(n=>`<option${n===v?" selected":""}>${esc(n)}</option>`).join("")}
+$("bulkAsg").onclick=async()=>{const to=$("bulkAsgTo").value;if(!to){toast("Pick a person");return}const who2=to==="__none"?"":to;let n=0;
+  for(const c of selCases()){if((c.assignee||"")!==who2&&await patch(c,{assignee:who2},null))n++}toast(`${n} case(s) ${who2?"assigned to "+who2:"unassigned"}`);SEL.clear();render()};
 $("tbody").addEventListener("change",e=>{const b=e.target.closest("[data-sel]");if(!b)return;if(b.checked)SEL.add(b.dataset.sel);else SEL.delete(b.dataset.sel);bulkCount()});
 $("bulkClr").onclick=()=>{SEL.clear();render()};
 function selCases(){return [...SEL].map(id=>cases.find(c=>c._doc===id)).filter(Boolean)}
@@ -1408,9 +1419,9 @@ function readTeam(){return[...$("teamTbl").querySelectorAll("tr[data-i]")].map(t
 $("teamAdd").onclick=()=>{const t=$("teamTbl"),tr=document.createElement("tr");tr.dataset.i="new";tr.innerHTML=`<td><input class="tm_n" placeholder="Name"></td><td><input class="tm_e" type="email" placeholder="name@mail.com"></td><td><input class="tm_p"></td><td>${bankPick([])}</td><td class="c"><input type="checkbox" class="tm_t"></td><td><button class="btn danger tdel" type="button">Remove</button></td>`;tr.querySelector(".tdel").onclick=()=>tr.remove();t.appendChild(tr)};
 $("teamSave").onclick=async()=>{const L=readTeam();try{const{data,error}=await window.__sb.rpc("partner_save_team",{members:L});if(error)throw error;toast(`Team saved (${data} member${data===1?"":"s"}). Now press Invite or Copy link.`+(data<L.length?" Some e-mails were already used elsewhere and were skipped.":""))}catch(e){toast("Team not saved: "+(e.message||e))}};
 function applyBrand(){const o=ORGS[myOrg()];const h=document.querySelector("header .top");if(!h)return;let pl=$("ptLogo");
-  if(!o){if(pl)pl.remove();document.querySelector("header .logo").classList.remove("small");return}
+  if(!o){if(pl)pl.remove();const vg=document.querySelector("header .logo");vg.classList.remove("small");vg.hidden=false;return}
   if(!pl){pl=document.createElement("img");pl.id="ptLogo";pl.className="logo ptlogo";h.insertBefore(pl,h.firstChild)}pl.src=o.logo;pl.alt=o.name;
-  document.querySelector("header .logo:not(.ptlogo)").classList.add("small");const of=document.querySelector("header .office");if(of)of.textContent="with VGR Legal · Deed of Receipt desk"}
+  const vg=document.querySelector("header .logo:not(.ptlogo)");vg.classList.add("small");vg.hidden=true;const of=document.querySelector("header .office");if(of)of.textContent="Deed of Receipt desk"}
 /* ---- Reports: who did what (per person, per organisation) + Claude reading (OCR) count and cost ---- */
 const USD_INR=84;let REP_ROWS=[];
 function orgOfName(n){const m=cfg.staff.map(staffObj).find(x=>x.name===n);return m?(m.partner||m.team||"vgr"):(n===MD_NAME||n===MD_OLD?"vgr":"vgr")}
@@ -1648,12 +1659,14 @@ async function tnImport(file){const box=$("tnImpBox");const rows=parseCsv(await 
     box.innerHTML=`<p class="sf-note">✓ ${pick.length} login ID(s) imported. Now delete the "Chrome Passwords.csv" file from Downloads (and the Bin).</p>`;$("tnCsv").value="";tnRender(false)}}
 async function tnRender(ro){const box=$("tnList");if(!box)return;$("tnImp").hidden=ro||!isMD;$("tnCsv").onchange=e=>{const f=e.target.files[0];if(f)tnImport(f)};$("tnAdd").hidden=ro||!isMD;
   $("tn_client").innerHTML=`<option>${esc(MODT_POOL)}</option>`+cfg.banks.map(b=>`<option>${esc(b)}</option>`).join("");
-  if(!isMD){box.innerHTML=`<p class="sf-note">Only the Admin can see these.</p>`;return}
+  if(!isMD){box.innerHTML=`<p class="sf-note">Only the Admin can see these.</p>`;$("tnListM").innerHTML="";return}
   let l=[];try{l=await tnLogins()}catch(e){box.innerHTML=`<p class="banner">Login IDs could not load: ${esc(e.message)}</p>`;return}
-  recRender(l);const all=l,tq=()=>($("tnQ").value||"").trim().toLowerCase();
+  recRender(l);const pool=l.filter(isPool),all=l.filter(x=>!isPool(x)),tq=()=>($("tnQ").value||"").trim().toLowerCase();
+  const row=x=>`<div class="mrow"><b>${esc(x.username)}</b><span>${ro?"":`<button class="btn danger" type="button" data-tnx="${x.id}">Remove</button>`}</span><div class="mf">${esc(x.client)} · password saved</div></div>`;
   const paint=()=>{const q=tq(),l=q?all.filter(x=>(x.client+" "+x.username).toLowerCase().includes(q)):[];
-  box.innerHTML=!q?`<p class="sf-note">${all.length} login IDs for ${new Set(all.map(x=>x.client)).size} companies. Type a company name above to see and remove them.</p>`:l.length?l.map(x=>`<div class="mrow"><b>${esc(x.username)}</b><span>${ro?"":`<button class="btn danger" type="button" data-tnx="${x.id}">Remove</button>`}</span><div class="mf">${esc(x.client)} · password saved</div></div>`).join(""):`<p class="sf-note">No login IDs for “${esc(q)}”.</p>`;
-  box.querySelectorAll("[data-tnx]").forEach(b=>b.onclick=()=>ask("Remove this login ID?",`<p class="sf-note">The TP computer will stop using it.</p>`,async()=>{const{error}=await window.__sb.from("tn_logins").delete().eq("id",b.dataset.tnx);if(error)toast(error.message);else{toast("Removed");tnRender(ro)}},"Remove"))};paint();$("tnQ").oninput=paint;
+  $("tnListM").innerHTML=pool.length?pool.map(row).join(""):`<p class="sf-note">No MODT login IDs yet. Add one below with “${esc(MODT_POOL)}”.</p>`;
+  box.innerHTML=!q?`<p class="sf-note">${all.length} Receipt login IDs for ${new Set(all.map(x=>x.client)).size} companies. Type a company name above to see and remove them.</p>`:l.length?l.map(x=>`<div class="mrow"><b>${esc(x.username)}</b><span>${ro?"":`<button class="btn danger" type="button" data-tnx="${x.id}">Remove</button>`}</span><div class="mf">${esc(x.client)} · password saved</div></div>`).join(""):`<p class="sf-note">No login IDs for “${esc(q)}”.</p>`;
+  [...box.querySelectorAll("[data-tnx]"),...$("tnListM").querySelectorAll("[data-tnx]")].forEach(b=>b.onclick=()=>ask("Remove this login ID?",`<p class="sf-note">The TP computer will stop using it.</p>`,async()=>{const{error}=await window.__sb.from("tn_logins").delete().eq("id",b.dataset.tnx);if(error)toast(error.message);else{toast("Removed");tnRender(ro)}},"Remove"))};paint();$("tnQ").oninput=paint;
   $("tnAdd").onsubmit=async e=>{e.preventDefault();const client=fv("tn_client"),username=fv("tn_user"),password=$("tn_pass").value;if(!client||!username||!password){toast("Fill company, login ID and password");return}
     const{error}=await window.__sb.from("tn_logins").insert({client,username,password});if(error){toast(error.message);return}$("tn_user").value="";$("tn_pass").value="";toast("Login ID saved");tnRender(ro)}}
 async function cloudTp(c,fresh){const box=$("rvLogin");box.innerHTML=`<div class="sect">Generate TP on TNREGINET</div><p class="sf-note">Loading login IDs…</p>`;
@@ -1824,15 +1837,31 @@ function renderSettings(){
   $("ch-banks").innerHTML=cfg.banks.length?cfg.banks.map((x,i)=>!bq||x.toLowerCase().includes(bq)?`<span class="chip">${esc(x)}${ro?"":`<button data-k="banks" data-i="${i}" aria-label="Remove ${esc(x)}">×</button>`}</span>`:"").join(""):`<span style="color:var(--muted);font-size:13px">No clients yet</span>`;
   document.querySelectorAll(".addline[data-k]").forEach(f=>f.hidden=ro);
   const staff=cfg.staff.map(staffObj);
-  $("staffTbl").innerHTML=`<tr><th>Name</th><th>Email</th><th>Phone</th>${TAB_KEYS.map(t=>`<th class="c">${esc(t[1])}</th>`).join("")}<th class="c" title="Can press TP Generate for single cases (Bulk Run stays Admin only)">TP Generate</th><th class="c" title="Can move a case back to the earlier stage">Back stage</th><th>Login</th><th></th></tr>`+
+  $("staffTbl").innerHTML=`<tr><th>Name</th><th>Email</th><th>Phone</th>${TAB_KEYS.map(t=>`<th class="c">${esc(t[1])}</th>`).join("")}<th class="c" title="Can press TP Generate for single cases (Bulk Run stays Admin only)">TP Generate</th><th>Login</th><th></th></tr>`+
     staff.map((s,i)=>`<tr data-i="${i}"><td><input class="sv" data-f="name" value="${esc(s.name)}" ${ro?"disabled":""}></td><td><input class="sv" data-f="email" type="email" value="${esc(s.email)}" ${ro?"disabled":""}></td><td><input class="sv" data-f="phone" value="${esc(s.phone)}" ${ro?"disabled":""}></td>
-      ${TAB_KEYS.map(t=>`<td class="c"><input type="checkbox" class="st" data-t="${esc(t[0])}" ${s.tabs.includes(t[0])?"checked":""} ${ro?"disabled":""} aria-label="${esc(s.name)} can use ${esc(t[1])}"></td>`).join("")}<td class="c"><input type="checkbox" class="stp" ${s.tp===true?"checked":""} ${ro?"disabled":""} aria-label="${esc(s.name)} can press TP Generate"></td><td class="c">${s.partner?'<span title="Partner: always allowed">✓</span>':`<input type="checkbox" class="sbk" ${s.back===true?"checked":""} ${ro?"disabled":""} aria-label="${esc(s.name)} can move cases back a stage">`}</td><td class="lgst" data-em="${esc((s.email||"").toLowerCase())}" style="white-space:nowrap;font-size:12px">${s.email?"…":'<span class="no">no email</span>'}</td>
+      ${TAB_KEYS.map(t=>`<td class="c"><input type="checkbox" class="st" data-t="${esc(t[0])}" ${s.tabs.includes(t[0])?"checked":""} ${ro?"disabled":""} aria-label="${esc(s.name)} can use ${esc(t[1])}"></td>`).join("")}<td class="c"><input type="checkbox" class="stp" ${s.tp===true?"checked":""} ${ro?"disabled":""} aria-label="${esc(s.name)} can press TP Generate"></td><td class="lgst" data-em="${esc((s.email||"").toLowerCase())}" style="white-space:nowrap;font-size:12px">${s.email?"…":'<span class="no">no email</span>'}</td>
       <td style="white-space:nowrap">${s.partner||s.team?`<span class="pill p-info" title="Partner organisation">${s.partner?"Partner · ":""}${esc((ORGS[s.partner||s.team]||{}).name||s.partner||s.team)}</span> `:""}${ro||s.name===MD_NAME?"":`${s.email?`<button class="btn sinv" type="button" data-em="${esc(s.email)}">Invite</button> <button class="btn slink" type="button" data-em="${esc(s.email)}">Copy link</button> `:""}<button class="btn danger sdel" type="button">Remove</button>`}</td></tr>`).join("");
   $("staffAdd").hidden=ro;$("staffSave").hidden=ro;renderMasters(ro);loginStatus();$("bakCard").hidden=!isMD;$("bankQ").dispatchEvent(new Event("input"));if($("rulesSum"))$("rulesSum").textContent=`${(cfg.rules||[]).length} rules · tap to open`;
   renderClients(ro);renderRules(ro);
   const p=cfg.pay||{};["account","upi","link","service"].forEach(k=>{$("pay_"+k).value=p[k]||"";$("pay_"+k).disabled=ro});$("paySave").hidden=ro;
-  tnRender(ro);
+  tnRender(ro);renderStageTool();
+  const PART=tab==="__reg"?"reg":tab==="__tools"?"tools":"set",onlyStage=isPartner()&&!isMD&&!isAdmin;
+  const roleHide={clientCard:!isMD,rulesCard:!(isMD||isAdmin),bakCard:!isMD,stageCard:false};
+  document.querySelectorAll("#v-set [data-part]").forEach(e=>{e.hidden=e.dataset.part!==PART||!!roleHide[e.id]||(onlyStage&&e.id!=="stageCard")});
+  $("setNote").hidden=!ro||PART==="tools";
 }
+/* ---- Tools: move ONE case to any stage (Admin; a partner only his team's cases) ---- */
+function teamCase(c){const o=myOrg();if(!o)return true;const L=cfg.staff.map(staffObj).filter(m=>(m.team||m.partner)===o).map(m=>m.name);
+  return c.org===o||c.source==="mail"||L.includes(c.assignee)||L.includes((stageLog(c)[0]||{}).by)}
+function renderStageTool(){const box=$("stList"),inp=$("stQ");if(!box||!inp)return;
+  const paint=()=>{const q=inp.value.trim().toLowerCase();if(q.length<2){box.innerHTML=`<p class="sf-note">Type at least 2 letters or digits.</p>`;return}
+    const L=cases.filter(c=>(isMD||isAdmin||teamCase(c))&&[c.id,c.loanNo,c.applicant,c.bank,(c.loanKeys||[]).join(" ")].join(" ").toLowerCase().includes(q)).slice(0,15);
+    box.innerHTML=L.length?L.map(c=>{const fl=flowOf(c.type),st=[...new Set([...FLOWS[fl],...SIDE[fl]])];
+      return`<div class="mrow"><b>${esc(c.id)} · ${esc(c.applicant||"")}</b><span style="display:flex;gap:6px;align-items:center"><select data-stsel="${esc(c._doc)}" aria-label="New stage for ${esc(c.id)}">${st.map(x=>`<option${x===c.stage?" selected":""}>${esc(x)}</option>`).join("")}</select><button class="btn primary" type="button" data-stgo="${esc(c._doc)}">Move</button></span>
+        <div class="mf">${esc(c.bank||"")}${c.loanNo?" · Loan "+esc(c.loanNo):""} · ${esc(c.type)} · now <b>${esc(c.stage)}</b></div></div>`}).join(""):`<p class="sf-note">No case matches “${esc(inp.value)}”.</p>`;
+    box.querySelectorAll("[data-stgo]").forEach(b=>b.onclick=()=>{const c=cases.find(x=>x._doc===b.dataset.stgo),to=box.querySelector(`[data-stsel="${b.dataset.stgo}"]`).value;if(!c||to===c.stage){toast("Pick a different stage");return}
+      ask("Change stage?",`<p class="sf-note">${esc(c.id)} · ${esc(c.applicant||"")}: <b>${esc(c.stage)}</b> → <b>${esc(to)}</b>. This is recorded in the case history.</p>`,async()=>{await patch(c,{stage:to},`Stage changed: ${c.stage} → ${to}`);paint()},"Change")})};
+  inp.oninput=paint;if(!box.innerHTML)paint()}
 function ago(t){if(!t)return"";const m=Math.round((Date.now()-new Date(t))/60000);return m<2?"just now":m<60?m+" min ago":m<1440?Math.round(m/60)+" h ago":Math.round(m/1440)+" days ago"}
 let LGS={at:0,L:[]};async function loginStatus(){if(!isMD&&!isPartner())return;let L=LGS.L;if(Date.now()-LGS.at>60000){try{const{data}=await window.__sb.rpc("login_status");L=data||[];LGS={at:Date.now(),L}}catch(e){return}}
   document.querySelectorAll(".lgst[data-em]").forEach(td=>{const em=td.dataset.em;if(!em)return;const u=L.find(x=>x.email===em);
@@ -2607,7 +2636,7 @@ setInterval(()=>{if(!$("v-list").hidden||!$("v-dash").hidden)render()},60000);
   db.doc("config/lists").onSnapshot(s=>{const d=s.exists?s.data():{};
     CFG_OK=true;cfg={banks:d.banks||[],staff:(d.staff||[]).map(staffObj),types:(d.types&&d.types.length)?d.types:DEFAULT_TYPES.slice(),pay:d.pay||{},profiles:d.profiles||{},wit:d.wit||[],clients:d.clients||[],rules:d.rules||[],domains:d.domains||{}};
     myStaff=!isMD&&SELF_EMAIL?cfg.staff.find(x=>x.email&&x.email.toLowerCase()===SELF_EMAIL)||null:null;if(myStaff)me=myStaff.name;
-    applyBrand();if(!["dash","__all","__set","__sro","__ppl","__team","__rep"].includes(tab)&&!cfg.types.includes(tab))tab="dash";fillStatic();render()},()=>{});
+    applyBrand();if(!["dash","__all","__set","__reg","__tools","__sro","__ppl","__team","__rep"].includes(tab)&&!cfg.types.includes(tab))tab="dash";fillStatic();render()},()=>{});
   db.doc("tp_jobs/_worker").onSnapshot(s=>{W.at=s.exists?(s.data()||{}).at:null;if(!$("tpbar").hidden)renderHelperChip()},()=>{});
   db.collection("cases").onSnapshot(s=>{if(!s.metadata.fromCache)clearTimeout(timer);cases=s.docs.map(d=>({...d.data(),_doc:d.id})).filter(c=>!c.mergedInto);
     if(editing){const fresh=cases.find(c=>c._doc===editing._doc);if(fresh){editing=fresh;if($("timeline"))renderTimeline(fresh)}}
