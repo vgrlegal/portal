@@ -446,7 +446,13 @@ def person(P, t, pre, designation=True):
     P.sel("salutationId", sal_re(sal))
     P.set("fullName", g(t, f"{pre} name", pre))
     P.tamil("fullNameLL", g(t, f"{pre} name (Tamil)"), g(t, f"{pre} name", pre))
-    P.sel("firstRelationTypeId", rel_re(g(t, f"{pre} relation") or "Son of"))
+    rel = g(t, f"{pre} relation") or "Son of"
+    r = P.sel("firstRelationTypeId", rel_re(rel))
+    if not str(r).startswith("ok"):
+        # TNREGINET has no "Care of" (Aadhaar C/O is usually the father): use Son of / Daughter of by gender
+        fem = (g(t, f"{pre} gender") or "").lower().startswith("f") or g(t, f"{pre} salutation").lower().startswith(("mrs", "ms", "miss"))
+        P.sel("firstRelationTypeId", "^Daughter of" if fem else "^Son of")
+        P.warn.append(f"{pre}: relation '{rel}' is not on TNREGINET - used {'Daughter of' if fem else 'Son of'}, please check")
     P.set("firstRelativeName", g(t, f"{pre} relative name"))
     P.tamil("firstRelativeNameLL", g(t, f"{pre} relative name (Tamil)"), g(t, f"{pre} relative name"))
     P.set("age", re.sub(r"\D", "", g(t, f"{pre} age", f"{pre} Age")))
