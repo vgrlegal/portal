@@ -463,7 +463,10 @@ tr.hf input,tr.hf select{font-size:12.5px;padding:5px 7px;margin:2px 0}
       <div class="card"><h2>Payment details</h2><p>Used in the WhatsApp payment message to customers.</p>
         <div class="fgrid"><label class="full">Account details<textarea id="pay_account" placeholder="Account name, number, IFSC, bank"></textarea></label><label>UPI ID<input id="pay_upi"></label><label>Default service charge (₹)<input id="pay_service" type="number" min="0"></label><label class="full">Payment link (optional)<input id="pay_link" placeholder="https://"></label></div>
         <div style="margin-top:10px"><button class="btn primary" id="paySave" type="button">Save payment details</button></div></div>
-      <div class="card"><h2>TNREGINET login IDs</h2><p>One or more IDs per company. The password is saved but can never be shown again, not even to the Admin; only the TP computer uses it.</p><div id="tnList"></div><div id="recBox" style="margin-top:12px"></div>
+      <div class="card"><h2>TNREGINET login IDs</h2><p>One or more IDs per company. The password is saved but can never be shown again, not even to the Admin; only the TP computer uses it.</p><div id="tnList"></div>
+        <div id="tnImp" style="margin-top:10px"><label class="btn" for="tnCsv">⬆ Import from Chrome passwords (CSV)</label><input type="file" id="tnCsv" accept=".csv,text/csv" hidden>
+        <span class="sf-note"> Google Password Manager → Settings → Export passwords. Only TNREGINET logins whose company is recognised are imported. Delete the CSV after importing.</span><div id="tnImpBox"></div></div>
+        <div id="recBox" style="margin-top:12px"></div>
         <form class="fgrid" id="tnAdd" style="margin-top:10px"><label title="Deed of Receipt IDs belong to one company. MODT IDs are individual IDs used for any company.">Company (or MODT · all companies)<select id="tn_client"></select></label><label>Login ID<input id="tn_user" autocomplete="off"></label><label>Password<input id="tn_pass" type="password" autocomplete="new-password"></label><div style="display:flex;align-items:flex-end"><button class="btn primary">Add ID</button></div></form></div>
     </div>
     <div class="grid2" style="margin-top:16px">
@@ -1524,7 +1527,33 @@ function recWatch(id,boxId="recJob"){if(REC.unsub)REC.unsub();REC.unsub=db.doc("
     ${live?`<button class="btn danger" type="button" id="recStop" style="margin-top:6px">${j.status==="recording"?"Stop recording &amp; save":"Cancel"}</button>`:""}`;
   if($("recCapGo"))$("recCapGo").onclick=async()=>{const t=$("recCap").value.trim();if(!t)return;$("recCapGo").disabled=true;await db.doc("tp_jobs/"+id).update({captcha:t,status:"captcha_sent"})};
   if($("recStop"))$("recStop").onclick=()=>db.doc("tp_jobs/"+id).update({status:j.status==="recording"?"stop_rec":"cancel",at:nowISO()})},()=>{})}
-async function tnRender(ro){const box=$("tnList");if(!box)return;$("tnAdd").hidden=ro||!isMD;
+/* ---- bulk import of TNREGINET logins from a Chrome / Google Password Manager CSV (read only in this browser) ---- */
+function parseCsv(t){const rows=[];let r=[],f="",q=false;for(let i=0;i<t.length;i++){const ch=t[i];
+  if(q){if(ch==='"'){if(t[i+1]==='"'){f+='"';i++}else q=false}else f+=ch}
+  else if(ch==='"')q=true;else if(ch===","){r.push(f);f=""}else if(ch==="\n"||ch==="\r"){if(ch==="\r"&&t[i+1]==="\n")i++;r.push(f);rows.push(r);r=[];f=""}else f+=ch}
+  if(f||r.length){r.push(f);rows.push(r)}return rows}
+function bankFromUser(u){const t=String(u||"").toLowerCase().replace(/[^a-z]/g,"");if(t.length<3)return"";let best="",sc=0;
+  cfg.banks.forEach(b=>{const w=b.toLowerCase().replace(/&/g," and ").replace(/[^a-z ]/g," ").split(/\s+/).filter(x=>x&&!/^(limited|ltd|private|pvt|company|co|the|and|of)$/.test(x));
+    const acr=w.map(x=>x[0]).join(""),first=w[0]||"",two=(w[0]||"")+(w[1]||"");let s2=0;
+    if(two.length>=6&&t.includes(two))s2=4;else if(first.length>=4&&(t.startsWith(first)||t.includes(first)))s2=3;else if(first.length>=4&&first.startsWith(t)&&t.length>=4)s2=2;else if(acr.length>=3&&(t.startsWith(acr)||t.includes(acr)))s2=2;else if(first.length===3&&t.startsWith(first))s2=2;
+    if(s2)w.slice(1).forEach(x=>{if(x.length>=5&&t.includes(x))s2+=1});
+    if(s2>sc){sc=s2;best=b}});return best}
+async function tnImport(file){const box=$("tnImpBox");const rows=parseCsv(await file.text());if(!rows.length){box.innerHTML=`<p class="banner">Empty file</p>`;return}
+  const h=rows[0].map(x=>x.trim().toLowerCase()),iu=h.indexOf("url"),iu2=h.indexOf("username"),ip=h.indexOf("password");
+  if(iu<0||iu2<0||ip<0){box.innerHTML=`<p class="banner">This is not a Chrome passwords file (needs url, username, password columns).</p>`;return}
+  let have=[];try{have=(await tnLogins()).map(x=>x.username.toLowerCase())}catch(e){}
+  const L=rows.slice(1).filter(r=>/tnreginet/i.test(r[iu]||"")&&(r[iu2]||"").trim()&&(r[ip]||"")).map(r=>({u:r[iu2].trim(),p:r[ip],b:bankFromUser(r[iu2])}));
+  const seen=new Set(),uniq=L.filter(x=>{const k=x.u.toLowerCase();if(seen.has(k)||have.includes(k))return false;seen.add(k);return true});
+  const found=uniq.filter(x=>x.b),skipped=uniq.length-found.length;
+  box.innerHTML=`<p class="sf-note">${L.length} TNREGINET logins in the file · ${L.length-uniq.length} already saved or repeated · <b>${found.length} with a company</b> · ${skipped} not recognised (not imported, they stay in your file). Check the company for each, change or set "— skip —", then press Import.</p>
+    <div style="overflow-x:auto;max-height:340px"><table class="mini"><tr><th>Login ID</th><th>Company</th></tr>${found.map((x,i)=>`<tr><td>${esc(x.u)}</td><td><select data-ti="${i}"><option value="">— skip —</option>${cfg.banks.map(b=>`<option${b===x.b?" selected":""}>${esc(b)}</option>`).join("")}</select></td></tr>`).join("")}</table></div>
+    <div style="display:flex;gap:8px;margin-top:8px"><button class="btn primary" type="button" id="tnImpGo"${found.length?"":" disabled"}>Import ${found.length} login(s)</button><button class="btn" type="button" id="tnImpX">Cancel</button></div>`;
+  $("tnImpX").onclick=()=>{box.innerHTML="";$("tnCsv").value=""};
+  $("tnImpGo").onclick=async()=>{const pick=found.map((x,i)=>({...x,b:box.querySelector(`[data-ti="${i}"]`).value})).filter(x=>x.b);$("tnImpGo").disabled=true;
+    const{error}=await window.__sb.from("tn_logins").insert(pick.map(x=>({client:x.b,username:x.u,password:x.p})));pick.forEach(x=>x.p="");
+    if(error){toast("Import failed: "+error.message);$("tnImpGo").disabled=false;return}
+    box.innerHTML=`<p class="sf-note">✓ ${pick.length} login ID(s) imported. Now delete the "Chrome Passwords.csv" file from Downloads (and the Bin).</p>`;$("tnCsv").value="";tnRender(false)}}
+async function tnRender(ro){const box=$("tnList");if(!box)return;$("tnImp").hidden=ro||!isMD;$("tnCsv").onchange=e=>{const f=e.target.files[0];if(f)tnImport(f)};$("tnAdd").hidden=ro||!isMD;
   $("tn_client").innerHTML=`<option>${esc(MODT_POOL)}</option>`+cfg.banks.map(b=>`<option>${esc(b)}</option>`).join("");
   if(!isMD){box.innerHTML=`<p class="sf-note">Only the Admin can see these.</p>`;return}
   let l=[];try{l=await tnLogins()}catch(e){box.innerHTML=`<p class="banner">Login IDs could not load: ${esc(e.message)}</p>`;return}
