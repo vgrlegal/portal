@@ -1043,7 +1043,7 @@ const DOMAIN_SEED={"janabank.com":"Jana Small Finance Bank Limited","muthootgrou
 const FREE_MAIL=/^(gmail\.com|yahoo\.|outlook\.|hotmail\.|rediffmail\.|opinionandownership\.in|vgrlegal\.in)/i;
 function domOf(addr){const m=String(addr||"").match(/@([\w.-]+)/);return m?m[1].toLowerCase():""}
 function bankOfDomain(d){if(!d||FREE_MAIL.test(d))return"";const map={...DOMAIN_SEED,...(cfg.domains||{})};for(const k of Object.keys(map))if(d===k||d.endsWith("."+k))return cfg.banks.includes(map[k])||!DOMAIN_SEED[k]?map[k]:(cfg.banks.find(b=>b===map[k])||map[k]);return""}
-async function bankReads(){if(!(isMD||isAdmin||isPartner())||!canWrite)return;
+async function bankReads(){if(!(isMD||isAdmin||isPartner())||!canWrite||!CFG_OK)return;
   if(isMD||isAdmin){const learn={};cases.filter(x=>x.source==="mail"&&x.bank).forEach(x=>{const d=domOf(x.mailOrigFrom||x.mailFrom);if(d&&!FREE_MAIL.test(d)&&!(cfg.domains||{})[d]&&!DOMAIN_SEED[d])learn[d]=x.bank});
     if(Object.keys(learn).length)await saveCfg({...cfg,domains:{...(cfg.domains||{}),...learn}})}
   for(const c of cases.filter(x=>x.source==="mail"&&!x.bank&&!x.mailBankDone&&!BR.has("b"+x._doc))){BR.add("b"+c._doc);
@@ -1799,7 +1799,8 @@ $("clientSave").onclick=()=>{const L=readClients();const bad=L.find(c=>!c.email|
   const staffEm=new Set(cfg.staff.map(x=>(staffObj(x).email||"").toLowerCase()));if(L.some(c=>staffEm.has(c.email))){toast("That email is already a staff login");return}
   saveCfg({...cfg,clients:L})};
 $("paySave").onclick=()=>saveCfg({...cfg,pay:{account:$("pay_account").value.trim(),upi:fv("pay_upi"),link:fv("pay_link"),service:fv("pay_service")}});
-async function saveCfg(n){if(!db){toast("Sign in to save");return}cfg=n;fillStatic();render();
+let CFG_OK=false;
+async function saveCfg(n){if(!db){toast("Sign in to save");return}if(!CFG_OK){toast("Settings are still loading. Try again in a moment.");return}cfg=n;fillStatic();render();
   try{await db.doc("config/lists").set({banks:n.banks,staff:n.staff.map(staffObj),types:n.types,pay:n.pay||{},profiles:n.profiles||{},wit:n.wit||[],clients:n.clients||[],rules:n.rules||[],domains:n.domains||{}});toast("Saved")}catch(err){fail(err)}}
 function fillStatic(){
   opts($("fClient"),cfg.banks,"All Clients");
@@ -2507,7 +2508,7 @@ setInterval(()=>{if(!$("v-list").hidden||!$("v-dash").hidden)render()},60000);
     if(isMD){$("mdBadge").hidden=false;if(!me||me===MD_OLD){me=MD_NAME;lsSet("vgr.me",me)}}}
   const timer=setTimeout(()=>{if(!cases.length)$("empty").innerHTML="<h2>Can't reach the case list yet</h2>Check your internet connection. It will load on its own once connected."},10000);
   db.doc("config/lists").onSnapshot(s=>{const d=s.exists?s.data():{};
-    cfg={banks:d.banks||[],staff:(d.staff||[]).map(staffObj),types:(d.types&&d.types.length)?d.types:DEFAULT_TYPES.slice(),pay:d.pay||{},profiles:d.profiles||{},wit:d.wit||[],clients:d.clients||[],rules:d.rules||[],domains:d.domains||{}};
+    CFG_OK=true;cfg={banks:d.banks||[],staff:(d.staff||[]).map(staffObj),types:(d.types&&d.types.length)?d.types:DEFAULT_TYPES.slice(),pay:d.pay||{},profiles:d.profiles||{},wit:d.wit||[],clients:d.clients||[],rules:d.rules||[],domains:d.domains||{}};
     myStaff=!isMD&&SELF_EMAIL?cfg.staff.find(x=>x.email&&x.email.toLowerCase()===SELF_EMAIL)||null:null;if(myStaff)me=myStaff.name;
     applyBrand();if(!["dash","__all","__set","__sro","__ppl","__team","__rep"].includes(tab)&&!cfg.types.includes(tab))tab="dash";fillStatic();render()},()=>{});
   db.doc("tp_jobs/_worker").onSnapshot(s=>{W.at=s.exists?(s.data()||{}).at:null;if(!$("tpbar").hidden)renderHelperChip()},()=>{});
