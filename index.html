@@ -2334,7 +2334,7 @@ function sharpen(c){const g=c.getContext("2d"),im=g.getImageData(0,0,c.width,c.h
   const k=255/Math.max(1,hi-lo-20);for(let i=0;i<d.length;i+=4){let y=(d[i]-lo)*k;y=y>200?255:y<60?0:y;d[i]=d[i+1]=d[i+2]=y}g.putImageData(im,0,0);return c}
 function jpegOf(c,max=1800){const k=Math.min(1,max/Math.max(c.width,c.height)),d=document.createElement("canvas");d.width=Math.round(c.width*k);d.height=Math.round(c.height*k);d.getContext("2d").drawImage(c,0,0,d.width,d.height);return d.toDataURL("image/jpeg",0.88)}
 async function claudeRead(canvases){if(!window.__sb)return null;
-  const{data,error}=await window.__sb.functions.invoke("read-aadhaar",{body:{images:canvases.slice(0,4).map(jpegOf)}});
+  const{data,error}=await window.__sb.functions.invoke("read-aadhaar",{body:{images:canvases.slice(0,4).map(c=>jpegOf(c))}});
   if(error||!data||!data.fields){console.warn("Claude read",error||data);return null}
   const f=data.fields,o={},rt={"S/O":"Son of","W/O":"Wife of","D/O":"Daughter of","C/O":"Care of"}[String(f.rel_type||"").toUpperCase().replace(/\s/g,"")]||"";
   const put=(k,v)=>{v=String(v||"").trim();if(v)o[k]=v};
