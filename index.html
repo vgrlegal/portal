@@ -456,7 +456,7 @@ tr.hf input,tr.hf select{font-size:12.5px;padding:5px 7px;margin:2px 0}
       <div class="card"><h2>Payment details</h2><p>Used in the WhatsApp payment message to customers.</p>
         <div class="fgrid"><label class="full">Account details<textarea id="pay_account" placeholder="Account name, number, IFSC, bank"></textarea></label><label>UPI ID<input id="pay_upi"></label><label>Default service charge (₹)<input id="pay_service" type="number" min="0"></label><label class="full">Payment link (optional)<input id="pay_link" placeholder="https://"></label></div>
         <div style="margin-top:10px"><button class="btn primary" id="paySave" type="button">Save payment details</button></div></div>
-      <div class="card"><h2>TNREGINET login IDs</h2><p>One or more IDs per company. The password is saved but can never be shown again, not even to the Admin; only the TP computer uses it.</p><div id="tnList"></div>
+      <div class="card"><h2>TNREGINET login IDs</h2><p>One or more IDs per company. The password is saved but can never be shown again, not even to the Admin; only the TP computer uses it.</p><div id="tnList"></div><div id="recBox" style="margin-top:12px"></div>
         <form class="fgrid" id="tnAdd" style="margin-top:10px"><label title="Deed of Receipt IDs belong to one company. MODT IDs are individual IDs used for any company.">Company (or MODT · all companies)<select id="tn_client"></select></label><label>Login ID<input id="tn_user" autocomplete="off"></label><label>Password<input id="tn_pass" type="password" autocomplete="new-password"></label><div style="display:flex;align-items:flex-end"><button class="btn primary">Add ID</button></div></form></div>
     </div>
     <div class="grid2" style="margin-top:16px">
@@ -1418,10 +1418,27 @@ async function startTp(c,u){
 const W={at:null,unsub:null};
 const MODT_POOL="MODT · all companies";const isPool=l=>l.client===MODT_POOL;
 async function tnLogins(){const{data,error}=await window.__sb.from("tn_logins").select("id,client,username").order("client");if(error)throw error;return data||[]}
+/* ---- Recording mode: the person does one TNREGINET entry by hand on the TP computer; every page is saved for building the robot ---- */
+const REC={unsub:null};
+async function recRender(l){const box=$("recBox");if(!box)return;if(!isMD){box.innerHTML="";return}
+  const pool=l.filter(isPool),L=pool.length?pool:l;
+  box.innerHTML=`<div class="sect">🎥 Record an entry on the TP computer</div><p class="sf-note">For teaching the robot a new document type (MODT now). The TP computer opens a visible browser and signs in (you type the captcha here). Then you do the whole entry by hand on that computer and stop before payment. Every page, field and click is saved. The robot does not click anything after signing in.</p>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:flex-end"><label>Login ID<select id="recLogin">${L.map(x=>`<option value="${esc(x.id)}">${esc(x.username)} · ${esc(x.client)}</option>`).join("")}</select></label><button class="btn primary" type="button" id="recStart"${L.length?"":" disabled"}>Start recording</button></div><div id="recJob" style="margin-top:8px"></div>`;
+  const last=(lsGet("vgr.rec")||"");if(last)recWatch(last);
+  $("recStart").onclick=async()=>{const sel=$("recLogin"),id=crypto.randomUUID();
+    await db.doc("tp_jobs/"+id).set({kind:"record",what:"MODT",login:sel.value,loginUser:sel.options[sel.selectedIndex].text.split(" · ")[0],status:"queued",by:who(),at:nowISO(),log:[]});lsSet("vgr.rec",id);recWatch(id)}}
+function recWatch(id){if(REC.unsub)REC.unsub();REC.unsub=db.doc("tp_jobs/"+id).onSnapshot(s=>{const j=s.exists?s.data():null,b=$("recJob");if(!b||!j)return;
+  const live=!["done","error","cancelled"].includes(j.status);
+  b.innerHTML=`<div class="kv"><span>Status</span><b>${esc(j.status)}${j.recPages?` · ${j.recPages} page(s) saved`:""}</b></div>${j.step?`<p class="sf-note">${esc(j.step)}</p>`:""}${j.message?`<p class="banner">${esc(j.message)}</p>`:""}
+    ${j.status==="captcha"&&j.captchaImg?`<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap"><img src="${esc(j.captchaImg)}" alt="captcha" style="height:44px;border:1px solid var(--line);border-radius:6px"><input id="recCap" placeholder="Type the captcha" style="width:160px"><button class="btn primary" type="button" id="recCapGo">Send</button></div>`:""}
+    ${live?`<button class="btn danger" type="button" id="recStop" style="margin-top:6px">${j.status==="recording"?"Stop recording &amp; save":"Cancel"}</button>`:""}`;
+  if($("recCapGo"))$("recCapGo").onclick=async()=>{const t=$("recCap").value.trim();if(!t)return;$("recCapGo").disabled=true;await db.doc("tp_jobs/"+id).update({captcha:t,status:"captcha_sent"})};
+  if($("recStop"))$("recStop").onclick=()=>db.doc("tp_jobs/"+id).update({status:j.status==="recording"?"stop_rec":"cancel",at:nowISO()})},()=>{})}
 async function tnRender(ro){const box=$("tnList");if(!box)return;$("tnAdd").hidden=ro||!isMD;
   $("tn_client").innerHTML=`<option>${esc(MODT_POOL)}</option>`+cfg.banks.map(b=>`<option>${esc(b)}</option>`).join("");
   if(!isMD){box.innerHTML=`<p class="sf-note">Only the Admin can see these.</p>`;return}
   let l=[];try{l=await tnLogins()}catch(e){box.innerHTML=`<p class="banner">Login IDs could not load: ${esc(e.message)}</p>`;return}
+  recRender(l);
   box.innerHTML=l.length?l.map(x=>`<div class="mrow"><b>${esc(x.username)}</b><span>${ro?"":`<button class="btn danger" type="button" data-tnx="${x.id}">Remove</button>`}</span><div class="mf">${esc(x.client)} · password saved</div></div>`).join(""):`<p class="sf-note">No login IDs yet.</p>`;
   box.querySelectorAll("[data-tnx]").forEach(b=>b.onclick=()=>ask("Remove this login ID?",`<p class="sf-note">The TP computer will stop using it.</p>`,async()=>{const{error}=await window.__sb.from("tn_logins").delete().eq("id",b.dataset.tnx);if(error)toast(error.message);else{toast("Removed");tnRender(ro)}},"Remove"));
   $("tnAdd").onsubmit=async e=>{e.preventDefault();const client=fv("tn_client"),username=fv("tn_user"),password=$("tn_pass").value;if(!client||!username||!password){toast("Fill company, login ID and password");return}

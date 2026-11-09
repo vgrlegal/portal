@@ -1631,6 +1631,113 @@ def next_in_chain(batch, login):
     return rows[0] if rows else None
 
 
+REC_JS = r"""() => {
+  const vis = e => !!(e && (e.offsetParent || e.getClientRects().length));
+  const lab = e => { let t = '';
+    if (e.id) { const l = document.querySelector('label[for="' + CSS.escape(e.id) + '"]'); if (l) t = l.innerText; }
+    if (!t) { const l = e.closest('label'); if (l) t = l.innerText; }
+    if (!t) { const td = e.closest('td'); if (td && td.previousElementSibling) t = td.previousElementSibling.innerText; }
+    if (!t) { const g = e.closest('.form-group,.col-md-3,.col-md-4,.col-md-6,.col-sm-6,div'); if (g) { const l = g.querySelector('label,span.control-label,.lbl'); if (l) t = l.innerText; } }
+    return (t || e.placeholder || e.title || '').replace(/\s+/g, ' ').trim().slice(0, 80); };
+  const F = [...document.querySelectorAll('input,select,textarea')].filter(e => vis(e) && e.type !== 'hidden').slice(0, 250).map(e => ({
+    tag: e.tagName.toLowerCase(), id: e.id || '', name: e.name || '', type: e.type || '', label: lab(e),
+    value: e.type === 'password' ? '' : (e.tagName === 'SELECT' ? (e.options[e.selectedIndex] || {}).text || '' : String(e.value || '')).slice(0, 80),
+    checked: (e.type === 'checkbox' || e.type === 'radio') ? e.checked : undefined,
+    options: e.tagName === 'SELECT' ? [...e.options].slice(0, 40).map(o => o.text.trim().slice(0, 60)) : undefined }));
+  const B = [...document.querySelectorAll('button,a.btn,input[type=button],input[type=submit],[role=tab],.nav-tabs a')].filter(vis).slice(0, 120)
+    .map(e => ({ id: e.id || '', text: (e.value || e.innerText || '').replace(/\s+/g, ' ').trim().slice(0, 50), onclick: (e.getAttribute('onclick') || '').slice(0, 80) }));
+  const H = [...document.querySelectorAll('h1,h2,h3,h4,h5,legend,.panel-title,.card-header,.nav-tabs .active,.nav-tabs li.active a')].filter(vis).map(e => e.innerText.replace(/\s+/g, ' ').trim().slice(0, 80)).slice(0, 30);
+  const T = [...document.querySelectorAll('table')].filter(vis).slice(0, 8).map(t => ({ id: t.id || '', rows: [...t.rows].slice(0, 6).map(r => [...r.cells].map(c => c.innerText.replace(/\s+/g, ' ').trim().slice(0, 40))) }));
+  const ev = window.__rec || []; window.__rec = [];
+  return { url: location.href, title: document.title, heads: H, fields: F, buttons: B, tables: T, events: ev,
+           sig: H.join('|') + '#' + F.map(f => f.id || f.name).join(',') + '#' + B.length };
+}"""
+REC_INIT = r"""(() => { window.__rec = window.__rec || [];
+  const d = e => { const t = e.target.closest('button,a,input,select,textarea,li,td,span,label') || e.target; return {
+    id: t.id || (t.closest('[id]') || {}).id || '', tag: t.tagName, text: (t.value && t.type !== 'password' ? t.value : t.innerText || '').replace(/\s+/g, ' ').trim().slice(0, 60) }; };
+  document.addEventListener('click', e => window.__rec.push({ at: Date.now(), ev: 'click', ...d(e) }), true);
+  document.addEventListener('change', e => { const x = d(e); if (e.target.type === 'password') x.text = ''; window.__rec.push({ at: Date.now(), ev: 'change', ...x }); }, true);
+})()"""
+
+
+def run_record(jid, data):
+    """Recording mode: a VISIBLE browser on the TP computer. The robot signs in (captcha in the portal), then the
+    person does one TNREGINET entry by hand. Every page, field, button and click is saved for building the robot.
+    Nothing is clicked by the robot after sign-in; it never submits or pays."""
+    key = ("record", data.get("login", ""))
+    job = Job(jid, data)
+    steps, n = [], 0
+    try:
+        with sync_playwright() as pw:
+            acc = login_of(data.get("login", ""))
+            if not acc:
+                raise Stop("Login ID not found. Add it in Clients & Staff → TNREGINET login IDs.")
+            job.upd(status="starting", pickedAt=now(), message="", step="Opening a visible browser on the TP computer")
+            browser = pw.chromium.launch(headless=False, args=["--start-maximized"])
+            ctx = browser.new_context(viewport=None, locale="en-IN", timezone_id="Asia/Kolkata")
+            ctx.add_init_script(REC_INIT)
+            page = ctx.new_page()
+            dialogs = []
+            page.on("dialog", lambda dl: dialogs.append(dl.message[:200]))  # left open for the person to answer
+            do_login(page, job, acc)
+            job.upd(status="recording", step="Signed in. On the TP computer, do the whole entry by hand in the open browser. Stop before payment. Press Stop recording in the portal when done.", at=now())
+            last_sig, t0, last_save = "", time.time(), 0
+            while time.time() - t0 < 3600:
+                d = job.fresh()
+                if d.get("status") in ("cancel", "stop_rec"):
+                    break
+                if browser.is_connected() is False or page.is_closed():
+                    pg = [x for x in ctx.pages if not x.is_closed()]
+                    if not pg:
+                        break
+                    page = pg[-1]
+                if len(ctx.pages) > 1 and ctx.pages[-1] != page and not ctx.pages[-1].is_closed():
+                    page = ctx.pages[-1]
+                try:
+                    snap = page.evaluate(REC_JS)
+                except Exception:
+                    time.sleep(1.5)
+                    continue
+                if dialogs:
+                    snap["dialogs"] = dialogs[:]
+                    dialogs.clear()
+                if snap["sig"] != last_sig:
+                    last_sig = snap["sig"]
+                    n += 1
+                    try:
+                        shot = page.screenshot(type="jpeg", quality=55, full_page=True)
+                        HTTP.post(f"{SB}/storage/v1/object/docs/rec/{jid}/{n:03d}.jpg", headers={**AUTH, "Content-Type": "image/jpeg", "x-upsert": "true"}, data=shot, timeout=60)
+                        snap["shot"] = f"rec/{jid}/{n:03d}.jpg"
+                    except Exception as e:
+                        snap["shotErr"] = str(e)[:100]
+                    snap["n"], snap["at"] = n, now()
+                    steps.append(snap)
+                elif snap.get("events") or snap.get("dialogs"):
+                    steps.append({"n": n, "at": now(), "events": snap.get("events", []), "dialogs": snap.get("dialogs", []), "fields": snap["fields"]})
+                if steps and time.time() - last_save > 6:
+                    HTTP.post(f"{SB}/storage/v1/object/docs/rec/{jid}/steps.json", headers={**AUTH, "Content-Type": "application/json", "x-upsert": "true"},
+                              data=json.dumps(steps, ensure_ascii=False).encode(), timeout=60)
+                    last_save = time.time()
+                    job.upd(recPages=n, recFile=f"rec/{jid}/steps.json", at=now(), step=f"Recording · {n} page(s) saved · {snap.get('heads', [''])[0] if snap.get('heads') else ''}"[:200])
+                time.sleep(1.5)
+            if steps:
+                HTTP.post(f"{SB}/storage/v1/object/docs/rec/{jid}/steps.json", headers={**AUTH, "Content-Type": "application/json", "x-upsert": "true"},
+                          data=json.dumps(steps, ensure_ascii=False).encode(), timeout=60)
+            job.upd(status="done", recPages=n, recFile=f"rec/{jid}/steps.json", step=f"Recording saved: {n} page(s)", at=now())
+            try:
+                browser.close()
+            except Exception:
+                pass
+    except Stop as e:
+        job.upd(status="cancelled" if "portal" in str(e) else "error", message=str(e), at=now())
+    except Exception as e:
+        traceback.print_exc()
+        job.upd(status="error", message=f"Recording problem: {e}"[:300], at=now())
+    finally:
+        with ACTIVE_LOCK:
+            ACTIVE.discard(key)
+
+
 def run_chain(batch, login, first_id, first_data):
     """Bulk Run: one browser, one login (one captcha) for a whole list of cases, one after another.
     A failed case is recorded and the next one starts; nothing waits for a person except the captcha."""
@@ -1774,6 +1881,15 @@ def main():
                     if row["id"].startswith("_") or (row["data"] or {}).get("status") != "queued":
                         continue
                     jid, data = row["id"], row["data"]
+                    if data.get("kind") == "record":
+                        key = ("record", data.get("login", ""))
+                        with ACTIVE_LOCK:
+                            if key in ACTIVE:
+                                continue
+                            ACTIVE.add(key)
+                        kv_merge("tp_jobs", jid, {"status": "starting", "pickedAt": now()})
+                        threading.Thread(target=run_record, args=(jid, data), daemon=True).start()
+                        continue
                     if data.get("batch"):
                         key = (data["batch"], data.get("login", ""))
                         with ACTIVE_LOCK:
