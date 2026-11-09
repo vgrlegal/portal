@@ -410,8 +410,32 @@ def sal_re(s):
 
 
 def rel_re(s):
-    s = s.lower()
-    return "^Wife of" if s.startswith("w") else "^Daughter of" if s.startswith("d") else "^Care of" if s.startswith("c") else "^Son of"
+    s = s.lower().strip()
+    return ("^Wife of" if s.startswith("w") else "^Daughter of" if s.startswith("d") else "^Care of|^C/O" if s.startswith("c")
+            else "^Husband of" if s.startswith("h") else "^Father of" if s.startswith("f") else "^Son of")
+
+
+FORM_ERR_JS = """()=>[...document.querySelectorAll('span,div,label,small,p')].filter(e=>{if(!e.offsetParent||e.children.length||!/^\\s*(please (select|enter|choose)|invalid|is required)/i.test(e.textContent||''))return false;const c=getComputedStyle(e).color.match(/\\d+/g)||[0,0,0];return /error|invalid|danger|validat/i.test(e.className+' '+(e.parentElement||{}).className)||(+c[0]>150&&+c[1]<110&&+c[2]<110)}).map(e=>e.textContent.trim()).filter((x,i,a)=>a.indexOf(x)===i).slice(0,6)"""
+
+
+def form_errors(P):
+    """Red messages TNREGINET shows under fields it will not accept (e.g. 'Please select District')."""
+    try:
+        return P.p.evaluate(FORM_ERR_JS) or []
+    except Exception:
+        return []
+
+
+def fill_missing_district(P, *names):
+    """A party saved from the linked MODT can come without a district; TNREGINET then refuses Update. Pick it from our data."""
+    empty = "()=>{const e=document.getElementById('cmb_District');return !!(e&&e.offsetParent&&!e.value)}"
+    if not P.p.evaluate(empty):
+        return
+    for n in names:
+        if n:
+            P.fuzzy("cmb_District", n, 2.5)
+            if not P.p.evaluate(empty):
+                return
 
 
 def person(P, t, pre, designation=True):
@@ -484,7 +508,8 @@ def open_subtab(P, name, marker):
             P.wait(1)
             return True
     P.job.step(f"{name} tab did not open", P.p)
-    raise Stop(f"The {name} tab did not open on TNREGINET. Send the screen to Claude.")
+    errs = form_errors(P)
+    raise Stop(f"The {name} tab did not open on TNREGINET" + (f": the page before it is not complete ({'; '.join(errs)})." if errs else ". Send the screen to Claude."))
 
 
 def click_text(page, pattern):
@@ -665,8 +690,13 @@ def mortgagee_edit(P, job, page, t):
         if g(t, "Company mobile"):
             P.set(f, g(t, "Company mobile"))
     english_pass(P, job, "Mortgagee")
+    fill_missing_district(P, g(t, "Company district"))
     b = click_btn_text(P, r"^update$")
     P.wait(3); msg = P.popup_ok()
+    errs = form_errors(P)
+    if errs:
+        job.step("Mortgagee not accepted", page)
+        raise Stop(f"Mortgagee (company): TNREGINET wants: {'; '.join(errs)}. Fill it in Drafting (Company state / district) and start again.")
     if not b:
         P.warn.append("Mortgagee: no Update button")
     elif msg and not re.search(r"success|updated|added", msg, re.I):
@@ -713,9 +743,14 @@ def mortgagor(P, job, page, t):
                 job.step(f"3 · Mortgagor {i + 1} of {len(rows)}: {row[:60]}", page)
                 english_pass(P, job, f"Mortgagor {i + 1}")
                 current_age(P, t)
+                fill_missing_district(P, g(t, "Mortgagor district"), g(t, "Property district"))
                 P.js("tick('aadhaarConsentCheckBox')")
                 b = click_btn_text(P, r"^update$")
                 P.wait(3); msg = P.popup_ok()
+                errs = form_errors(P)
+                if errs:
+                    job.step(f"Mortgagor {i + 1} not accepted", page)
+                    raise Stop(f"Mortgagor {i + 1}: TNREGINET wants: {'; '.join(errs)}. Fill it in Drafting (e.g. Mortgagor district) and start again.")
                 if not b:
                     P.warn.append(f"Mortgagor {i + 1}: no Update button")
                 elif msg and not re.search(r"success|updated|added|also going to execute", msg, re.I):
@@ -756,7 +791,8 @@ def rep_witness_presenter(P, job, page, t):
     P.wait(1.5); msg += " " + P.popup_ok()
     if not wait_for(P, "()=>{const t=document.getElementById('tableForRepresentativeDtls');return !!(t&&t.rows.length>1)}", 10):
         job.step("Representative not added", page)
-        raise Stop(f"Representative was not added. TNREGINET said '{msg.strip()[:200]}'")
+        errs = form_errors(P)
+        raise Stop("Representative was not added. " + (f"TNREGINET wants: {'; '.join(errs)}." if errs else f"TNREGINET said '{msg.strip()[:200]}'"))
     job.step("4 · Representative added", page)
     open_subtab(P, "Witness Details", "chkWitnessType0")
     for n in (1, 2):
@@ -767,6 +803,10 @@ def rep_witness_presenter(P, job, page, t):
         person(P, t, f"Witness {n}", designation=False)
         address(P, "Tamil Nadu", g(t, f"Witness {n} district"), addr=g(t, f"Witness {n} address"), pin=g(t, f"Witness {n} pincode"))
         msg = P.click("addExecutantDetailsInGrid", 3)
+        errs = form_errors(P)
+        if errs:
+            job.step(f"Witness {n} not accepted", page)
+            raise Stop(f"Witness {n}: TNREGINET wants: {'; '.join(errs)}. Check the witness in Clients & Staff and start again.")
         if msg and not re.search(r"success|added", msg, re.I):
             raise Stop(f"Witness {n}: TNREGINET said '{msg[:160]}'")
     open_subtab(P, "Presenter Details", "cmb_presenter")
@@ -859,7 +899,7 @@ def property_step(P, job, page, t):
     nums = lambda x: re.findall(r"\d+(?:\.\d+)?", str(x))
     page_nums = set(nums(all_txt))
     low = all_txt.lower()
-    for key in ("Survey No", "Old survey no", "New survey no", "Extent"):
+    for key in ("Survey number", "Survey No", "Old survey no", "New survey no", "Extent"):
         v = g(t, key)
         miss = [n for n in nums(v) if n not in page_nums]
         if v and miss:
