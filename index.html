@@ -2404,7 +2404,7 @@ async function readAadhaar(files,say){const{canvases}=await canvasesOf(files,say
   if(c.name)c.name=c.name.toUpperCase();if(c.rel_name)c.rel_name=c.rel_name.toUpperCase();c._how="claude";return c}
 /* English → Tamil (same as TNREGINET's F8 typing), via Google Input Tools */
 async function toTamil(text){text=String(text||"").trim();if(!text)return"";const segs=text.split(/(\s*[,\/\-]\s*|\s+)/);const out=[];
-  for(const sg of segs){if(!/[A-Za-z]/.test(sg)){out.push(sg);continue}
+  for(const sg of segs){if(!/[A-Za-z]/.test(sg)||/\d/.test(sg)){out.push(sg);continue}
     try{const r=await fetch("https://inputtools.google.com/request?itc=ta-t-i0-und&num=1&cp=0&cs=1&ie=utf-8&oe=utf-8&text="+encodeURIComponent(sg.toLowerCase()));const j=await r.json();out.push(j[0]==="SUCCESS"&&j[1][0]&&j[1][0][1][0]||sg)}catch(e){out.push(sg)}}
   return out.join("")}
 const TA_PAIRS=[["name_ta","name"],["rel_ta","rel_name"],["addr_ta","addr"],["addr_ta","addr_en"]];
