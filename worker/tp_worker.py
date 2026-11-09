@@ -1704,11 +1704,22 @@ def run_modt(page, job, case):
     pn = re.sub(r"\D", "", g(d, "Presenter")) or "1"
     P.fuzzy("cmb_presenter", g(d, f"Mortgagor {pn} name") or g(d, "Mortgagor 1 name"), 1)
     P.click("btnMainSaveAsDraft", 4)
-    note = ("Parties are filled on TNREGINET and saved as a draft: title deed linked, title holder(s), company, witnesses, presenter. "
-            "Continue from Property details by hand in My Documents (the robot learns property, loan, legal conditions and uploads next).")
+    job.step("Parties done - draft saved", page)
+    # 7. Property: the same flow as Deed of Receipt (property comes from the linked title deed; verify + English fields)
+    sn = g(d, "New survey no") + ("/" + g(d, "Subdivision") if g(d, "Subdivision") else "")
+    tp = {"Survey No": sn, "Old survey no": g(d, "Old survey numbers"), "Extent": g(d, "Extent"),
+          "Property SRO": g(d, "Property SRO"), "Village": g(d, "Village")}
+    prop_note = ""
+    try:
+        comments, seen, _ = property_step(P, job, page, tp)
+        prop_note = f" Property checked ({', '.join(seen)})." + (" CHECK: " + " · ".join(comments) + "." if comments else "")
+    except Stop as e:
+        prop_note = f" Property NOT done: {e} Add the property by hand (Add property → copy from the linked document)."
+        job.step("Property not done", page)
+    note = ("MODT draft saved on TNREGINET: title deed linked, title holder(s), company, witnesses, presenter." + prop_note +
+            " Continue by hand from Loan details in My Documents (loan, legal conditions, Create Document and uploads are next for the robot).")
     if P.warn:
         note += " Warnings: " + "; ".join(P.warn[:8])
-    job.step("Parties done - draft saved", page)
     job.upd(status="done", message=note)
 
 
