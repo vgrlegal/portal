@@ -103,8 +103,13 @@ async function mailIn(body: Record<string, unknown>) {
   const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
   const mailId = String(body.mailId ?? "").slice(0, 200);
   if (!mailId) return json({ error: "mailId needed" }, 400);
-  const { data: dup } = await admin.from("kv").select("id").eq("collection", "cases").eq("data->>mailId", mailId).limit(1);
+  const { data: dup } = await admin.from("kv").select("id").eq("collection", "cases").filter("data->mailIds", "cs", JSON.stringify([mailId])).limit(1);
   if (dup && dup.length) return json({ ok: true, duplicate: true, doc: dup[0].id });
+  const { data: dup1 } = await admin.from("kv").select("id").eq("collection", "cases").eq("data->>mailId", mailId).limit(1);
+  if (dup1 && dup1.length) return json({ ok: true, duplicate: true, doc: dup1[0].id });
+  const threadId = String(body.threadId ?? "").slice(0, 200);
+  const subjKey = String(body.subject ?? "").toLowerCase().replace(/^\s*((re|fw|fwd)\s*:\s*|\[external\]-?\s*)+/g, "").replace(/\s+/g, " ").trim().slice(0, 120);
+  const labels = (Array.isArray(body.labels) ? body.labels : []).map((x: unknown) => String(x).slice(0, 60)).filter((x: string) => !/^vgr-portal$/i.test(x)).slice(0, 10);
   const files = Array.isArray(body.files) ? body.files.slice(0, 15) : [];
   const t = new Date().toISOString().replace(/\.\d+Z$/, "Z");
   const day = t.slice(0, 10).replace(/-/g, "");
@@ -121,6 +126,28 @@ async function mailIn(body: Record<string, unknown>) {
     (docs[k] = docs[k] ?? []).push({ at: t, id: path, url: "sb:" + path, name, from: "mail" });
     n++;
   }
+  // the same mail conversation (thread) is ONE case: a reply adds its files and text to the existing case
+  let same: { id: string; data: Record<string, unknown> } | null = null;
+  if (threadId) { const { data: r } = await admin.from("kv").select("id,data").eq("collection", "cases").eq("data->>mailThread", threadId).limit(1); if (r && r.length) same = r[0] as never; }
+  if (!same && subjKey.length > 8) { const { data: r } = await admin.from("kv").select("id,data").eq("collection", "cases").eq("data->>mailSubjectKey", subjKey).eq("data->>source", "mail").limit(1); if (r && r.length) same = r[0] as never; }
+  if (same) {
+    // deno-lint-ignore no-explicit-any
+    const d = same.data as Record<string, any>; const t2 = new Date().toISOString().replace(/\.\d+Z$/, "Z");
+    const nd = { ...(d.docs ?? {}) } as Record<string, unknown[]>;
+    for (const [k, arr] of Object.entries(docs)) {
+      if (k === "modt" && (nd.modt ?? []).length) nd.letter = [...(nd.letter ?? []), ...arr];
+      else nd[k] = [...(nd[k] ?? []), ...arr];
+    }
+    const who2 = "Mail · " + String(body.from ?? "").slice(0, 200);
+    const upd = { ...d, docs: nd, mailIds: [...((d.mailIds as string[]) ?? [d.mailId]), mailId].slice(-50), mailThread: d.mailThread || threadId, updatedAt: t2, mailNew: true,
+      comments: [...((d.comments as unknown[]) ?? []), { at: t2, by: who2, text: `New mail in this conversation (${n} file(s)): ${String(body.subject ?? "")}\n${String(body.text ?? "").slice(0, 1500)}`, internal: "true", from: "mail" }].slice(-200),
+      log: [...((d.log as unknown[]) ?? []), { at: t2, by: who2, text: `Mail reply added (${n} file(s))` }].slice(-80) };
+    if (!d.needsRead && docs.modt && !(d.docs as Record<string, unknown[]>)?.modt?.length) (upd as Record<string, unknown>).needsRead = "modt";
+    const { error: ue } = await admin.from("kv").update({ data: upd, updated_at: new Date().toISOString() }).eq("collection", "cases").eq("id", same.id);
+    if (ue) return json({ error: ue.message }, 500);
+    return json({ ok: true, doc: same.id, added: n, thread: true });
+  }
+  if (!n) return json({ ok: true, skipped: "no attachments and no earlier case" });
   const { count } = await admin.from("kv").select("id", { count: "exact", head: true }).eq("collection", "cases").like("data->>id", `VGR-${day}-%`);
   const cid = `VGR-${day}-${String((count ?? 0) + 1).padStart(3, "0")}`;
   const from = String(body.from ?? "").slice(0, 200), subject = String(body.subject ?? "").slice(0, 200);
@@ -131,12 +158,26 @@ async function mailIn(body: Record<string, unknown>) {
     stageLog: [{ s: "Case Created", at: t, by: who }, { s: "Draft Pending", at: t, by: who }],
     log: [{ at: t, by: who, text: `Case created from e-mail (${n} attachment(s))` }],
     comments: [{ at: t, by: who, text: `E-mail from ${from}: ${subject}\n${String(body.text ?? "").slice(0, 1500)}`, internal: "true", from: "mail" }],
-    docs, tp: {}, source: "mail", mailId, mailFrom: from, mailSubject: subject, needsRead: docs.modt ? "modt" : null,
+    docs, tp: {}, source: "mail", mailId, mailIds: [mailId], mailThread: threadId, mailSubjectKey: subjKey, mailLabels: labels, mailFrom: from, mailSubject: subject, needsRead: docs.modt ? "modt" : null,
   };
   const doc = crypto.randomUUID();
   const { error } = await admin.from("kv").insert({ collection: "cases", id: doc, data });
   if (error) return json({ error: error.message }, 500);
   return json({ ok: true, doc, id: cid, files: n });
+}
+
+// Usage log (who ran Claude reading, how much): kv collection "usage", one row per reading, for the reports.
+// deno-lint-ignore no-explicit-any
+async function logUsage(sb: any, kind: string, images: number, usage: any) {
+  const { data: u } = await sb.auth.getUser();
+  const email = String(u?.user?.email ?? "").toLowerCase();
+  const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+  const { data: cfg } = await admin.from("kv").select("data").eq("collection", "config").eq("id", "lists").maybeSingle();
+  const st = (((cfg?.data as { staff?: unknown[] })?.staff ?? []) as Record<string, string>[]).find((x) => typeof x === "object" && String(x.email ?? "").toLowerCase() === email);
+  const inT = Number(usage?.input_tokens ?? 0), outT = Number(usage?.output_tokens ?? 0);
+  const usd = (inT * 3 + outT * 15) / 1e6; // approximate (Sonnet-class list price per million tokens)
+  await admin.from("kv").insert({ collection: "usage", id: crypto.randomUUID(), data: {
+    at: new Date().toISOString(), email, name: st?.name ?? "", org: st?.partner || st?.team || "vgr", kind, images, inTok: inT, outTok: outT, usd: Math.round(usd * 10000) / 10000 } });
 }
 
 Deno.serve(async (req) => {
@@ -187,6 +228,7 @@ Deno.serve(async (req) => {
     });
     const out = await r.json();
     if (!r.ok) return json({ error: out?.error?.message ?? "Claude error" }, 502);
+    try { await logUsage(sb, kind, Array.isArray(images) ? images.length : 0, out?.usage); } catch (_) { /* usage log never blocks reading */ }
     const text = (out.content ?? []).map((c: { text?: string }) => c.text ?? "").join("");
     const m = text.match(/\{[\s\S]*\}/);
     if (!m) return json({ error: "No JSON in reply" }, 502);

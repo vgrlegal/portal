@@ -24,7 +24,7 @@ body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset
 .wrap{padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
 header{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background:var(--surface);border-bottom:1px solid var(--line)}
 .top{display:flex;align-items:center;gap:12px;padding-block:10px;border-bottom:1px solid var(--line);flex-wrap:wrap}
-.logo.small{height:26px;opacity:.9;flex-shrink:0}.logo.ptlogo{height:52px;width:217px;max-width:none;padding:0;flex-shrink:0}
+.logo.small{height:26px;opacity:.9;flex-shrink:0}.logo.ptlogo{height:52px;width:329px;max-width:52vw;object-fit:contain;object-position:left;padding:0;flex-shrink:1}
 .logo{display:block;height:48px;width:auto;background:#fff;border-radius:6px;padding:2px 6px;box-sizing:content-box}
 .office{border:1px solid var(--line);border-radius:8px;padding:5px 12px;font-weight:500;font-size:13px;color:var(--muted)}
 .me{display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--muted)}
@@ -450,6 +450,9 @@ tr.hf input,tr.hf select{font-size:12.5px;padding:5px 7px;margin:2px 0}
       <div class="card"><h2>Witnesses</h2><div id="pp_wits"></div></div>
     </div>
   </section>
+  <section id="v-rep" hidden><div class="wrap" style="padding-top:16px"><div class="card"><h2>Reports</h2>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-bottom:10px"><label>Month<input type="month" id="repMonth"></label><label id="repOrgL">Show<select id="repOrg"><option value="all">Everything</option><option value="vgr">VGR office only</option><option value="oo">Opinion &amp; Ownership only</option></select></label><button class="btn" id="repCsv" type="button">⬇ Excel (CSV)</button></div>
+    <div style="overflow-x:auto"><table class="mini" id="repTbl"></table></div><p class="sf-note" id="repNote"></p></div></div></section>
   <section id="v-team" hidden><div class="wrap" style="padding-top:16px"><div class="card"><h2>My team</h2><p>Your team works on Deed of Receipt only. Add a person, save, then press Invite (e-mail) or Copy link (to send on WhatsApp). The link works once; only that person should open it.</p>
     <div style="overflow-x:auto"><table class="mini" id="teamTbl"></table></div>
     <div style="display:flex;gap:8px;margin-top:10px"><button class="btn" id="teamAdd" type="button">+ Add team member</button><button class="btn primary" id="teamSave" type="button">Save team</button></div></div></div></section>
@@ -724,12 +727,12 @@ const bucketLabel={lt2:"< 2 Days","2-3":"2-3 Days","3-5":"3-5 Days",gt5:"> 5 Day
 const nowISO=()=>new Date().toISOString();
 const who=()=>me||"Office";
 const money=v=>v===""||v==null?"":"₹"+Number(v).toLocaleString("en-IN");
-const ORGS={oo:{name:"Opinion & Ownership",logo:"oo-logo.svg"}};
+const ORGS={oo:{name:"Opinion & Ownership",logo:"oo-logo-wide.png"}};
 function myOrg(){return myStaff?(myStaff.partner||myStaff.team||""):""}
 function isPartner(){return !!(myStaff&&myStaff.partner)}
 function canTp(){return isMD||!!(myStaff&&myStaff.tp===true)}
 function staffObj(x){return typeof x==="string"?{name:x,email:"",phone:"",tabs:TAB_KEYS.map(t=>t[0])}:{tabs:TAB_KEYS.map(t=>t[0]),...x}}
-function allowedTab(t){if(t==="__team")return isPartner();if(isMD||isAdmin)return true;if(t==="__set"||t==="__ppl")return false;if(t==="dash"||t==="__all")return true;if(!myStaff)return false;return (myStaff.tabs||[]).includes(t)}
+function allowedTab(t){if(t==="__team")return isPartner();if(t==="__rep")return isMD||isPartner();if(isMD||isAdmin)return true;if(t==="__set"||t==="__ppl")return false;if(t==="dash"||t==="__all")return true;if(!myStaff)return false;return (myStaff.tabs||[]).includes(t)}
 
 /* ================= tabs & ranges ================= */
 function renderTabs(){
@@ -742,7 +745,8 @@ function renderTabs(){
     (false&&allowedTab("__kyc")?`<button role="tab" data-t="__kyc" aria-selected="${tab==="__kyc"}">Drafting</button>`:"")+
     (isMD||isAdmin?`<button role="tab" data-t="__ppl" aria-selected="${tab==="__ppl"}">KYC Master</button>`:"")+
     (isMD||isAdmin?`<button role="tab" data-t="__set" aria-selected="${tab==="__set"}">Clients &amp; Staff</button>`:"")+
-    (isPartner()?`<button role="tab" data-t="__team" aria-selected="${tab==="__team"}">My team</button>`:"");
+    (isPartner()?`<button role="tab" data-t="__team" aria-selected="${tab==="__team"}">My team</button>`:"")+
+    (isMD||isPartner()?`<button role="tab" data-t="__rep" aria-selected="${tab==="__rep"}">Reports</button>`:"");
 }
 $("tabs").onclick=e=>{const b=e.target.closest("button");if(!b)return;tab=b.dataset.t;page=0;lsSet("vgr.tab",tab);render()};
 $("ranges").onclick=e=>{const b=e.target.closest("button");if(!b)return;range=b.dataset.r;page=0;[...$("ranges").children].forEach(x=>x.setAttribute("aria-pressed",x===b));$("customRow").hidden=range!=="cus";render()};
@@ -844,7 +848,8 @@ function actionsFor0(c){
 function render(){
   renderTabs();
   if(!allowedTab(tab))tab="dash";
-  ["v-dash","v-list","v-set","v-sro","v-kyc","v-ppl","v-team"].forEach(id=>$(id).hidden=true);
+  ["v-dash","v-list","v-set","v-sro","v-kyc","v-ppl","v-team","v-rep"].forEach(id=>$(id).hidden=true);
+  if(tab==="__rep"){$("v-rep").hidden=false;$("ranges").style.visibility="hidden";$("customRow").hidden=true;renderReport();return}
   const tool=tab==="__set"||tab==="__sro"||tab==="__kyc"||tab==="__ppl"||tab==="__team";
   if(tab==="__team"){$("v-team").hidden=false;renderTeam();$("ranges").style.visibility="hidden";return}
   $("ranges").style.visibility=tool?"hidden":"visible";$("customRow").hidden=tool||range!=="cus";
@@ -877,7 +882,7 @@ $("tbody").onclick=e=>{const b=e.target.closest("button[data-a]");if(!b)return;c
 
 /* ================= Bulk (Admin only): tick cases → move to TP Creation, or Bulk Run TP on up to 3 logins ================= */
 const SEL=new Set();
-function bulkOk(){return isMD&&canWrite}
+function bulkOk(){return (isMD||isPartner())&&canWrite}
 function bulkCount(){const n=SEL.size;$("bulkCount").textContent=n+" selected";$("bulkMove").disabled=!n;$("bulkRun").disabled=!n}
 $("tbody").addEventListener("change",e=>{const b=e.target.closest("[data-sel]");if(!b)return;if(b.checked)SEL.add(b.dataset.sel);else SEL.delete(b.dataset.sel);bulkCount()});
 $("bulkClr").onclick=()=>{SEL.clear();render()};
@@ -1024,7 +1029,13 @@ function cOpen(c,keep){const o=$("cDrawer");o.hidden=false;o.dataset.doc=c.doc;c
 
 /* ================= bank (client) uploads: read MODT / supplementary MODT once ================= */
 const BR=new Set();
-async function bankReads(){if(!(isMD||isAdmin)||!canWrite)return;for(const c of cases.filter(x=>x.needsRead&&!BR.has(x._doc))){BR.add(c._doc);
+async function bankReads(){if(!(isMD||isAdmin||isPartner())||!canWrite)return;
+  for(const c of cases.filter(x=>x.source==="mail"&&!x.bank&&!x.mailBankDone&&!BR.has("b"+x._doc))){BR.add("b"+x._doc);
+    try{const lab=(c.mailLabels||[]).filter(l=>!/^(inbox|important|starred|unread|vgr-portal)$/i.test(l));let b=lab.length?matchBank(lab.join(" ")):"";
+      if(!b&&lab.length&&(isMD||isAdmin)){const nm=lab[0].toLowerCase().replace(/\b\w/g,x=>x.toUpperCase());if(!cfg.banks.some(x=>x.toLowerCase()===nm.toLowerCase())){await saveCfg({...cfg,banks:[...cfg.banks,nm].sort((a,b)=>a.localeCompare(b))})}b=nm}
+      const ch={mailBankDone:true};if(b){ch.bank=b;const who2=cfg.staff.map(staffObj).filter(m=>m.team&&(m.banks||[]).includes(b));if(who2.length===1&&!c.assignee)ch.assignee=who2[0].name}
+      await db.collection("cases").doc(c._doc).update(ch)}catch(e){BR.delete("b"+c._doc)}}
+  for(const c of cases.filter(x=>x.needsRead&&!BR.has(x._doc))){BR.add(c._doc);
   try{if(c.needsRead==="modt2")await readSuppModt(c);else await rereadModt(c,false);await db.collection("cases").doc(c._doc).update({needsRead:null})}catch(e){BR.delete(c._doc)}}}
 
 /* ================= writes ================= */
@@ -1350,17 +1361,40 @@ function renderRules(ro){const box=$("rulesList");if(!box)return;$("rulesCard").
 /* ---- partner (e.g. Opinion & Ownership): their team, their branding ---- */
 function teamRows(){return cfg.staff.map(staffObj).filter(x=>x.team&&x.team===myOrg())}
 function renderTeam(){const L=teamRows();const t=$("teamTbl");
-  t.innerHTML=`<tr><th>Name</th><th>Email</th><th>Phone</th><th class="c">TP Generate</th><th></th></tr>`+L.map((m,i)=>`<tr data-i="${i}"><td><input class="tm_n" value="${esc(m.name)}"></td><td><input class="tm_e" type="email" value="${esc(m.email)}"></td><td><input class="tm_p" value="${esc(m.phone||"")}"></td><td class="c"><input type="checkbox" class="tm_t" ${m.tp?"checked":""}></td>
-    <td style="white-space:nowrap">${m.email?`<button class="btn tinv" type="button" data-em="${esc(m.email)}">Invite</button> <button class="btn slink" type="button" data-em="${esc(m.email)}">Copy link</button> `:""}<button class="btn danger tdel" type="button">Remove</button></td></tr>`).join("")+(L.length?"":`<tr><td colspan="5" class="sf-note">No team members yet.</td></tr>`);
+  t.innerHTML=`<tr><th>Name</th><th>Email</th><th>Phone</th><th>Banks (none ticked = all)</th><th class="c">TP Generate</th><th></th></tr>`+L.map((m,i)=>`<tr data-i="${i}"><td><input class="tm_n" value="${esc(m.name)}"></td><td><input class="tm_e" type="email" value="${esc(m.email)}"></td><td><input class="tm_p" value="${esc(m.phone||"")}"></td><td>${bankPick(m.banks)}</td><td class="c"><input type="checkbox" class="tm_t" ${m.tp?"checked":""}></td>
+    <td style="white-space:nowrap">${m.email?`<button class="btn tinv" type="button" data-em="${esc(m.email)}">Invite</button> <button class="btn slink" type="button" data-em="${esc(m.email)}">Copy link</button> `:""}<button class="btn danger tdel" type="button">Remove</button></td></tr>`).join("")+(L.length?"":`<tr><td colspan="6" class="sf-note">No team members yet.</td></tr>`);
   t.querySelectorAll(".tdel").forEach(b=>b.onclick=()=>{b.closest("tr").remove()});
   t.querySelectorAll(".tinv").forEach(b=>b.onclick=async()=>{b.disabled=true;b.textContent="Sending…";try{const{data,error}=await window.__sb.functions.invoke("read-aadhaar",{body:{kind:"invite",email:b.dataset.em}});if(error||!data||data.error)throw new Error((data&&data.error)||(error&&error.message));b.textContent="Sent ✓";toast(data.sent==="reset"?"Already has a login: a password-reset link was e-mailed.":"Invite e-mailed.")}catch(e){b.textContent="Invite";b.disabled=false;toast("Invite not sent: "+e.message)}})}
-function readTeam(){return[...$("teamTbl").querySelectorAll("tr[data-i]")].map(tr=>({name:tr.querySelector(".tm_n").value.trim(),email:tr.querySelector(".tm_e").value.trim().toLowerCase(),phone:tr.querySelector(".tm_p").value.trim(),tp:tr.querySelector(".tm_t").checked})).filter(x=>x.name&&x.email)}
-$("teamAdd").onclick=()=>{const t=$("teamTbl"),tr=document.createElement("tr");tr.dataset.i="new";tr.innerHTML=`<td><input class="tm_n" placeholder="Name"></td><td><input class="tm_e" type="email" placeholder="name@mail.com"></td><td><input class="tm_p"></td><td class="c"><input type="checkbox" class="tm_t"></td><td><button class="btn danger tdel" type="button">Remove</button></td>`;tr.querySelector(".tdel").onclick=()=>tr.remove();t.appendChild(tr)};
+function bankPick(sel){sel=sel||[];return`<select class="tm_b" multiple size="3" style="min-width:200px" title="Hold Command (Mac) or Ctrl to pick more than one">${cfg.banks.map(b=>`<option${sel.includes(b)?" selected":""}>${esc(b)}</option>`).join("")}</select>`}
+function readTeam(){return[...$("teamTbl").querySelectorAll("tr[data-i]")].map(tr=>({name:tr.querySelector(".tm_n").value.trim(),email:tr.querySelector(".tm_e").value.trim().toLowerCase(),phone:tr.querySelector(".tm_p").value.trim(),tp:tr.querySelector(".tm_t").checked,banks:[...tr.querySelector(".tm_b").selectedOptions].map(o=>o.value)})).filter(x=>x.name&&x.email)}
+$("teamAdd").onclick=()=>{const t=$("teamTbl"),tr=document.createElement("tr");tr.dataset.i="new";tr.innerHTML=`<td><input class="tm_n" placeholder="Name"></td><td><input class="tm_e" type="email" placeholder="name@mail.com"></td><td><input class="tm_p"></td><td>${bankPick([])}</td><td class="c"><input type="checkbox" class="tm_t"></td><td><button class="btn danger tdel" type="button">Remove</button></td>`;tr.querySelector(".tdel").onclick=()=>tr.remove();t.appendChild(tr)};
 $("teamSave").onclick=async()=>{const L=readTeam();try{const{data,error}=await window.__sb.rpc("partner_save_team",{members:L});if(error)throw error;toast(`Team saved (${data} member${data===1?"":"s"}). Now press Invite or Copy link.`+(data<L.length?" Some e-mails were already used elsewhere and were skipped.":""))}catch(e){toast("Team not saved: "+(e.message||e))}};
 function applyBrand(){const o=ORGS[myOrg()];const h=document.querySelector("header .top");if(!h)return;let pl=$("ptLogo");
   if(!o){if(pl)pl.remove();document.querySelector("header .logo").classList.remove("small");return}
   if(!pl){pl=document.createElement("img");pl.id="ptLogo";pl.className="logo ptlogo";h.insertBefore(pl,h.firstChild)}pl.src=o.logo;pl.alt=o.name;
   document.querySelector("header .logo:not(.ptlogo)").classList.add("small");const of=document.querySelector("header .office");if(of)of.textContent="with VGR Legal · Deed of Receipt desk"}
+/* ---- Reports: who did what (per person, per organisation) + Claude reading (OCR) count and cost ---- */
+const USD_INR=84;let REP_ROWS=[];
+function orgOfName(n){const m=cfg.staff.map(staffObj).find(x=>x.name===n);return m?(m.partner||m.team||"vgr"):(n===MD_NAME||n===MD_OLD?"vgr":"vgr")}
+async function renderReport(){const mEl=$("repMonth");if(!mEl.value)mEl.value=new Date().toISOString().slice(0,7);
+  if(!isMD){$("repOrgL").hidden=true}mEl.onchange=renderReport;$("repOrg").onchange=renderReport;
+  const mon=mEl.value,from=mon+"-01",to=new Date(new Date(from).getFullYear(),new Date(from).getMonth()+1,1).toISOString().slice(0,10),inM=a=>a&&a>=from&&a<to;
+  const want=isMD?$("repOrg").value:myOrg(),okOrg=o=>want==="all"||o===want;
+  const P={},row=n=>P[n]||(P[n]={name:n,org:orgOfName(n),created:0,drafted:0,tp:0,done:0,ocr:0,img:0,usd:0});
+  cases.forEach(c=>{const L=stageLog(c);L.forEach((e,i)=>{if(!inM(e.at)||!e.by)return;const by=String(e.by).replace(/^Mail · .*/,"Mail (auto)");
+    if(i===0||e.s==="Case Created")row(by).created++;else if(e.s==="TP Creation")row(by).drafted++;else if(e.s==="Photo/Biometric")row(by).tp++;else if(FINAL.has(e.s))row(by).done++})});
+  let usage=[];try{const{data}=await window.__sb.from("kv").select("data").eq("collection","usage").gte("data->>at",from).lt("data->>at",to).limit(5000);usage=(data||[]).map(r=>r.data)}catch(e){}
+  usage.forEach(u=>{const r=row(u.name||u.email||"?");if(u.org)r.org=u.org;r.ocr++;r.img+=+u.images||0;r.usd+=+u.usd||0});
+  REP_ROWS=Object.values(P).filter(r=>okOrg(r.org)).sort((a,b)=>a.org.localeCompare(b.org)||b.created+b.tp-a.created-a.tp);
+  const tot=REP_ROWS.reduce((t,r)=>{["created","drafted","tp","done","ocr","img","usd"].forEach(k=>t[k]+=r[k]);return t},{created:0,drafted:0,tp:0,done:0,ocr:0,img:0,usd:0});
+  const on=o=>o==="vgr"?"VGR Legal":(ORGS[o]||{}).name||o;
+  $("repTbl").innerHTML=`<tr><th>Person</th><th>Organisation</th><th class="c">Cases created</th><th class="c">Drafts done</th><th class="c">TPs made</th><th class="c">Completed</th><th class="c">Claude readings</th><th class="c">Pages read</th><th class="c">Cost (₹, approx.)</th></tr>`+
+    REP_ROWS.map(r=>`<tr><td>${esc(r.name)}</td><td>${esc(on(r.org))}</td><td class="c">${r.created}</td><td class="c">${r.drafted}</td><td class="c">${r.tp}</td><td class="c">${r.done}</td><td class="c">${r.ocr}</td><td class="c">${r.img}</td><td class="c">${Math.round(r.usd*USD_INR)}</td></tr>`).join("")+
+    `<tr style="font-weight:700"><td>Total</td><td></td><td class="c">${tot.created}</td><td class="c">${tot.drafted}</td><td class="c">${tot.tp}</td><td class="c">${tot.done}</td><td class="c">${tot.ocr}</td><td class="c">${tot.img}</td><td class="c">${Math.round(tot.usd*USD_INR)}</td></tr>`;
+  $("repNote").textContent=`Team members (people) in this view: ${REP_ROWS.filter(r=>r.name!=="Mail (auto)").length}. Claude reading is counted from 9 Nov 2026; cost is an estimate (≈ ₹${USD_INR}/$).`;
+  $("repCsv").onclick=()=>{const h=["Person","Organisation","Cases created","Drafts done","TPs made","Completed","Claude readings","Pages read","Cost INR approx"];
+    const csv=[h,...REP_ROWS.map(r=>[r.name,on(r.org),r.created,r.drafted,r.tp,r.done,r.ocr,r.img,Math.round(r.usd*USD_INR)])].map(a=>a.map(x=>`"${String(x).replace(/"/g,'""')}"`).join(",")).join("\n");
+    const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([csv],{type:"text/csv"}));a.download=`VGR report ${mon}.csv`;a.click()}}
 function caseFiles(c){const pri=["modt","deed","legal","noc","sanction","revenue","ec"],out=[];
   docsFor(c.type).slice().sort((a,b)=>((pri.indexOf(a.k)+1)||99)-((pri.indexOf(b.k)+1)||99)).forEach(d=>((c.docs||{})[d.k]||[]).forEach(f=>out.push({...f,lab:d.l})));return out}
 async function docUrl(u){if(String(u).startsWith("sb:")&&window.__signed)return window.__signed(u);return u}
@@ -2390,7 +2424,7 @@ setInterval(()=>{if(!$("v-list").hidden||!$("v-dash").hidden)render()},60000);
   db.doc("config/lists").onSnapshot(s=>{const d=s.exists?s.data():{};
     cfg={banks:d.banks||[],staff:(d.staff||[]).map(staffObj),types:(d.types&&d.types.length)?d.types:DEFAULT_TYPES.slice(),pay:d.pay||{},profiles:d.profiles||{},wit:d.wit||[],clients:d.clients||[],rules:d.rules||[]};
     myStaff=!isMD&&SELF_EMAIL?cfg.staff.find(x=>x.email&&x.email.toLowerCase()===SELF_EMAIL)||null:null;if(myStaff)me=myStaff.name;
-    applyBrand();if(!["dash","__all","__set","__sro","__ppl","__team"].includes(tab)&&!cfg.types.includes(tab))tab="dash";fillStatic();render()},()=>{});
+    applyBrand();if(!["dash","__all","__set","__sro","__ppl","__team","__rep"].includes(tab)&&!cfg.types.includes(tab))tab="dash";fillStatic();render()},()=>{});
   db.doc("tp_jobs/_worker").onSnapshot(s=>{W.at=s.exists?(s.data()||{}).at:null;if(!$("tpbar").hidden)renderHelperChip()},()=>{});
   db.collection("cases").onSnapshot(s=>{if(!s.metadata.fromCache)clearTimeout(timer);cases=s.docs.map(d=>({...d.data(),_doc:d.id}));
     if(editing){const fresh=cases.find(c=>c._doc===editing._doc);if(fresh){editing=fresh;if($("timeline"))renderTimeline(fresh)}}
