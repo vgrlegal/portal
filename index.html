@@ -1679,6 +1679,7 @@ async function tnImport(file){const box=$("tnImpBox");const rows=parseCsv(await 
     if(error){toast("Import failed: "+error.message);$("tnImpGo").disabled=false;return}
     box.innerHTML=`<p class="sf-note">✓ ${pick.length} login ID(s) imported. Now delete the "Chrome Passwords.csv" file from Downloads (and the Bin).</p>`;$("tnCsv").value="";tnRender(false)}}
 async function tnRender(ro){const box=$("tnList");if(!box)return;$("tnImp").hidden=ro||!isMD;$("tnCsv").onchange=e=>{const f=e.target.files[0];if(f)tnImport(f)};const pt=isPartner()&&!isMD;$("tnAdd").hidden=ro||!(isMD||pt);
+  {const lb=$("tn_client").closest("label");if(lb&&lb.firstChild&&lb.firstChild.nodeType===3)lb.firstChild.textContent=pt?"Company":"Company (or MODT · all companies)"}
   $("tn_client").innerHTML=(pt?"":`<option>${esc(MODT_POOL)}</option>`)+cfg.banks.map(b=>`<option>${esc(b)}</option>`).join("");
   if(!isMD&&!pt){box.innerHTML=`<p class="sf-note">Only the Admin can see these.</p>`;$("tnListM").innerHTML="";return}
   let l=[];try{l=await tnLogins()}catch(e){box.innerHTML=`<p class="banner">Login IDs could not load: ${esc(e.message)}</p>`;return}
