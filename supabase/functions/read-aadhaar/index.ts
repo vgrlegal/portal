@@ -245,6 +245,7 @@ Deno.serve(async (req) => {
     const { images, kind = "aadhaar", hints = [], texts } = body;
     let PROMPT = PROMPTS[kind];
     if (!PROMPT) return json({ error: "Unknown kind" }, 400);
+    if (["modt", "modt_case", "aadhaar"].includes(kind)) PROMPT += `\n\nALSO add the key "doubts": a list (empty [] if none) of every value you are NOT fully sure of: unclear or faded print, a spelling that differs between documents or between the English and Tamil, a digit you could not read clearly, two possible answers. Each item: {"field":"the JSON key above it belongs to (for a co-mortgagor write co_mortgagors.N.key, N from 0)","read":"the value you gave","options":["the other likely value(s)"],"why":"very short reason","img":number of the image (or [Page N]) it is printed on, 1 = first,"box":[left,top,right,bottom] as fractions 0 to 1 of that image's width and height, tightly around the exact words}. Only real doubts; do not list values you are sure of.`;
     if (Array.isArray(hints) && hints.length) {
       const h = hints.slice(0, 40).map((x: unknown) => String(x).slice(0, 200)).join("\n");
       if (kind === "english") PROMPT += `\n\nEnglish spellings already read from the MODT for this case. When the same name or place appears, use exactly these spellings:\n${h}`;
@@ -278,7 +279,7 @@ Deno.serve(async (req) => {
     const r = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: { "x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json" },
-      body: JSON.stringify({ model, max_tokens: kind === "modt_case" ? 6000 : 2000, messages: [{ role: "user", content }] }),
+      body: JSON.stringify({ model, max_tokens: kind === "modt_case" ? 7000 : 3000, messages: [{ role: "user", content }] }),
     });
     const out = await r.json();
     if (!r.ok) return json({ error: out?.error?.message ?? "Claude error" }, 502);
