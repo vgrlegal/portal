@@ -1461,9 +1461,11 @@ def upload_docs(P, job, page, t, case, comments):
             job.upd(uploadDiag=page.evaluate(UPLOAD_DIAG_JS))
     rows = page.evaluate(UP_ROWS_JS)
     job.step(f"13 · {len(done)} of {len(plan)} documents in the list", page)
+    job.upPlan = len(plan)
     if len(done) == len(plan) and len(rows) == len(plan):
         page.evaluate("()=>{const b=document.getElementById('submitUploadApp');if(b)b.click()}")
         wait_loader(page); P.wait(3); m = P.popup_ok()
+        job.upSaved = not re.search(r"error|fail|invalid|not saved|please", m or "", re.I)
         job.step(f"13 · Upload saved {m[:60]}", page)
     else:
         comments.append(f"Uploads NOT saved: {len(rows)} rows in the list, {len(done)} right. Check the list and press Save by hand.")
@@ -1599,6 +1601,9 @@ def upload_only(page, job, case):
     err = save_print(P, job, page, job.d.get("case", ""), tp)
     if err:
         comments.append(err)
+    miss = tp_ready(job, job.d.get("case", ""), tp, done, err)
+    if miss:
+        comments.append("Stays at TP Creation, missing: " + ", ".join(miss))
     note = f"{tp}: uploaded {', '.join(done) or 'none'}" + ("" if err else "; TP print saved in the case (TP copy)") + (". Only biometric + payment pending. " if not err and len(done) == 5 else ". ")
     if comments:
         note += "CHECK: " + " · ".join(comments)
@@ -2125,12 +2130,39 @@ def modt_second_half(P, job, page, d, case, comments):
     return tp
 
 
+def tp_ready(job, case_id, tp, done, print_err):
+    """After TP + uploads + print: the case goes to Biometric pending only when all three are complete; otherwise it stays
+    at TP Creation and the case shows what is missing."""
+    missing = []
+    need = getattr(job, "upPlan", 5) or 5
+    if len(done) < need:
+        missing.append(f"{need - len(done)} document(s) not uploaded")
+    elif not getattr(job, "upSaved", False):
+        missing.append("uploads not saved on TNREGINET")
+    if print_err:
+        missing.append("TP print not saved")
+    try:
+        c = kv_get("cases", case_id) or {}
+        ch = {"tpChecks": {"tp": tp, "uploaded": done, "saved": bool(getattr(job, "upSaved", False)), "print": not print_err, "missing": missing, "at": now()}}
+        if not missing and (c.get("stage") or "") in ("", "Draft Pending", "TP Creation", "TP On Hold"):
+            ch.update(stage="Photo/Biometric", stageAt=now(), updatedAt=now(),
+                      stageLog=(c.get("stageLog") or [])[-39:] + [{"s": "Photo/Biometric", "at": now(), "by": "TP robot"}],
+                      log=(c.get("log") or [])[-79:] + [{"at": now(), "by": "TP robot", "text": f"{tp}: all documents uploaded and TP print saved → Biometric pending"}])
+        kv_merge("cases", case_id, ch)
+    except Exception as e:
+        log("tp_ready failed", e)
+    return missing
+
+
 def finish_dor(P, job, page, t, case, comments):
     tp = loan_to_create(P, job, page, t, case, comments)
     done = upload_docs(P, job, page, t, case, comments)
     err = save_print(P, job, page, job.d.get("case", ""), tp)
     if err:
         comments.append(err)
+    miss = tp_ready(job, job.d.get("case", ""), tp, done, err)
+    if miss:
+        comments.append("Stays at TP Creation, missing: " + ", ".join(miss))
     note = f"TP created: {tp}. Uploaded: {', '.join(done) or 'none'}" + ("" if err else ". Print saved in the case") + ". Do biometric + payment yourself. "
     if comments:
         note += "CHECK: " + " · ".join(comments) + ". "
