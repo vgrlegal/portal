@@ -748,8 +748,21 @@ def apply_profile(case, t):
     return t
 
 
+def part_survey(t):
+    """'22(Part)' / '22 Pt' with no other (sub-divided) survey number: TNREGINET will not make the TP. Revenue record needed."""
+    sv = [g(t, k) for k in ("Survey number", "Survey No", "New survey no") if g(t, k)]
+    part = [x for x in sv if re.search(r"part|\bpt\b|\(p\)", x, re.I)]
+    other = [x for x in sv if re.search(r"\d", x) and not re.search(r"part|\bpt\b|\(p\)", x, re.I)]
+    return part[0] if part and not other else ""
+
+
 def run_dor(page, job, case):
     t = apply_profile(case, case.get("tp") or {})
+    ps = part_survey(t)
+    if ps and not case.get("partOk"):
+        raise Stop(f"Survey number is '{ps}' (Part). TNREGINET will not make a TP with a Part survey number. "
+                   "Revenue document (patta / TSLR with the sub-divided survey number) is needed from the bank; "
+                   "enter the new survey number in Drafting and start again.")
     P = Portal(page, job)
     # 1. create & link previous document
     job.step("1 · Create document & link the MODT")
@@ -1205,6 +1218,21 @@ def loan_to_create(P, job, page, t, case, comments):
     return tp
 
 
+CLOSE_POP_JS = r"""()=>{const vis=e=>e&&e.getClientRects().length&&getComputedStyle(e).visibility!=='hidden';
+  const inPop=b=>{let e=b;while(e&&e!==document.body){const st=getComputedStyle(e);if(e.matches('.modal,.swal2-popup,[role=dialog],.popup,.jconfirm-box,.bootbox,.ui-dialog')||st.position==='fixed'||+st.zIndex>100)return true;e=e.parentElement}return false};
+  const b=[...document.querySelectorAll('button,input[type=button],a.btn')].filter(x=>vis(x)&&/^\s*(Close|CLOSE|close|மூடு)\s*$/.test(x.value||x.innerText||'')).find(inPop);
+  if(!b)return '';const box=b.closest('.modal-content,.modal,.swal2-popup,[role=dialog],.popup,.jconfirm-box,.bootbox,.ui-dialog')||(()=>{let e=b;while(e&&e!==document.body){const st=getComputedStyle(e);if(st.position==='fixed'||+st.zIndex>100)return e;e=e.parentElement}return b.parentElement})();
+  const t=(box.innerText||'').replace(/\s+/g,' ').replace(/\bClose\b\s*$/,'').trim().slice(0,300);b.click();return t}"""
+
+
+def popup_close(page):
+    """Read a TNREGINET message box that has only a Close button, close it, return its text."""
+    try:
+        return page.evaluate(CLOSE_POP_JS) or ""
+    except Exception:
+        return ""
+
+
 def press_create(P, job, page, attempt):
     """Press Create Document once; return (tp, what TNREGINET said)."""
     btn = page.locator("#btnCreateDocument:visible, input[value='Create Document']:visible, button:has-text('Create Document'):visible")
@@ -1227,6 +1255,13 @@ def press_create(P, job, page, attempt):
         tp = tp_on_page(page)
         if tp:
             break
+        cl = popup_close(page)
+        if cl:
+            said += " " + cl
+            m = re.search(r"TP/\d+/\d{4}", cl)
+            if m:
+                tp = m.group(0)
+                break
         c2 = page.locator("button:has-text('Continue'):visible, input[value='Continue']:visible")
         if c2.count() and not job.d.get(f"continueClicked{attempt}"):
             job.upd(**{f"continueClicked{attempt}": now()})
@@ -1234,7 +1269,7 @@ def press_create(P, job, page, attempt):
         if re.search(r"survey", said, re.I):
             break
     if not tp:
-        said += " " + page.evaluate("()=>[...document.querySelectorAll('.error,.text-danger,.alert,.modal,.swal2-popup,[role=alert]')].filter(e=>e.offsetParent).map(e=>e.innerText).join(' ').slice(0,400)")
+        said += " " + page.evaluate("()=>[...document.querySelectorAll('.error,.text-danger,.alert,.modal,.swal2-popup,[role=alert],[role=dialog]')].filter(e=>e.getClientRects().length&&getComputedStyle(e).visibility!=='hidden').map(e=>e.innerText).join(' ').slice(0,400)")
     return tp, said.strip()
 
 
@@ -1785,7 +1820,7 @@ def record_stop(job, case_id, reason):
         log("stop note failed", e)
 
 
-DRAFT_RE = re.compile(r"(?:draft|application|reference|ref)\s*(?:no|number|id)\.?\s*[:\-]?\s*([A-Z0-9][A-Z0-9/\-]{5,})", re.I)
+DRAFT_RE = re.compile(r"(Draft/[A-Za-z ]{3,40}/\d{5,}/\d{4})|(?:draft|application|reference|ref)\s*(?:no|number|id)\.?\s*[:\-]?\s*([A-Z0-9][A-Z0-9/\-]{5,}\d)", re.I)
 
 
 def grab_draft(P, job, said=""):
@@ -1795,10 +1830,11 @@ def grab_draft(P, job, said=""):
     except Exception:
         txt = said
     m = DRAFT_RE.search(txt)
-    if m and not job.d.get("draftNo"):
-        job.upd(draftNo=m.group(1))
+    dn = m and (m.group(1) or m.group(2))
+    if dn and (not job.d.get("draftNo") or not str(job.d.get("draftNo")).startswith("Draft/") and dn.startswith("Draft/")):
+        job.upd(draftNo=dn)
         try:
-            kv_merge("cases", job.d.get("case", ""), {"tnDraftNo": m.group(1)})
+            kv_merge("cases", job.d.get("case", ""), {"tnDraftNo": dn})
         except Exception:
             pass
 
@@ -2116,6 +2152,13 @@ def handle(pw, jid, data):
     case = kv_get("cases", data.get("case", ""))
     if not case:
         raise Stop("Case not found")
+    if data.get("kind") == "dor" and part_survey(case.get("tp") or {}) and not case.get("partOk"):
+        ps = part_survey(case.get("tp") or {})
+        msg = (f"Survey number is '{ps}' (Part). TNREGINET will not make a TP with a Part survey number. "
+               "Revenue document (patta / TSLR) is needed from the bank; enter the new survey number in Drafting and start again.")
+        job.last = "Survey number is Part"
+        record_stop(job, data.get("case", ""), msg)
+        raise Stop(msg)
     acc = login_of(data.get("login", "")) if data.get("kind") != "ec" else {"username": ""}
     if not acc:
         raise Stop("Login ID not found. Add it in Clients & Staff → TNREGINET login IDs.")
