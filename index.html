@@ -469,6 +469,9 @@ tr.hf input,tr.hf select{font-size:12.5px;padding:5px 7px;margin:2px 0}
     <div class="card" style="margin-top:16px"><h2>Staff</h2><p>Tick the work each person can open. Staff sign in with this email. Save, then press <b>Invite</b>: they get an email link and set their own password. They see only the work you tick.</p>
       <div style="overflow-x:auto"><table class="mini stafft" id="staffTbl"></table></div>
       <div style="display:flex;gap:8px;margin-top:10px"><button class="btn" id="staffAdd" type="button">+ Add staff</button><button class="btn primary" id="staffSave" type="button">Save staff</button></div></div>
+    <div class="card" style="margin-top:16px" id="rulesCard"><h2>Learning list</h2><p>Rules Claude and the TP robot follow when reading documents and filling TNREGINET, for example how to tell Urban, Rural or Natham. When the robot is unsure it asks a question on the case; your answer and its reason become a rule here. Only the Admin can change this list.</p>
+      <div id="rulesList"></div>
+      <form class="addline" id="ruleAdd" style="margin-top:8px;display:flex;gap:6px"><input id="ruleIn" placeholder="New rule, e.g. Extent in cents or acres means Agricultural land"><button class="btn primary" type="submit">Add rule</button></form></div>
     <div class="card" style="margin-top:16px" id="clientCard"><h2>Client logins (banks)</h2><p>A bank person signs in and sees only their company's Deed of Receipt cases (all branches, or one branch): stage, TP copy, their documents, queries and messages. They can file new cases with the MODT and NOC; those land in Drafting. Internal comments, staff and settings are never shown to them.</p>
       <div style="overflow-x:auto"><table class="mini" id="clientTbl"></table></div>
       <div style="display:flex;gap:8px;margin-top:10px"><button class="btn" id="clientAdd" type="button">+ Add client login</button><button class="btn primary" id="clientSave" type="button">Save client logins</button></div></div>
@@ -682,7 +685,7 @@ const MODT_FIELDS=[
   ["4 · Company representative",[["Representative","note","Skipped for MODT. Needed only when the property belongs to a company."]]],
   ["5 · Witnesses",[["Witness 1","wsel"],["Witness 2","wsel"]]],
   ["6 · Presenter",[["Presenter","s",["Title holder 1","Title holder 2","Title holder 3","Title holder 4"]]]],
-  ["7 · Property",[["Property type","s",["Plot with building","Vacant plot"]],["Property SRO","sro"],["Village","vil"],"Patta No",["Land type","s",["Urban","Rural","Natham"]],["Unit","s",["Sq.ft","Sq.m"]],"New survey no","Subdivision","Sheet name",["Old survey numbers","w"],"Extent"]],
+  ["7 · Property",[["Property type","s",["Plot with building","Vacant plot","Agricultural land","Agricultural land with building"]],["Property SRO","sro"],["Village","vil"],"Patta No",["Land type","s",["Urban","Rural","Natham"]],["Unit","s",["Sq.ft","Sq.m"]],"New survey no","Subdivision","Sheet name",["Old survey numbers","w"],"Extent"]],
   ["8 · Boundaries",[["Boundary type","s",["Regular","Irregular"]],"Boundary North","Boundary South","Boundary East","Boundary West","Boundary North Tamil","Boundary South Tamil","Boundary East Tamil","Boundary West Tamil"]],
   ["9 · Building details",[["Building","note","The robot skips this page. Fill building details by hand on TNREGINET."]]],
   ["10 · Linear measurement",["North length","South length","East length","West length"]],
@@ -1252,6 +1255,7 @@ function openReview(c,gen){
   $("rvTitle").textContent=(gen?"TP Generate · ":"Drafting · ")+c.applicant;
   let h=`<p class="sf-note">${dor?"Pages 1–10 in the same order as TNREGINET's Deed of Receipt. Company, representative and witnesses come from the saved details; borrower and property from the MODT and NOC. Correct anything wrong, then save.":"Laid out like TNREGINET's MODT screens. Check and correct every field before generating the TP."}</p>`;
   if(c.tpNotes)h+=`<p class="banner">OCR check: ${esc(c.tpNotes)}</p>`;
+  h+=robotQsHtml(c);
   const suppUsed=dor&&(data["Supp MODT Doc No"]||((c.docs||{}).modt2||[]).length);
   sections.forEach(([sec,fields])=>{if(dor&&!suppUsed)fields=fields.filter(ff=>!/^Supp /.test(Array.isArray(ff)?ff[0]:ff));h+=`<div class="rvsec"><div class="sect">${esc(sec)}</div><div class="fgrid">`+fields.map(ff=>{const [f,t,o]=Array.isArray(ff)?ff:[ff],id="rv_"+f.replace(/\W+/g,"_");
       if(t==="s")return`<label>${esc(f)}${dor&&DOR_REQ.includes(f)?" *":""}<select id="${id}"><option value=""></option>${[...new Set([...o,data[f]].filter(Boolean))].map(x=>`<option${x===data[f]?" selected":""}>${esc(x)}</option>`).join("")}</select></label>`;
@@ -1289,12 +1293,48 @@ function openReview(c,gen){
     const syncTa=()=>{const t=sroTamil(ex.value);if(t)ta.value=t};if(!ta.value)syncTa();ex.addEventListener("change",syncTa)}}
   if(!dor){const th=$("rv_Title_holders"),showTh=()=>document.querySelectorAll("#rvBody .rvsec").forEach(sx=>{const m=(sx.querySelector(".sect")||{}).textContent.match(/Title holder (\d)$/);if(m)sx.hidden=+m[1]>(+(th&&th.value)||1)});if(th){th.onchange=showTh;showTh()}
     const L=["North","South","East","West"].map(x=>$("rv_"+x+"_length")),bt=$("rv_Boundary_type"),reg=()=>{const n=L.map(e=>parseFloat(e.value));if(n.some(isNaN))return;bt.value=n[0]===n[1]&&n[2]===n[3]?"Regular":"Irregular"};L.forEach(e=>e&&e.addEventListener("input",reg));
+    const pt=$("rv_Property_type"),ex=$("rv_Extent"),linSec=$("rv_North_length")&&$("rv_North_length").closest(".rvsec"),agri=()=>/agricultural/i.test(pt.value);
+    const showLin=()=>{if(linSec)linSec.hidden=agri()};
+    const autoAgri=()=>{if(/\b(cents?|acres?|ac\.?|hectares?|ஏக்கர்|சென்ட்)\b/i.test(ex.value)&&!agri()){pt.value=/building/i.test(pt.value)?"Agricultural land with building":"Agricultural land";showLin()}};
+    if(pt&&ex){pt.addEventListener("change",showLin);ex.addEventListener("change",autoAgri);autoAgri();showLin()}
     const pr=$("rv_Property_remarks");if(pr){const b=document.createElement("button");b.type="button";b.className="btn";b.textContent="✎ Build remarks from the property fields";b.onclick=()=>{pr.value=modtRemarks()};pr.closest("label").after(b)}}
+  wireRobotQs(c);
   $("rvSplit").onclick=()=>$("rvDocPane").hidden?openDocPane(c):closeDocPane();
   if($("rvReread")){$("rvReread").onclick=()=>rereadModt(c,false);$("rvRereadAll").onclick=()=>ask("Replace all fields?",`<p class="sf-note">Every field the MODT has will replace what is in Drafting now, including your corrections.</p>`,()=>rereadModt(c,true),"Replace")}
   const wantWide=(()=>{try{return localStorage.getItem("vgrFormWide")==="1"}catch(e){return false}})();
   if(!wantWide&&window.innerWidth>1000&&caseFiles(c).length)openDocPane(c);else{closeDocPane();setFormWide(wantWide)}
 }
+/* ---- robot questions + learning list ----
+   case.robotQs = [{id,q,options:[...],field,hint,answer,why,by,at,ruleSaved}]  (added by document reading / the TP robot when unsure)
+   cfg.rules    = [{id,text,from,by,at}]  (Admin-approved rules; sent to Claude on every reading) */
+function robotQsHtml(c){const qs=(c.robotQs||[]).filter(q=>!q.answer);if(!qs.length)return"";
+  return`<div class="rvsec" id="rqBox" style="border:1px solid var(--warn,#c80);border-radius:10px;padding:10px"><div class="sect">❓ Robot questions (${qs.length})</div>`+qs.map(q=>`<div class="rq" data-q="${esc(q.id)}" style="margin:8px 0">
+    <b>${esc(q.q)}</b>${q.hint?`<div class="sf-note">${esc(q.hint)}</div>`:""}
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin:6px 0">${(q.options||[]).map(o=>`<button type="button" class="btn rqo" data-v="${esc(o)}">${esc(o)}</button>`).join("")}<input class="rqa" placeholder="Other answer" style="width:auto"></div>
+    <label class="full">Why? (one line, becomes a rule)<input class="rqw" placeholder="e.g. Ward number in the deed means Urban"></label>
+    <button type="button" class="btn primary rqs">Save answer</button></div>`).join("")+`</div>`}
+function wireRobotQs(c){document.querySelectorAll("#rqBox .rq").forEach(box=>{let pick="";
+  box.querySelectorAll(".rqo").forEach(b=>b.onclick=()=>{pick=b.dataset.v;box.querySelectorAll(".rqo").forEach(x=>x.classList.toggle("primary",x===b))});
+  box.querySelector(".rqs").onclick=async()=>{const ans=box.querySelector(".rqa").value.trim()||pick,why=box.querySelector(".rqw").value.trim();if(!ans){toast("Pick or type the answer");return}
+    const q=(c.robotQs||[]).find(x=>x.id===box.dataset.q);if(!q)return;const admin=isMD||isAdmin;
+    const qs=(c.robotQs||[]).map(x=>x.id===q.id?{...x,answer:ans,why,by:who(),at:nowISO(),ruleSaved:admin&&!!why}:x);
+    const ch={robotQs:qs};if(q.field){const d={...(c.draft||{})};d[q.field]=ans;ch.draft=d;const el=$("rv_"+q.field.replace(/\W+/g,"_"));if(el)el.value=ans}
+    await patch(c,ch,`Robot question answered: ${q.q} → ${ans}`);
+    if(admin&&why)await addRule(`${why} (asked: ${q.q} → ${ans})`,c.id);
+    box.remove();toast(admin||!why?"Answer saved":"Answer saved. The Admin will add it to the learning list.")}})}
+async function addRule(text,from){const r={id:crypto.randomUUID(),text:text.slice(0,300),from:from||"",by:who(),at:nowISO()};await saveCfg({...cfg,rules:[...(cfg.rules||[]),r]})}
+function ruleHints(){return(cfg.rules||[]).slice(-40).map(r=>"Office rule: "+r.text)}
+function renderRules(ro){const box=$("rulesList");if(!box)return;$("rulesCard").hidden=!(isMD||isAdmin);
+  const R=cfg.rules||[],pend=[];cases.forEach(c=>(c.robotQs||[]).forEach(q=>{if(q.answer&&q.why&&!q.ruleSaved)pend.push({c,q})}));
+  box.innerHTML=(pend.length?`<div class="sect">Staff answers waiting for you (${pend.length})</div>`+pend.map(({c,q},i)=>`<div class="mrow"><b>${esc(q.why)}</b><span>${ro?"":`<button class="btn primary" type="button" data-rp="${i}">Add as rule</button> <button class="btn" type="button" data-rx="${i}">Ignore</button>`}</span><div class="mf">${esc(c.applicant||c.id)} · ${esc(q.q)} → ${esc(q.answer)} · ${esc(q.by||"")}</div></div>`).join(""):"")+
+    `<div class="sect">Rules (${R.length})</div>`+(R.length?R.map(r=>`<div class="mrow"><b>${esc(r.text)}</b><span>${ro?"":`<button class="btn" type="button" data-re="${esc(r.id)}">Edit</button> <button class="btn danger" type="button" data-rd="${esc(r.id)}">Delete</button>`}</span><div class="mf">${esc(r.by||"")} · ${fmtD(r.at)}${r.from?" · case "+esc(r.from):""}</div></div>`).join(""):`<p class="sf-note">No rules yet. Rules come from your answers to robot questions, or add one below.</p>`)+
+    `<div class="sect">Recent Drafting corrections (learned automatically)</div>`+(learned().slice(0,15).map(x=>`<div class="kv"><span>${esc(x.field)}</span><b>${esc(x.read)} → ${esc(x.fixed)}</b></div>`).join("")||`<p class="sf-note">None yet.</p>`);
+  const done=async(c,q)=>patch(c,{robotQs:(c.robotQs||[]).map(x=>x.id===q.id?{...x,ruleSaved:true}:x)});
+  box.querySelectorAll("[data-rp]").forEach(b=>b.onclick=async()=>{const{c,q}=pend[+b.dataset.rp];await addRule(`${q.why} (asked: ${q.q} → ${q.answer})`,c.id);await done(c,q);renderRules(ro)});
+  box.querySelectorAll("[data-rx]").forEach(b=>b.onclick=async()=>{const{c,q}=pend[+b.dataset.rx];await done(c,q);renderRules(ro)});
+  box.querySelectorAll("[data-rd]").forEach(b=>b.onclick=()=>ask("Delete this rule?",`<p class="sf-note">Claude and the robot will stop using it.</p>`,()=>saveCfg({...cfg,rules:R.filter(r=>r.id!==b.dataset.rd)}).then(()=>renderRules(ro)),"Delete"));
+  box.querySelectorAll("[data-re]").forEach(b=>b.onclick=()=>{const r=R.find(x=>x.id===b.dataset.re);ask("Edit rule",`<label class="full">Rule<textarea id="m_rule" rows="3">${esc(r.text)}</textarea></label>`,()=>{const t=$("m_rule").value.trim();if(!t)return;return saveCfg({...cfg,rules:R.map(x=>x.id===r.id?{...x,text:t}:x)}).then(()=>renderRules(ro))},"Save")});
+  $("ruleAdd").hidden=ro;$("ruleAdd").onsubmit=async e=>{e.preventDefault();const t=$("ruleIn").value.trim();if(!t)return;await addRule(t,"");$("ruleIn").value="";renderRules(ro)}}
 function caseFiles(c){const pri=["modt","deed","legal","noc","sanction","revenue","ec"],out=[];
   docsFor(c.type).slice().sort((a,b)=>((pri.indexOf(a.k)+1)||99)-((pri.indexOf(b.k)+1)||99)).forEach(d=>((c.docs||{})[d.k]||[]).forEach(f=>out.push({...f,lab:d.l})));return out}
 async function docUrl(u){if(String(u).startsWith("sb:")&&window.__signed)return window.__signed(u);return u}
@@ -1557,7 +1597,7 @@ function renderSettings(){
       ${TAB_KEYS.map(t=>`<td class="c"><input type="checkbox" class="st" data-t="${esc(t[0])}" ${s.tabs.includes(t[0])?"checked":""} ${ro?"disabled":""} aria-label="${esc(s.name)} can use ${esc(t[1])}"></td>`).join("")}<td class="c"><input type="checkbox" class="stp" ${s.tp===true?"checked":""} ${ro?"disabled":""} aria-label="${esc(s.name)} can press TP Generate"></td>
       <td style="white-space:nowrap">${ro||s.name===MD_NAME?"":`${s.email?`<button class="btn sinv" type="button" data-em="${esc(s.email)}">Invite</button> `:""}<button class="btn danger sdel" type="button">Remove</button>`}</td></tr>`).join("");
   $("staffAdd").hidden=ro;$("staffSave").hidden=ro;renderMasters(ro);
-  renderClients(ro);
+  renderClients(ro);renderRules(ro);
   const p=cfg.pay||{};["account","upi","link","service"].forEach(k=>{$("pay_"+k).value=p[k]||"";$("pay_"+k).disabled=ro});$("paySave").hidden=ro;
   tnRender(ro);
 }
@@ -1591,7 +1631,7 @@ $("clientSave").onclick=()=>{const L=readClients();const bad=L.find(c=>!c.email|
   saveCfg({...cfg,clients:L})};
 $("paySave").onclick=()=>saveCfg({...cfg,pay:{account:$("pay_account").value.trim(),upi:fv("pay_upi"),link:fv("pay_link"),service:fv("pay_service")}});
 async function saveCfg(n){if(!db){toast("Sign in to save");return}cfg=n;fillStatic();render();
-  try{await db.doc("config/lists").set({banks:n.banks,staff:n.staff.map(staffObj),types:n.types,pay:n.pay||{},profiles:n.profiles||{},wit:n.wit||[],clients:n.clients||[]});toast("Saved")}catch(err){fail(err)}}
+  try{await db.doc("config/lists").set({banks:n.banks,staff:n.staff.map(staffObj),types:n.types,pay:n.pay||{},profiles:n.profiles||{},wit:n.wit||[],clients:n.clients||[],rules:n.rules||[]});toast("Saved")}catch(err){fail(err)}}
 function fillStatic(){
   opts($("fClient"),cfg.banks,"All Clients");
   const names=[...(isMD?[MD_NAME]:[]),...cfg.staff.map(s=>staffObj(s).name).filter(n=>!(isMD&&n===MD_NAME))],mv=me;
@@ -2179,7 +2219,7 @@ function parseModt(raw){const t=String(raw||"").replace(/[ \t]+/g," "),f=(re,g=1
   if(/wife/i.test(d["Mortgagor relation"]||""))d["Mortgagor marital status"]="Married";
   return d}
 async function claudeModt(file){if(!window.__sb)return null;const{canvases}=await canvasesOf([file],()=>{},10);if(!canvases.length)return null;
-  const hints=learned().slice(0,40).map(x=>`${x.field}: "${x.read}" → "${x.fixed}"`);
+  const hints=[...ruleHints(),...learned().slice(0,40).map(x=>`${x.field}: "${x.read}" → "${x.fixed}"`)].slice(0,40);
   const{data,error}=await window.__sb.functions.invoke("read-aadhaar",{body:{kind:"modt",images:canvases.slice(0,10).map(c=>jpegOf(c,1500)),hints}});
   if(error||!data||!data.fields){console.warn("Claude MODT",error||data);return null}
   const f=data.fields,d={},put=(k,v)=>{v=String(v??"").trim();if(v)d[k]=v};
@@ -2273,7 +2313,7 @@ setInterval(()=>{if(!$("v-list").hidden||!$("v-dash").hidden)render()},60000);
     if(isMD){$("mdBadge").hidden=false;if(!me||me===MD_OLD){me=MD_NAME;lsSet("vgr.me",me)}}}
   const timer=setTimeout(()=>{if(!cases.length)$("empty").innerHTML="<h2>Can't reach the case list yet</h2>Check your internet connection. It will load on its own once connected."},10000);
   db.doc("config/lists").onSnapshot(s=>{const d=s.exists?s.data():{};
-    cfg={banks:d.banks||[],staff:(d.staff||[]).map(staffObj),types:(d.types&&d.types.length)?d.types:DEFAULT_TYPES.slice(),pay:d.pay||{},profiles:d.profiles||{},wit:d.wit||[],clients:d.clients||[]};
+    cfg={banks:d.banks||[],staff:(d.staff||[]).map(staffObj),types:(d.types&&d.types.length)?d.types:DEFAULT_TYPES.slice(),pay:d.pay||{},profiles:d.profiles||{},wit:d.wit||[],clients:d.clients||[],rules:d.rules||[]};
     myStaff=!isMD&&SELF_EMAIL?cfg.staff.find(x=>x.email&&x.email.toLowerCase()===SELF_EMAIL)||null:null;if(myStaff)me=myStaff.name;
     if(!["dash","__all","__set","__sro","__ppl"].includes(tab)&&!cfg.types.includes(tab))tab="dash";fillStatic();render()},()=>{});
   db.doc("tp_jobs/_worker").onSnapshot(s=>{W.at=s.exists?(s.data()||{}).at:null;if(!$("tpbar").hidden)renderHelperChip()},()=>{});
