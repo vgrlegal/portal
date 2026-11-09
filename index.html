@@ -670,7 +670,7 @@ const DOCS={
     {k:"tpcopy",l:"TP copy, before biometric",auto:1},
     {k:"payshot",l:"Payment screenshot",auto:1}],
   dor:[
-    {k:"modt",l:"MODT copy",req:1},{k:"modt2",l:"Supplementary MODT (if any)"},{k:"noc",l:"NOC"},{k:"letter",l:"SRO letter"},
+    {k:"modt",l:"MODT copy",req:1},{k:"modt2",l:"Supplementary MODT (if any)"},{k:"noc",l:"NOC"},{k:"letter",l:"Bank / SRO letter"},{k:"other",l:"Other documents (patta, EC, ID)",multi:1},
     {k:"rep_kyc",l:"Bank rep Aadhaar + signature",h:"Filled from the client's saved rep. Or upload here.",kyc:1},
     {k:"rep_id",l:"Bank rep ID card",h:"Filled from the client's saved rep."},
     {k:"w1_kyc",l:"Witness 1 Aadhaar + signature",h:"Filled from the saved witness. Or upload here.",kyc:1},
@@ -789,7 +789,7 @@ $("segAsg").onclick=e=>{const b=e.target.closest("button");if(b&&!b.disabled){as
 $("pageSize").onchange=()=>{page=0;render()};
 function listed(){
   const st=$("hf_stage").value;
-  return baseList().filter(c=>(tat==="all"||bucket(c)===tat)&&(asg==="all"||(asg==="me"?c.assignee===me:!c.assignee))&&(!st||c.stage===st))
+  return baseList().filter(c=>ATTN?needsAttn(c):!needsAttn(c)).filter(c=>(tat==="all"||bucket(c)===tat)&&(asg==="all"||(asg==="me"?c.assignee===me:!c.assignee))&&(!st||c.stage===st))
     .sort((a,b)=>(b.requestedAt||"").localeCompare(a.requestedAt||""));
 }
 
@@ -864,12 +864,15 @@ function render(){
   $("v-list").hidden=false;
   $("tpbar").hidden=!(isRD(tab)||tab==="MODT");if(!$("tpbar").hidden)renderHelperChip();
   renderSegs(baseList());$("bulkBar").hidden=!(bulkOk()&&(isRD(tab)||tab==="__all"));bulkCount();
+  {const n=baseList().filter(needsAttn).length;let bar=$("attnBar");if(!bar){bar=document.createElement("div");bar.id="attnBar";bar.style.margin="8px 0";$("tbody").closest("table").before(bar)}
+    bar.innerHTML=n||ATTN?`<div class="banner" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">${ATTN?`Showing ${n} mail case(s) that need attention: no MODT, or company not known.`:`⚠ ${n} mail case(s) need attention (no MODT or company not known). They are kept out of this list.`}<button class="btn" type="button" id="attnBtn">${ATTN?"Back to the normal list":"Show them"}</button></div>`:"";
+    if($("attnBtn"))$("attnBtn").onclick=()=>{ATTN=!ATTN;page=0;render()}}
   const all=listed(),ps=+$("pageSize").value,pages=Math.max(1,Math.ceil(all.length/ps));if(page>=pages)page=pages-1;
   const rows=all.slice(page*ps,page*ps+ps);
   $("tbody").innerHTML=rows.map(c=>{
     const cm=(c.comments||[]).length;
     return`<tr data-id="${esc(c._doc)}">
-    <td>${bulkOk()&&isRD(c.type)?`<input type="checkbox" class="selbox" data-sel="${esc(c._doc)}" ${SEL.has(c._doc)?"checked":""} aria-label="Select ${esc(c.applicant)}">`:""}<span class="strong">${esc(c.applicant)}</span>${c.loanNo?`<span class="sub mono">Loan ${esc(c.loanNo)}</span>`:""}<span class="sub mono">${esc(c.id)}</span>${tab==="__all"?`<span class="sub">${esc(c.type)}</span>`:""}</td>
+    <td>${bulkOk()&&isRD(c.type)?`<input type="checkbox" class="selbox" data-sel="${esc(c._doc)}" ${SEL.has(c._doc)?"checked":""} aria-label="Select ${esc(c.applicant)}">`:""}${c.applicantFromMail?`<span class="strong">⏳ Reading documents…</span><span class="sub">${esc((c.mailSubject||c.applicant||"").slice(0,70))}</span>`:`<span class="strong">${esc(c.applicant)}</span>`}${c.loanNo?`<span class="sub mono">Loan ${esc(c.loanNo)}</span>`:""}${c.noModt?`<span class="pill p-bad" style="margin-top:4px">No MODT</span> `:""}${c.multiCustomer?`<span class="pill p-warn" style="margin-top:4px">Several customers?</span> `:""}${c.source==="mail"&&!c.bank?`<span class="pill p-warn" style="margin-top:4px">Company?</span> `:""}${!c.phone&&!FINAL.has(c.stage)?`<span class="pill p-info" style="margin-top:4px;font-size:11px" title="Customer phone needed for payment">📞 Phone needed</span>`:""}<span class="sub mono">${esc(c.id)}</span>${tab==="__all"?`<span class="sub">${esc(c.type)}</span>`:""}</td>
     <td><span class="strong">${esc(c.bank||"—")}</span><span class="sub">${esc(c.branch||"")}</span></td>
     <td>${datesCell(c)}</td>
     <td>${statusCell(c)}</td>
@@ -1048,7 +1051,8 @@ async function bankReads(){if(!(isMD||isAdmin||isPartner())||!canWrite)return;
       if(!b&&lab.length&&(isMD||isAdmin)){const nm=lab[0].toLowerCase().replace(/\b\w/g,x=>x.toUpperCase());if(!cfg.banks.some(x=>x.toLowerCase()===nm.toLowerCase())){await saveCfg({...cfg,banks:[...cfg.banks,nm].sort((a,b)=>a.localeCompare(b))})}b=nm}
       const ch={mailBankDone:true};if(b){ch.bank=b;const who2=cfg.staff.map(staffObj).filter(m=>m.team&&(m.banks||[]).includes(b));if(who2.length===1&&!c.assignee)ch.assignee=who2[0].name}
       await db.collection("cases").doc(c._doc).update(ch)}catch(e){BR.delete("b"+c._doc)}}
-  for(const c of cases.filter(x=>x.needsRead&&!BR.has(x._doc))){BR.add(c._doc);
+  for(const c of cases.filter(x=>x.source==="mail"&&!x.classified&&!BR.has("k"+x._doc))){BR.add("k"+x._doc);try{await classifyMail(c)}catch(e){console.warn(e);BR.delete("k"+c._doc)}}
+  for(const c of cases.filter(x=>x.needsRead&&!(x.source==="mail"&&!x.classified)&&!BR.has(x._doc))){BR.add(c._doc);
   try{if(c.needsRead==="modt2")await readSuppModt(c);else await rereadModt(c,false);await db.collection("cases").doc(c._doc).update({needsRead:null})}catch(e){BR.delete(c._doc)}}}
 
 /* ================= writes ================= */
@@ -1411,6 +1415,26 @@ async function renderReport(){const mEl=$("repMonth");if(!mEl.value)mEl.value=ne
   $("repCsv").onclick=()=>{const h=["Person","Organisation","Cases created","Drafts done","TPs made","Completed","Claude readings","Pages read","Cost INR approx"];
     if(!C)h.length=6;const csv=[h,...REP_ROWS.map(r=>[r.name,on(r.org),r.created,r.drafted,r.tp,r.done,r.ocr,r.img,Math.round(r.usd*USD_INR)].slice(0,C?9:6))].map(a=>a.map(x=>`"${String(x).replace(/"/g,'""')}"`).join(",")).join("\n");
     const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([csv],{type:"text/csv"}));a.download=`VGR report ${mon}.csv`;a.click()}}
+/* ---- mail cases: Claude looks at the FIRST PAGE of every file (cheap), puts each file in the right slot,
+   reads only the MODT in full, and flags: no MODT · several customers · phone needed ---- */
+function lanOf(t){const m=String(t||"").match(/(?:LAN|loan(?:\s*(?:no|number|a\/c))?)\s*[:.#-]*\s*'?([A-Z]{0,8}\d[\w]{6,24})/i)||String(t||"").match(/\b([A-Z]{2,12}\d{8,20}|\d{10,20})\b/);return m?m[1]:""}
+async function classifyMail(c){const F=allFiles(c);if(!F.length){await db.collection("cases").doc(c._doc).update({classified:true,noModt:true,needsRead:null});return}
+  const imgs=[],labels=[],idx=[];
+  for(const [j,x] of F.slice(0,12).entries()){try{const file=await fileOfDoc(x.f);if(/\.docx?$/i.test(x.f.name))continue;const{canvases}=await canvasesOf([file],()=>{},1);if(canvases[0]){imgs.push(jpegOf(canvases[0],900));labels.push(`File ${j+1}: ${x.f.name}`);idx.push(j)}}catch(e){}}
+  if(!imgs.length){await db.collection("cases").doc(c._doc).update({classified:true});return}
+  const{data,error}=await window.__sb.functions.invoke("read-aadhaar",{body:{kind:"classify",images:imgs,labels}});if(error||!data||!data.fields)throw new Error("classify failed");
+  const R=(data.fields.files||[]),docs={},custs=new Set();const slot={modt:"modt",supp_modt:"modt2",noc:"noc",letter:"letter"};
+  idx.forEach((j,i)=>{const r=R.find(x=>+x.n===i+1)||{};let k=slot[r.type]||"other";if(k==="modt"&&docs.modt)k="other";(docs[k]=docs[k]||[]).push({...F[j].f,kind:r.type||""});if(r.type==="modt"&&r.customer)custs.add(String(r.customer).trim().toLowerCase())});
+  F.forEach((x,j)=>{if(!idx.includes(j))(docs.other=docs.other||[]).push(x.f)});
+  const multi=custs.size>1||R.filter(x=>x.type==="modt").length>1;
+  const ch={docs,classified:true,noModt:!docs.modt,multiCustomer:multi,needsRead:docs.modt?"modt":null};
+  if(!c.phone&&data.fields.phone)ch.phone=String(data.fields.phone).replace(/\D/g,"").slice(-10);
+  const ln=(R.find(x=>x.type==="modt"&&x.loan_no)||R.find(x=>x.loan_no)||{}).loan_no||lanOf(c.mailSubject);if(!c.loanNo&&ln)ch.loanNo=String(ln);
+  const nm=(R.find(x=>x.type==="modt"&&x.customer)||R.find(x=>x.customer)||{}).customer;if(c.applicantFromMail&&nm){ch.applicant=String(nm).toUpperCase()}
+  if(multi)ch.robotQs=[...(c.robotQs||[]),{id:crypto.randomUUID(),q:"This mail seems to have more than one customer / MODT. Split it?",options:["Yes, I'll use Split case","No, one case"],hint:[...custs].join(", ")}];
+  await db.collection("cases").doc(c._doc).update(ch)}
+let ATTN=false;
+function needsAttn(c){return c.source==="mail"&&c.classified&&(c.noModt||!c.bank)}
 /* ---- split one mail case into two (several customers in one mail) / merge duplicates; decided by the Admin after checking the documents ---- */
 function allFiles(c){const out=[];Object.entries(c.docs||{}).forEach(([k,arr])=>(arr||[]).forEach((f,i)=>out.push({k,i,f})));return out}
 function splitCase(c){const F=allFiles(c);if(F.length<2){toast("Only one file in this case");return}
@@ -2377,7 +2401,7 @@ async function claudeModt(file){if(!window.__sb)return null;const{canvases}=awai
   if(f.age){const y=+f.year||new Date().getFullYear();put("Mortgagor Age",String(+String(f.age).replace(/\D/g,"")+(new Date().getFullYear()-y)))}
   if(f.rel_type)put("Mortgagor relation",relNorm(f.rel_type));put("Mortgagor relative name",String(f.rel_name||"").toUpperCase());
   put("Mortgagor Aadhaar",String(f.aadhaar||"").replace(/\D/g,"").length===12?String(f.aadhaar).replace(/\D/g,""):"");put("Mortgagor address",f.address);put("Mortgagor pincode",f.pincode);put("Mortgagor mobile",f.mobile);
-  put("Loan Amount",String(f.loan_amount||"").replace(/[^\d]/g,""));put("Property district",f.property_district);put("Property SRO",f.property_sro);put("Village",f.village);put("Survey number",f.survey_no);put("Extent",f.extent);
+  put("Loan Amount",String(f.loan_amount||"").replace(/[^\d]/g,""));put("Loan account",f.loan_account);put("Property district",f.property_district);put("Property SRO",f.property_sro);put("Village",f.village);put("Survey number",f.survey_no);put("Extent",f.extent);
   put("Boundary North",f.north);put("Boundary East",f.east);put("Boundary West",f.west);put("Boundary South",f.south);
   if(/^(mrs|ms)/i.test(d["Mortgagor salutation"]||""))d["Mortgagor gender"]="Female";else if(d["Mortgagor salutation"]==="Mr")d["Mortgagor gender"]="Male";
   if(/wife/i.test(d["Mortgagor relation"]||""))d["Mortgagor marital status"]="Married";
@@ -2415,7 +2439,7 @@ async function rereadModt(c,force){const f=((c.docs||{}).modt||[])[0];if(!f){toa
   toast("Reading the MODT with Claude… about 10–20 seconds.");
   try{const r=await claudeModt(await fileOfDoc(f));if(!r||!Object.keys(r.d).length){toast("Could not read the MODT. Check that it is clear and try again.");return}
     const tp={...(c.tp||{})};let n=0;Object.entries(r.d).forEach(([k,v])=>{if(force||!String(tp[k]||"").trim()){if(tp[k]!==v)n++;tp[k]=v}});
-    const ch={tp,tpAuto:{...(c.tpAuto||{}),...r.d}};if((!c.applicant||c.applicantFromMail)&&r.d.Mortgagor){ch.applicant=r.d.Mortgagor;ch.applicantFromMail=null}if(!c.bank&&r.bankText){const b=matchBank(r.bankText);if(b)ch.bank=b}if(!c.loanAmount&&r.d["Loan Amount"])ch.loanAmount=r.d["Loan Amount"];
+    const ch={tp,tpAuto:{...(c.tpAuto||{}),...r.d}};if((!c.applicant||c.applicantFromMail)&&r.d.Mortgagor){ch.applicant=r.d.Mortgagor;ch.applicantFromMail=null}if(!c.loanNo){const ln=r.d["Loan account"]||lanOf(c.mailSubject);if(ln)ch.loanNo=ln}if(!c.phone&&r.d["Mortgagor mobile"])ch.phone=String(r.d["Mortgagor mobile"]).replace(/\D/g,"").slice(-10);if(!c.bank&&r.bankText){const b=matchBank(r.bankText);if(b)ch.bank=b}if(!c.loanAmount&&r.d["Loan Amount"])ch.loanAmount=r.d["Loan Amount"];
     await patch(c,ch,`MODT read again (${n} fields filled)`);toast(`MODT read: ${n} field${n===1?"":"s"} filled. Check them.`);
     const fresh=cases.find(x=>x._doc===c._doc)||{...c,...ch};if(rv.c&&rv.c._doc===c._doc)openReview(fresh,rv.gen)}
   catch(e){console.warn(e);toast("Could not read the MODT: "+(e.message||e))}}

@@ -10,6 +10,9 @@ const cors = {
 const json = (b: unknown, s = 200) => new Response(JSON.stringify(b), { status: s, headers: { ...cors, "Content-Type": "application/json" } });
 
 const PROMPTS: Record<string, string> = {
+  classify: `Each image is the FIRST PAGE of one file sent by a bank for a Tamil Nadu "Deed of Receipt" (MODT discharge) case; a text label before each image gives the file number and file name. For every file decide what it is. Return ONLY JSON:
+{"files":[{"n":1,"type":"modt | supp_modt | noc | patta | ec | letter | aadhaar | other","customer":"borrower / mortgagor name if printed","loan_no":"loan / LAN number if printed","doc_no":"registered document number/year if it is a registered MODT"}],"phone":"customer mobile if printed anywhere"}
+modt = the registered Memorandum of Deposit of Title Deeds (has SRO registration endorsement, document number). supp_modt = a supplementary / further MODT. noc = no-objection / closure / release / discharge letter from the lender. patta = patta, chitta, TSLR or other revenue record. ec = encumbrance certificate. letter = covering letter / request / authorisation from the bank. aadhaar = ID card. Judge by the content, not the file name.`,
   modt_case: `You are preparing a Tamil Nadu TNREGINET "Deposit of Title Deeds" (MODT) entry for a law office. You get, each labelled: the bank's MODT DRAFT (Word text), the TITLE DEED pages (often Tamil), the title holders' AADHAAR/KYC pages, and PATTA / revenue pages. Read them and return ONLY one JSON object with exactly these keys (use "" when unknown):
 {"Deed 1 SRO":"SRO of the 1st title deed, English","Deed 1 Doc No":"","Deed 1 Year":"4 digits","Deed 2 SRO":"","Deed 2 Doc No":"","Deed 2 Year":"","Deed 3 SRO":"","Deed 3 Doc No":"","Deed 3 Year":"",
 "Title holders":"number of title holders / mortgagors, 1-4",
@@ -212,7 +215,7 @@ Deno.serve(async (req) => {
       for (const [k, v] of Object.entries(texts).slice(0, 40)) t[String(k).slice(0, 60)] = String(v).slice(0, 1500);
       content.push({ type: "text", text: PROMPT + "\n\nFields:\n" + JSON.stringify(t, null, 1) });
     } else {
-      const max = kind === "modt_case" ? 20 : 10;
+      const max = kind === "modt_case" || kind === "classify" ? 20 : 10;
       if (!Array.isArray(images) || !images.length || images.length > max) return json({ error: `Send 1-${max} images` }, 400);
       const labels: string[] = Array.isArray(body.labels) ? body.labels : [];
       if (kind === "modt_case" && body.draft) content.push({ type: "text", text: "MODT DRAFT (Word text):\n" + String(body.draft).slice(0, 30000) });
