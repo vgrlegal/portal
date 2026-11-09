@@ -822,7 +822,7 @@ function missingReq(type,docs){
 
 /* ================= actions per stage ================= */
 function prevStage(c){const L=stageLog(c).filter(e=>e.s!=="Case Created");for(let i=L.length-2;i>=0;i--)if(L[i].s!==c.stage)return L[i].s;return""}
-function actionsFor(c){const a0=actionsFor0(c);if(isMD&&prevStage(c))a0.push(["undo","↩ Back to "+prevStage(c)]);return a0}
+function actionsFor(c){const a0=actionsFor0(c);if(isMD&&prevStage(c))a0.push(["undo","↩ Back to "+prevStage(c)]);if(isMD&&c.stage==="Draft Pending"){a0.push(["split","Split case"],["merge","Merge into…"])}return a0}
 function actionsFor0(c){
   const s=c.stage,a=[],fl=flowOf(c.type);
   if(fl==="legal"){
@@ -1029,9 +1029,19 @@ function cOpen(c,keep){const o=$("cDrawer");o.hidden=false;o.dataset.doc=c.doc;c
 
 /* ================= bank (client) uploads: read MODT / supplementary MODT once ================= */
 const BR=new Set();
+const DOMAIN_SEED={"janabank.com":"Jana Small Finance Bank Limited","muthootgroup.com":"Muthoot Fincorp Limited","muthootfincorp.com":"Muthoot Fincorp Limited","icicihfc.com":"ICICI Home Finance Company Limited",
+  "adityabirlacapital.com":"Aditya Birla Housing Finance Limited","aadharhousing.com":"Aadhar Housing Finance Limited","idfcfirstbank.com":"IDFC FIRST Bank Limited","idfcfirstbharat.com":"IDFC FIRST Bharat Limited",
+  "equitasbank.com":"Equitas Small Finance Bank Limited","fedfina.com":"Fedbank Financial Services Limited","godrejcapital.com":"Godrej Housing Finance Limited","herohfl.com":"Hero Housing Finance Limited",
+  "iifl.com":"IIFL Home Finance Limited","iiflhomeloans.com":"IIFL Home Finance Limited","dcbbank.com":"DCB Bank Limited","poonawallafincorp.com":"Poonawalla Fincorp Limited","protium.co.in":"Protium Finance Limited",
+  "clix.capital":"Clix Capital Services Private Limited","veritasfin.in":"Veritas Finance Limited","ltfs.com":"L&T Finance Limited","lendingkart.com":"Lendingkart Finance Limited","smfgindia.com":"SMFG India Credit Company Limited"};
+const FREE_MAIL=/^(gmail\.com|yahoo\.|outlook\.|hotmail\.|rediffmail\.|opinionandownership\.in|vgrlegal\.in)/i;
+function domOf(addr){const m=String(addr||"").match(/@([\w.-]+)/);return m?m[1].toLowerCase():""}
+function bankOfDomain(d){if(!d||FREE_MAIL.test(d))return"";const map={...DOMAIN_SEED,...(cfg.domains||{})};for(const k of Object.keys(map))if(d===k||d.endsWith("."+k))return cfg.banks.includes(map[k])||!DOMAIN_SEED[k]?map[k]:(cfg.banks.find(b=>b===map[k])||map[k]);return""}
 async function bankReads(){if(!(isMD||isAdmin||isPartner())||!canWrite)return;
+  if(isMD||isAdmin){const learn={};cases.filter(x=>x.source==="mail"&&x.bank).forEach(x=>{const d=domOf(x.mailOrigFrom||x.mailFrom);if(d&&!FREE_MAIL.test(d)&&!(cfg.domains||{})[d]&&!DOMAIN_SEED[d])learn[d]=x.bank});
+    if(Object.keys(learn).length)await saveCfg({...cfg,domains:{...(cfg.domains||{}),...learn}})}
   for(const c of cases.filter(x=>x.source==="mail"&&!x.bank&&!x.mailBankDone&&!BR.has("b"+x._doc))){BR.add("b"+x._doc);
-    try{const lab=(c.mailLabels||[]).filter(l=>!/^(inbox|important|starred|unread|vgr-portal)$/i.test(l));let b=lab.length?matchBank(lab.join(" ")):"";
+    try{const lab=(c.mailLabels||[]).filter(l=>!/^(inbox|important|starred|unread|vgr-portal|opinion-portal)$/i.test(l));let b=bankOfDomain(domOf(c.mailOrigFrom))||bankOfDomain(domOf(c.mailFrom))||(lab.length?matchBank(lab.join(" ")):"");
       if(!b&&lab.length&&(isMD||isAdmin)){const nm=lab[0].toLowerCase().replace(/\b\w/g,x=>x.toUpperCase());if(!cfg.banks.some(x=>x.toLowerCase()===nm.toLowerCase())){await saveCfg({...cfg,banks:[...cfg.banks,nm].sort((a,b)=>a.localeCompare(b))})}b=nm}
       const ch={mailBankDone:true};if(b){ch.bank=b;const who2=cfg.staff.map(staffObj).filter(m=>m.team&&(m.banks||[]).includes(b));if(who2.length===1&&!c.assignee)ch.assignee=who2[0].name}
       await db.collection("cases").doc(c._doc).update(ch)}catch(e){BR.delete("b"+c._doc)}}
@@ -1066,6 +1076,8 @@ function runAction(c,k){
     ()=>{const r=fv("m_rr");if(!r)return false;return patch(c,{stage:"Refused",refuseReason:r,comments:[...(c.comments||[]),{at:nowISO(),by:who(),text:"Refused by the SRO: "+r,internal:"false"}].slice(-100)},"Refused: "+r)},"Mark refused");
   if(k==="resubmit")return ask("Resubmit after refusal?",`<p class="sf-note">Confirm the mistake is corrected by hand and the biometric is taken again. The same TP (${esc(c.tpNo||"")}) and payment are used.</p>`,
     ()=>patch(c,{stage:"Submitted Online",comments:[...(c.comments||[]),{at:nowISO(),by:who(),text:"Resubmitted after correction (same TP)",internal:"false"}].slice(-100)},"Resubmitted after refusal (same TP)"),"Resubmit");
+  if(k==="split")return splitCase(c);
+  if(k==="merge")return mergeCase(c);
   if(k==="undo"){const p=prevStage(c);if(!p||!isMD)return;return ask("Move back a stage?",`<p class="sf-note">${esc(c.applicant||c.id)}: <b>${esc(c.stage)}</b> → <b>${esc(p)}</b>. This is recorded in the case history.</p>`,()=>patch(c,{stage:p},`Stage moved back: ${c.stage} → ${p} (Admin)`),"Move back")}
   if(k==="draft")return openReview(c,false);
   if(k==="tpgen")return openReview(c,true);
@@ -1383,18 +1395,36 @@ async function renderReport(){const mEl=$("repMonth");if(!mEl.value)mEl.value=ne
   const P={},row=n=>P[n]||(P[n]={name:n,org:orgOfName(n),created:0,drafted:0,tp:0,done:0,ocr:0,img:0,usd:0});
   cases.forEach(c=>{const L=stageLog(c);L.forEach((e,i)=>{if(!inM(e.at)||!e.by)return;const by=String(e.by).replace(/^Mail · .*/,"Mail (auto)");
     if(i===0||e.s==="Case Created")row(by).created++;else if(e.s==="TP Creation")row(by).drafted++;else if(e.s==="Photo/Biometric")row(by).tp++;else if(FINAL.has(e.s))row(by).done++})});
-  let usage=[];try{const{data}=await window.__sb.from("kv").select("data").eq("collection","usage").gte("data->>at",from).lt("data->>at",to).limit(5000);usage=(data||[]).map(r=>r.data)}catch(e){}
+  let usage=[];if(isMD)try{const{data}=await window.__sb.from("kv").select("data").eq("collection","usage").gte("data->>at",from).lt("data->>at",to).limit(5000);usage=(data||[]).map(r=>r.data)}catch(e){}
   usage.forEach(u=>{const r=row(u.name||u.email||"?");if(u.org)r.org=u.org;r.ocr++;r.img+=+u.images||0;r.usd+=+u.usd||0});
   REP_ROWS=Object.values(P).filter(r=>okOrg(r.org)).sort((a,b)=>a.org.localeCompare(b.org)||b.created+b.tp-a.created-a.tp);
   const tot=REP_ROWS.reduce((t,r)=>{["created","drafted","tp","done","ocr","img","usd"].forEach(k=>t[k]+=r[k]);return t},{created:0,drafted:0,tp:0,done:0,ocr:0,img:0,usd:0});
   const on=o=>o==="vgr"?"VGR Legal":(ORGS[o]||{}).name||o;
-  $("repTbl").innerHTML=`<tr><th>Person</th><th>Organisation</th><th class="c">Cases created</th><th class="c">Drafts done</th><th class="c">TPs made</th><th class="c">Completed</th><th class="c">Claude readings</th><th class="c">Pages read</th><th class="c">Cost (₹, approx.)</th></tr>`+
-    REP_ROWS.map(r=>`<tr><td>${esc(r.name)}</td><td>${esc(on(r.org))}</td><td class="c">${r.created}</td><td class="c">${r.drafted}</td><td class="c">${r.tp}</td><td class="c">${r.done}</td><td class="c">${r.ocr}</td><td class="c">${r.img}</td><td class="c">${Math.round(r.usd*USD_INR)}</td></tr>`).join("")+
-    `<tr style="font-weight:700"><td>Total</td><td></td><td class="c">${tot.created}</td><td class="c">${tot.drafted}</td><td class="c">${tot.tp}</td><td class="c">${tot.done}</td><td class="c">${tot.ocr}</td><td class="c">${tot.img}</td><td class="c">${Math.round(tot.usd*USD_INR)}</td></tr>`;
-  $("repNote").textContent=`Team members (people) in this view: ${REP_ROWS.filter(r=>r.name!=="Mail (auto)").length}. Claude reading is counted from 9 Nov 2026; cost is an estimate (≈ ₹${USD_INR}/$).`;
+  const C=isMD;/* Claude reading count, pages and cost: Admin only */
+  $("repTbl").innerHTML=`<tr><th>Person</th><th>Organisation</th><th class="c">Cases created</th><th class="c">Drafts done</th><th class="c">TPs made</th><th class="c">Completed</th>${C?`<th class="c">Claude readings</th><th class="c">Pages read</th><th class="c">Cost (₹, approx.)</th>`:""}</tr>`+
+    REP_ROWS.map(r=>`<tr><td>${esc(r.name)}</td><td>${esc(on(r.org))}</td><td class="c">${r.created}</td><td class="c">${r.drafted}</td><td class="c">${r.tp}</td><td class="c">${r.done}</td>${C?`<td class="c">${r.ocr}</td><td class="c">${r.img}</td><td class="c">${Math.round(r.usd*USD_INR)}</td>`:""}</tr>`).join("")+
+    `<tr style="font-weight:700"><td>Total</td><td></td><td class="c">${tot.created}</td><td class="c">${tot.drafted}</td><td class="c">${tot.tp}</td><td class="c">${tot.done}</td>${C?`<td class="c">${tot.ocr}</td><td class="c">${tot.img}</td><td class="c">${Math.round(tot.usd*USD_INR)}</td>`:""}</tr>`;
+  $("repNote").textContent=`People in this view: ${REP_ROWS.filter(r=>r.name!=="Mail (auto)").length}.`+(C?` Claude reading is counted from 9 Nov 2026; cost is an estimate (≈ ₹${USD_INR}/$).`:"");
   $("repCsv").onclick=()=>{const h=["Person","Organisation","Cases created","Drafts done","TPs made","Completed","Claude readings","Pages read","Cost INR approx"];
-    const csv=[h,...REP_ROWS.map(r=>[r.name,on(r.org),r.created,r.drafted,r.tp,r.done,r.ocr,r.img,Math.round(r.usd*USD_INR)])].map(a=>a.map(x=>`"${String(x).replace(/"/g,'""')}"`).join(",")).join("\n");
+    if(!C)h.length=6;const csv=[h,...REP_ROWS.map(r=>[r.name,on(r.org),r.created,r.drafted,r.tp,r.done,r.ocr,r.img,Math.round(r.usd*USD_INR)].slice(0,C?9:6))].map(a=>a.map(x=>`"${String(x).replace(/"/g,'""')}"`).join(",")).join("\n");
     const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([csv],{type:"text/csv"}));a.download=`VGR report ${mon}.csv`;a.click()}}
+/* ---- split one mail case into two (several customers in one mail) / merge duplicates; decided by the Admin after checking the documents ---- */
+function allFiles(c){const out=[];Object.entries(c.docs||{}).forEach(([k,arr])=>(arr||[]).forEach((f,i)=>out.push({k,i,f})));return out}
+function splitCase(c){const F=allFiles(c);if(F.length<2){toast("Only one file in this case");return}
+  ask("Split case · "+(c.applicant||c.id),`<p class="sf-note">Tick the files that belong to ANOTHER customer. They move to a new case (Draft Pending) and Claude reads it. Open the files first if unsure.</p>`+
+    F.map((x,j)=>`<label style="display:flex;gap:8px;align-items:center"><input type="checkbox" class="spf" data-j="${j}"> <span><b>${esc(x.k)}</b> · ${esc(x.f.name)}</span></label>`).join("")+`<label>New customer name (optional)<input id="sp_name"></label>`,async()=>{
+    const pick=[...document.querySelectorAll(".spf:checked")].map(e=>F[+e.dataset.j]);if(!pick.length||pick.length===F.length){toast("Tick some (not all) files");return}
+    const keep={},move={};F.forEach(x=>{const tgt=pick.includes(x)?move:keep;(tgt[x.k]=tgt[x.k]||[]).push(x.f)});
+    if(!move.modt){const pdf=Object.keys(move).find(k=>move[k].some(f=>/\.pdf$/i.test(f.name)))||Object.keys(move)[0];const f=move[pdf].shift();if(!move[pdf].length)delete move[pdf];move.modt=[f]}
+    if(!keep.modt){const k2=Object.keys(keep).find(k=>keep[k].length);if(k2){const f=keep[k2].shift();if(!keep[k2].length)delete keep[k2];keep.modt=[f]}}
+    const t=nowISO(),id=newId(),nm=fv("sp_name");const nc={...c,id,docs:move,applicant:nm||"(split from "+c.id+")",applicantFromMail:!nm,tp:{},draft:{},tpAuto:null,bank:c.bank||"",needsRead:"modt",mailIds:[],mailThread:"",mailSubjectKey:"",createdAt:t,requestedAt:t,updatedAt:t,stageAt:t,
+      stageLog:[{s:"Case Created",at:t,by:who()},{s:"Draft Pending",at:t,by:who()}],log:[{at:t,by:who(),text:"Split from "+c.id}],comments:[...(c.comments||[]),{at:t,by:who(),text:"Split from "+c.id,internal:"true"}]};delete nc._doc;
+    await db.collection("cases").add(nc);await patch(c,{docs:keep,needsRead:"modt",tpAuto:null},"Split: "+pick.length+" file(s) moved to "+id);toast("New case "+id+" made; Claude will read both")},"Split")}
+function mergeCase(c){const L=cases.filter(x=>x._doc!==c._doc&&x.stage==="Draft Pending"&&x.type===c.type);if(!L.length){toast("No other Draft Pending case");return}
+  ask("Merge "+c.id+" into another case",`<p class="sf-note">Use this only for the SAME customer and loan (a duplicate). All files and comments of ${esc(c.id)} move into the case you pick, and ${esc(c.id)} is removed.</p><label>Merge into<select id="mg_to">${L.map(x=>`<option value="${esc(x._doc)}">${esc(x.id)} · ${esc(x.applicant||"")} · ${esc(x.bank||"")}</option>`).join("")}</select></label>`,async()=>{
+    const to=cases.find(x=>x._doc===fv("mg_to"));if(!to)return;const d={...(to.docs||{})};Object.entries(c.docs||{}).forEach(([k,arr])=>{const tk=k==="modt"&&(d.modt||[]).length?"letter":k;d[tk]=[...(d[tk]||[]),...(arr||[])]});
+    await patch(to,{docs:d,mailIds:[...(to.mailIds||[]),...(c.mailIds||[c.mailId].filter(Boolean))],comments:[...(to.comments||[]),...(c.comments||[]),{at:nowISO(),by:who(),text:"Merged "+c.id+" into this case",internal:"true"}]},"Merged "+c.id+" into this case");
+    await db.collection("cases").doc(c._doc).delete();toast(c.id+" merged into "+to.id)},"Merge")}
 function caseFiles(c){const pri=["modt","deed","legal","noc","sanction","revenue","ec"],out=[];
   docsFor(c.type).slice().sort((a,b)=>((pri.indexOf(a.k)+1)||99)-((pri.indexOf(b.k)+1)||99)).forEach(d=>((c.docs||{})[d.k]||[]).forEach(f=>out.push({...f,lab:d.l})));return out}
 async function docUrl(u){if(String(u).startsWith("sb:")&&window.__signed)return window.__signed(u);return u}
@@ -1715,7 +1745,7 @@ $("clientSave").onclick=()=>{const L=readClients();const bad=L.find(c=>!c.email|
   saveCfg({...cfg,clients:L})};
 $("paySave").onclick=()=>saveCfg({...cfg,pay:{account:$("pay_account").value.trim(),upi:fv("pay_upi"),link:fv("pay_link"),service:fv("pay_service")}});
 async function saveCfg(n){if(!db){toast("Sign in to save");return}cfg=n;fillStatic();render();
-  try{await db.doc("config/lists").set({banks:n.banks,staff:n.staff.map(staffObj),types:n.types,pay:n.pay||{},profiles:n.profiles||{},wit:n.wit||[],clients:n.clients||[],rules:n.rules||[]});toast("Saved")}catch(err){fail(err)}}
+  try{await db.doc("config/lists").set({banks:n.banks,staff:n.staff.map(staffObj),types:n.types,pay:n.pay||{},profiles:n.profiles||{},wit:n.wit||[],clients:n.clients||[],rules:n.rules||[],domains:n.domains||{}});toast("Saved")}catch(err){fail(err)}}
 function fillStatic(){
   opts($("fClient"),cfg.banks,"All Clients");
   const names=[...(isMD?[MD_NAME]:[]),...cfg.staff.map(s=>staffObj(s).name).filter(n=>!(isMD&&n===MD_NAME))],mv=me;
@@ -2422,7 +2452,7 @@ setInterval(()=>{if(!$("v-list").hidden||!$("v-dash").hidden)render()},60000);
     if(isMD){$("mdBadge").hidden=false;if(!me||me===MD_OLD){me=MD_NAME;lsSet("vgr.me",me)}}}
   const timer=setTimeout(()=>{if(!cases.length)$("empty").innerHTML="<h2>Can't reach the case list yet</h2>Check your internet connection. It will load on its own once connected."},10000);
   db.doc("config/lists").onSnapshot(s=>{const d=s.exists?s.data():{};
-    cfg={banks:d.banks||[],staff:(d.staff||[]).map(staffObj),types:(d.types&&d.types.length)?d.types:DEFAULT_TYPES.slice(),pay:d.pay||{},profiles:d.profiles||{},wit:d.wit||[],clients:d.clients||[],rules:d.rules||[]};
+    cfg={banks:d.banks||[],staff:(d.staff||[]).map(staffObj),types:(d.types&&d.types.length)?d.types:DEFAULT_TYPES.slice(),pay:d.pay||{},profiles:d.profiles||{},wit:d.wit||[],clients:d.clients||[],rules:d.rules||[],domains:d.domains||{}};
     myStaff=!isMD&&SELF_EMAIL?cfg.staff.find(x=>x.email&&x.email.toLowerCase()===SELF_EMAIL)||null:null;if(myStaff)me=myStaff.name;
     applyBrand();if(!["dash","__all","__set","__sro","__ppl","__team","__rep"].includes(tab)&&!cfg.types.includes(tab))tab="dash";fillStatic();render()},()=>{});
   db.doc("tp_jobs/_worker").onSnapshot(s=>{W.at=s.exists?(s.data()||{}).at:null;if(!$("tpbar").hidden)renderHelperChip()},()=>{});

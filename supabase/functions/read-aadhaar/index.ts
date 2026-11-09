@@ -109,7 +109,7 @@ async function mailIn(body: Record<string, unknown>) {
   if (dup1 && dup1.length) return json({ ok: true, duplicate: true, doc: dup1[0].id });
   const threadId = String(body.threadId ?? "").slice(0, 200);
   const subjKey = String(body.subject ?? "").toLowerCase().replace(/^\s*((re|fw|fwd)\s*:\s*|\[external\]-?\s*)+/g, "").replace(/\s+/g, " ").trim().slice(0, 120);
-  const labels = (Array.isArray(body.labels) ? body.labels : []).map((x: unknown) => String(x).slice(0, 60)).filter((x: string) => !/^vgr-portal$/i.test(x)).slice(0, 10);
+  const labels = (Array.isArray(body.labels) ? body.labels : []).map((x: unknown) => String(x).slice(0, 60)).filter((x: string) => !/^(vgr-portal|opinion-portal)$/i.test(x)).slice(0, 10);
   const files = Array.isArray(body.files) ? body.files.slice(0, 15) : [];
   const t = new Date().toISOString().replace(/\.\d+Z$/, "Z");
   const day = t.slice(0, 10).replace(/-/g, "");
@@ -151,6 +151,9 @@ async function mailIn(body: Record<string, unknown>) {
   const { count } = await admin.from("kv").select("id", { count: "exact", head: true }).eq("collection", "cases").like("data->>id", `VGR-${day}-%`);
   const cid = `VGR-${day}-${String((count ?? 0) + 1).padStart(3, "0")}`;
   const from = String(body.from ?? "").slice(0, 200), subject = String(body.subject ?? "").slice(0, 200);
+  // forwarded mail: the bank's original sender is inside the text ("From: Name <x@bank.com>")
+  const om = String(body.text ?? "").match(/From:\s*[^\n<]*<?\s*([\w.+-]+@[\w.-]+\.[a-z]{2,})/i);
+  const origFrom = om ? om[1].toLowerCase() : "";
   const who = "Mail · " + from;
   const data = {
     id: cid, type: "Deed of Receipt", applicant: subject.slice(0, 80) || "(from mail)", applicantFromMail: true, loanNo: "", phone: "", bank: "", branch: "",
@@ -158,7 +161,7 @@ async function mailIn(body: Record<string, unknown>) {
     stageLog: [{ s: "Case Created", at: t, by: who }, { s: "Draft Pending", at: t, by: who }],
     log: [{ at: t, by: who, text: `Case created from e-mail (${n} attachment(s))` }],
     comments: [{ at: t, by: who, text: `E-mail from ${from}: ${subject}\n${String(body.text ?? "").slice(0, 1500)}`, internal: "true", from: "mail" }],
-    docs, tp: {}, source: "mail", mailId, mailIds: [mailId], mailThread: threadId, mailSubjectKey: subjKey, mailLabels: labels, mailFrom: from, mailSubject: subject, needsRead: docs.modt ? "modt" : null,
+    docs, tp: {}, source: "mail", mailId, mailIds: [mailId], mailThread: threadId, mailSubjectKey: subjKey, mailLabels: labels, mailOrigFrom: origFrom, mailFrom: from, mailSubject: subject, needsRead: docs.modt ? "modt" : null,
   };
   const doc = crypto.randomUUID();
   const { error } = await admin.from("kv").insert({ collection: "cases", id: doc, data });
