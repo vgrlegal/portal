@@ -24,6 +24,7 @@ body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset
 .wrap{padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
 header{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background:var(--surface);border-bottom:1px solid var(--line)}
 .top{display:flex;align-items:center;gap:12px;padding-block:10px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+.logo.small{height:26px;opacity:.9}.ptlogo{height:52px;padding:0}
 .logo{display:block;height:48px;width:auto;background:#fff;border-radius:6px;padding:2px 6px;box-sizing:content-box}
 .office{border:1px solid var(--line);border-radius:8px;padding:5px 12px;font-weight:500;font-size:13px;color:var(--muted)}
 .me{display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--muted)}
@@ -449,6 +450,9 @@ tr.hf input,tr.hf select{font-size:12.5px;padding:5px 7px;margin:2px 0}
       <div class="card"><h2>Witnesses</h2><div id="pp_wits"></div></div>
     </div>
   </section>
+  <section id="v-team" hidden><div class="wrap" style="padding-top:16px"><div class="card"><h2>My team</h2><p>Your team works on Deed of Receipt only. Add a person, save, then press Invite (e-mail) or Copy link (to send on WhatsApp). The link works once; only that person should open it.</p>
+    <div style="overflow-x:auto"><table class="mini" id="teamTbl"></table></div>
+    <div style="display:flex;gap:8px;margin-top:10px"><button class="btn" id="teamAdd" type="button">+ Add team member</button><button class="btn primary" id="teamSave" type="button">Save team</button></div></div></div></section>
   <section id="v-set" hidden>
     <p class="banner" id="setNote" hidden>Only the Admin can change clients, staff and payment details.</p>
     <div class="grid2">
@@ -720,9 +724,12 @@ const bucketLabel={lt2:"< 2 Days","2-3":"2-3 Days","3-5":"3-5 Days",gt5:"> 5 Day
 const nowISO=()=>new Date().toISOString();
 const who=()=>me||"Office";
 const money=v=>v===""||v==null?"":"₹"+Number(v).toLocaleString("en-IN");
+const ORGS={oo:{name:"Opinion & Ownership",logo:"oo-logo.svg"}};
+function myOrg(){return myStaff?(myStaff.partner||myStaff.team||""):""}
+function isPartner(){return !!(myStaff&&myStaff.partner)}
 function canTp(){return isMD||!!(myStaff&&myStaff.tp===true)}
 function staffObj(x){return typeof x==="string"?{name:x,email:"",phone:"",tabs:TAB_KEYS.map(t=>t[0])}:{tabs:TAB_KEYS.map(t=>t[0]),...x}}
-function allowedTab(t){if(isMD||isAdmin)return true;if(t==="__set"||t==="__ppl")return false;if(t==="dash"||t==="__all")return true;if(!myStaff)return false;return (myStaff.tabs||[]).includes(t)}
+function allowedTab(t){if(t==="__team")return isPartner();if(isMD||isAdmin)return true;if(t==="__set"||t==="__ppl")return false;if(t==="dash"||t==="__all")return true;if(!myStaff)return false;return (myStaff.tabs||[]).includes(t)}
 
 /* ================= tabs & ranges ================= */
 function renderTabs(){
@@ -734,7 +741,8 @@ function renderTabs(){
     (allowedTab("__sro")?`<button role="tab" data-t="__sro" aria-selected="${tab==="__sro"}">Village Finder</button>`:"")+
     (false&&allowedTab("__kyc")?`<button role="tab" data-t="__kyc" aria-selected="${tab==="__kyc"}">Drafting</button>`:"")+
     (isMD||isAdmin?`<button role="tab" data-t="__ppl" aria-selected="${tab==="__ppl"}">KYC Master</button>`:"")+
-    (isMD||isAdmin?`<button role="tab" data-t="__set" aria-selected="${tab==="__set"}">Clients &amp; Staff</button>`:"");
+    (isMD||isAdmin?`<button role="tab" data-t="__set" aria-selected="${tab==="__set"}">Clients &amp; Staff</button>`:"")+
+    (isPartner()?`<button role="tab" data-t="__team" aria-selected="${tab==="__team"}">My team</button>`:"");
 }
 $("tabs").onclick=e=>{const b=e.target.closest("button");if(!b)return;tab=b.dataset.t;page=0;lsSet("vgr.tab",tab);render()};
 $("ranges").onclick=e=>{const b=e.target.closest("button");if(!b)return;range=b.dataset.r;page=0;[...$("ranges").children].forEach(x=>x.setAttribute("aria-pressed",x===b));$("customRow").hidden=range!=="cus";render()};
@@ -836,8 +844,9 @@ function actionsFor0(c){
 function render(){
   renderTabs();
   if(!allowedTab(tab))tab="dash";
-  ["v-dash","v-list","v-set","v-sro","v-kyc","v-ppl"].forEach(id=>$(id).hidden=true);
-  const tool=tab==="__set"||tab==="__sro"||tab==="__kyc"||tab==="__ppl";
+  ["v-dash","v-list","v-set","v-sro","v-kyc","v-ppl","v-team"].forEach(id=>$(id).hidden=true);
+  const tool=tab==="__set"||tab==="__sro"||tab==="__kyc"||tab==="__ppl"||tab==="__team";
+  if(tab==="__team"){$("v-team").hidden=false;renderTeam();$("ranges").style.visibility="hidden";return}
   $("ranges").style.visibility=tool?"hidden":"visible";$("customRow").hidden=tool||range!=="cus";
   if(tab==="__set"){$("v-set").hidden=false;renderSettings();return}
   if(tab==="__ppl"){$("v-ppl").hidden=false;renderPeople();return}
@@ -1338,6 +1347,20 @@ function renderRules(ro){const box=$("rulesList");if(!box)return;$("rulesCard").
   box.querySelectorAll("[data-rd]").forEach(b=>b.onclick=()=>ask("Delete this rule?",`<p class="sf-note">Claude and the robot will stop using it.</p>`,()=>saveCfg({...cfg,rules:R.filter(r=>r.id!==b.dataset.rd)}).then(()=>renderRules(ro)),"Delete"));
   box.querySelectorAll("[data-re]").forEach(b=>b.onclick=()=>{const r=R.find(x=>x.id===b.dataset.re);ask("Edit rule",`<label class="full">Rule<textarea id="m_rule" rows="3">${esc(r.text)}</textarea></label>`,()=>{const t=$("m_rule").value.trim();if(!t)return;return saveCfg({...cfg,rules:R.map(x=>x.id===r.id?{...x,text:t}:x)}).then(()=>renderRules(ro))},"Save")});
   $("ruleAdd").hidden=ro;$("ruleAdd").onsubmit=async e=>{e.preventDefault();const t=$("ruleIn").value.trim();if(!t)return;await addRule(t,"");$("ruleIn").value="";renderRules(ro)}}
+/* ---- partner (e.g. Opinion & Ownership): their team, their branding ---- */
+function teamRows(){return cfg.staff.map(staffObj).filter(x=>x.team&&x.team===myOrg())}
+function renderTeam(){const L=teamRows();const t=$("teamTbl");
+  t.innerHTML=`<tr><th>Name</th><th>Email</th><th>Phone</th><th class="c">TP Generate</th><th></th></tr>`+L.map((m,i)=>`<tr data-i="${i}"><td><input class="tm_n" value="${esc(m.name)}"></td><td><input class="tm_e" type="email" value="${esc(m.email)}"></td><td><input class="tm_p" value="${esc(m.phone||"")}"></td><td class="c"><input type="checkbox" class="tm_t" ${m.tp?"checked":""}></td>
+    <td style="white-space:nowrap">${m.email?`<button class="btn tinv" type="button" data-em="${esc(m.email)}">Invite</button> <button class="btn slink" type="button" data-em="${esc(m.email)}">Copy link</button> `:""}<button class="btn danger tdel" type="button">Remove</button></td></tr>`).join("")+(L.length?"":`<tr><td colspan="5" class="sf-note">No team members yet.</td></tr>`);
+  t.querySelectorAll(".tdel").forEach(b=>b.onclick=()=>{b.closest("tr").remove()});
+  t.querySelectorAll(".tinv").forEach(b=>b.onclick=async()=>{b.disabled=true;b.textContent="Sending…";try{const{data,error}=await window.__sb.functions.invoke("read-aadhaar",{body:{kind:"invite",email:b.dataset.em}});if(error||!data||data.error)throw new Error((data&&data.error)||(error&&error.message));b.textContent="Sent ✓";toast(data.sent==="reset"?"Already has a login: a password-reset link was e-mailed.":"Invite e-mailed.")}catch(e){b.textContent="Invite";b.disabled=false;toast("Invite not sent: "+e.message)}})}
+function readTeam(){return[...$("teamTbl").querySelectorAll("tr[data-i]")].map(tr=>({name:tr.querySelector(".tm_n").value.trim(),email:tr.querySelector(".tm_e").value.trim().toLowerCase(),phone:tr.querySelector(".tm_p").value.trim(),tp:tr.querySelector(".tm_t").checked})).filter(x=>x.name&&x.email)}
+$("teamAdd").onclick=()=>{const t=$("teamTbl"),tr=document.createElement("tr");tr.dataset.i="new";tr.innerHTML=`<td><input class="tm_n" placeholder="Name"></td><td><input class="tm_e" type="email" placeholder="name@mail.com"></td><td><input class="tm_p"></td><td class="c"><input type="checkbox" class="tm_t"></td><td><button class="btn danger tdel" type="button">Remove</button></td>`;tr.querySelector(".tdel").onclick=()=>tr.remove();t.appendChild(tr)};
+$("teamSave").onclick=async()=>{const L=readTeam();try{const{data,error}=await window.__sb.rpc("partner_save_team",{members:L});if(error)throw error;toast(`Team saved (${data} member${data===1?"":"s"}). Now press Invite or Copy link.`+(data<L.length?" Some e-mails were already used elsewhere and were skipped.":""))}catch(e){toast("Team not saved: "+(e.message||e))}};
+function applyBrand(){const o=ORGS[myOrg()];const h=document.querySelector("header .top");if(!h)return;let pl=$("ptLogo");
+  if(!o){if(pl)pl.remove();document.querySelector("header .logo").classList.remove("small");return}
+  if(!pl){pl=document.createElement("img");pl.id="ptLogo";pl.className="logo ptlogo";h.insertBefore(pl,h.firstChild)}pl.src=o.logo;pl.alt=o.name;
+  document.querySelector("header .logo:not(.ptlogo)").classList.add("small");const of=document.querySelector("header .office");if(of)of.textContent="with VGR Legal · Deed of Receipt desk"}
 function caseFiles(c){const pri=["modt","deed","legal","noc","sanction","revenue","ec"],out=[];
   docsFor(c.type).slice().sort((a,b)=>((pri.indexOf(a.k)+1)||99)-((pri.indexOf(b.k)+1)||99)).forEach(d=>((c.docs||{})[d.k]||[]).forEach(f=>out.push({...f,lab:d.l})));return out}
 async function docUrl(u){if(String(u).startsWith("sb:")&&window.__signed)return window.__signed(u);return u}
@@ -1583,7 +1606,7 @@ function renderDash(){
   const laneHtml=lanes.map(L=>{const x=open.filter(L.f).sort((a,b)=>days(b)-days(a));return`<section class="lane" style="--lc:${L.c}"><h3>${esc(L.t)}<span class="ct">${x.length}</span></h3><div class="hint">${esc(L.h)}</div>${x.length?`<ul>${x.slice(0,6).map(item).join("")}</ul>${x.length>6?`<button type="button" class="btn more" data-jump="__all">+${x.length-6} more · All Cases</button>`:""}`:`<div class="none">Nothing here ✓</div>`}</section>`}).join("");
   const done=cs.filter(c=>FINAL.has(c.stage)).length;
   const num=(n,l,bad)=>`<div class="${bad&&n?"bad":""}"><b>${n}</b><span>${l}</span></div>`;
-  let h=`<div class="vgrband"><div><div class="when">${esc(now.toLocaleDateString("en-IN",{weekday:"long",day:"numeric",month:"long",year:"numeric"}))}</div><h1>${greet}${(isMD?MD_NAME:(myStaff&&myStaff.name))?", "+esc(isMD?MD_NAME:myStaff.name):""} <span class="gold">·</span> VGR Legal desk</h1></div><span class="sp"></span>
+  let h=`<div class="vgrband"><div><div class="when">${esc(now.toLocaleDateString("en-IN",{weekday:"long",day:"numeric",month:"long",year:"numeric"}))}</div><h1>${greet}${(isMD?MD_NAME:(myStaff&&myStaff.name))?", "+esc(isMD?MD_NAME:myStaff.name):""} <span class="gold">·</span> ${esc((ORGS[myOrg()]||{name:"VGR Legal"}).name)} desk</h1></div><span class="sp"></span>
     <span class="rb" id="dashRobot"><i></i>TP Computer…</span>
     <div class="jump">${types.map((t,i)=>`<button type="button" class="${i===0?"g":""}" data-jump="${esc(t)}">${esc(t)}</button>`).join("")}<button type="button" data-jump="__all">All Cases</button></div></div>
   <div class="nums">${num(open.length,"Open cases")}${num(open.filter(c=>days(c)>5).length,"Over 5 days",1)}${num(open.filter(c=>isTp(c)).length,"TP created, not registered")}${num(cs.length,"New in range")}${num(done,"Completed in range")}</div>
@@ -1616,13 +1639,19 @@ function renderSettings(){
   $("staffTbl").innerHTML=`<tr><th>Name</th><th>Email</th><th>Phone</th>${TAB_KEYS.map(t=>`<th class="c">${esc(t[1])}</th>`).join("")}<th class="c" title="Can press TP Generate for single cases (Bulk Run stays Admin only)">TP Generate</th><th></th></tr>`+
     staff.map((s,i)=>`<tr data-i="${i}"><td><input class="sv" data-f="name" value="${esc(s.name)}" ${ro?"disabled":""}></td><td><input class="sv" data-f="email" type="email" value="${esc(s.email)}" ${ro?"disabled":""}></td><td><input class="sv" data-f="phone" value="${esc(s.phone)}" ${ro?"disabled":""}></td>
       ${TAB_KEYS.map(t=>`<td class="c"><input type="checkbox" class="st" data-t="${esc(t[0])}" ${s.tabs.includes(t[0])?"checked":""} ${ro?"disabled":""} aria-label="${esc(s.name)} can use ${esc(t[1])}"></td>`).join("")}<td class="c"><input type="checkbox" class="stp" ${s.tp===true?"checked":""} ${ro?"disabled":""} aria-label="${esc(s.name)} can press TP Generate"></td>
-      <td style="white-space:nowrap">${ro||s.name===MD_NAME?"":`${s.email?`<button class="btn sinv" type="button" data-em="${esc(s.email)}">Invite</button> `:""}<button class="btn danger sdel" type="button">Remove</button>`}</td></tr>`).join("");
+      <td style="white-space:nowrap">${s.partner||s.team?`<span class="pill p-info" title="Partner organisation">${s.partner?"Partner · ":""}${esc((ORGS[s.partner||s.team]||{}).name||s.partner||s.team)}</span> `:""}${ro||s.name===MD_NAME?"":`${s.email?`<button class="btn sinv" type="button" data-em="${esc(s.email)}">Invite</button> <button class="btn slink" type="button" data-em="${esc(s.email)}">Copy link</button> `:""}<button class="btn danger sdel" type="button">Remove</button>`}</td></tr>`).join("");
   $("staffAdd").hidden=ro;$("staffSave").hidden=ro;renderMasters(ro);
   renderClients(ro);renderRules(ro);
   const p=cfg.pay||{};["account","upi","link","service"].forEach(k=>{$("pay_"+k).value=p[k]||"";$("pay_"+k).disabled=ro});$("paySave").hidden=ro;
   tnRender(ro);
 }
-$("v-set").addEventListener("click",async e=>{const iv=e.target.closest(".sinv");if(iv){iv.disabled=true;iv.textContent="Sending…";
+async function copyInviteLink(em,btn){btn.disabled=true;const old=btn.textContent;btn.textContent="Making link…";
+  try{const{data,error}=await window.__sb.functions.invoke("read-aadhaar",{body:{kind:"invite",email:em,link:true}});if(error||!data||!data.link)throw new Error((data&&data.error)||(error&&error.message)||"failed");
+    let ok=false;try{await navigator.clipboard.writeText(data.link);ok=true}catch(e){}
+    ask("Login link for "+em,`<p class="sf-note">${ok?"Copied. ":""}Send this on WhatsApp to ${esc(em)} only. It works once and expires in 24 hours. They open it and set their own password.</p><textarea rows="4" readonly style="width:100%">${esc(data.link)}</textarea>`,()=>{},"Done");btn.textContent="Copied ✓"}
+  catch(err){toast("Link not made: "+err.message);btn.textContent=old;btn.disabled=false}}
+$("v-team").addEventListener("click",e=>{const l=e.target.closest(".slink");if(l)return copyInviteLink(l.dataset.em,l)});
+$("v-set").addEventListener("click",async e=>{const lk=e.target.closest(".slink");if(lk)return copyInviteLink(lk.dataset.em,lk);const iv=e.target.closest(".sinv");if(iv){iv.disabled=true;iv.textContent="Sending…";
     try{const{data,error}=await window.__sb.functions.invoke("read-aadhaar",{body:{kind:"invite",email:iv.dataset.em}});if(error||!data||data.error)throw new Error((data&&data.error)||(error&&error.message)||"failed");
       toast(data.sent==="reset"?`${iv.dataset.em} already has a login: a password-reset link was emailed.`:`Invite emailed to ${iv.dataset.em}.`);iv.textContent="Sent ✓"}
     catch(err){toast("Invite not sent: "+err.message);iv.textContent="Invite";iv.disabled=false}return}
@@ -1632,7 +1661,7 @@ document.querySelectorAll(".addline[data-k]").forEach(f=>f.onsubmit=e=>{e.preven
   if(cfg.banks.some(x=>x.toLowerCase()===v.toLowerCase())){toast("Already in the list");return}saveCfg({...cfg,banks:[...cfg.banks,v]});inp.value=""});
 function fileLinks(fs){return(fs||[]).map(f=>`<a href="${esc(f.url)}" target="_blank" rel="noopener">${esc(f.name)}</a>`).join(" ")}
 function upBtn(id,label,ro,multi){return ro?"":`<label class="btn" for="${id}">${label}</label><input type="file" id="${id}" accept="image/*,application/pdf,.pdf" ${multi?"multiple":""} hidden>`}
-function readStaff(){return[...$("staffTbl").querySelectorAll("tr[data-i]")].map(tr=>({name:tr.querySelector('[data-f="name"]').value.trim(),email:tr.querySelector('[data-f="email"]').value.trim().toLowerCase(),phone:tr.querySelector('[data-f="phone"]').value.trim(),tabs:[...tr.querySelectorAll(".st:checked")].map(x=>x.dataset.t),tp:!!(tr.querySelector(".stp")||{}).checked})).filter(s=>s.name)}
+function readStaff(){return[...$("staffTbl").querySelectorAll("tr[data-i]")].map(tr=>({...(()=>{const o=staffObj(cfg.staff[+tr.dataset.i]||{});return{partner:o.partner,team:o.team}})(),name:tr.querySelector('[data-f="name"]').value.trim(),email:tr.querySelector('[data-f="email"]').value.trim().toLowerCase(),phone:tr.querySelector('[data-f="phone"]').value.trim(),tabs:[...tr.querySelectorAll(".st:checked")].map(x=>x.dataset.t),tp:!!(tr.querySelector(".stp")||{}).checked})).filter(s=>s.name)}
 $("staffAdd").onclick=()=>{const s=readStaff();s.push({name:"New staff",email:"",phone:"",tabs:["MODT"]});cfg={...cfg,staff:s};renderSettings()};
 $("staffSave").onclick=()=>saveCfg({...cfg,staff:readStaff()});
 function branchesOf(co){return [...new Set(cases.filter(c=>c.bank===co&&c.branch).map(c=>c.branch))].sort()}
@@ -2361,7 +2390,7 @@ setInterval(()=>{if(!$("v-list").hidden||!$("v-dash").hidden)render()},60000);
   db.doc("config/lists").onSnapshot(s=>{const d=s.exists?s.data():{};
     cfg={banks:d.banks||[],staff:(d.staff||[]).map(staffObj),types:(d.types&&d.types.length)?d.types:DEFAULT_TYPES.slice(),pay:d.pay||{},profiles:d.profiles||{},wit:d.wit||[],clients:d.clients||[],rules:d.rules||[]};
     myStaff=!isMD&&SELF_EMAIL?cfg.staff.find(x=>x.email&&x.email.toLowerCase()===SELF_EMAIL)||null:null;if(myStaff)me=myStaff.name;
-    if(!["dash","__all","__set","__sro","__ppl"].includes(tab)&&!cfg.types.includes(tab))tab="dash";fillStatic();render()},()=>{});
+    applyBrand();if(!["dash","__all","__set","__sro","__ppl","__team"].includes(tab)&&!cfg.types.includes(tab))tab="dash";fillStatic();render()},()=>{});
   db.doc("tp_jobs/_worker").onSnapshot(s=>{W.at=s.exists?(s.data()||{}).at:null;if(!$("tpbar").hidden)renderHelperChip()},()=>{});
   db.collection("cases").onSnapshot(s=>{if(!s.metadata.fromCache)clearTimeout(timer);cases=s.docs.map(d=>({...d.data(),_doc:d.id}));
     if(editing){const fresh=cases.find(c=>c._doc===editing._doc);if(fresh){editing=fresh;if($("timeline"))renderTimeline(fresh)}}

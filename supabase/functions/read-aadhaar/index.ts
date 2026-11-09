@@ -43,16 +43,28 @@ Rules:
 
 // Admin invites a staff member: Supabase emails a link and they set their own password.
 // Only the Admin (my_role = 'md'), and only for an email already saved in Clients & Staff.
-async function invite(role: unknown, email: unknown) {
-  if (role !== "md") return json({ error: "Only the Admin can invite staff" }, 403);
+// Invite a staff / client login. The Admin can invite anyone saved in Clients & Staff; a partner (e.g. Opinion &
+// Ownership) can invite only their own team. link=true returns a one-time link to send on WhatsApp instead of e-mail.
+// deno-lint-ignore no-explicit-any
+async function invite(sb: any, role: unknown, email: unknown, link: unknown) {
   const em = String(email ?? "").trim().toLowerCase();
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(em)) return json({ error: "Not a valid email" }, 400);
   const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
   const { data: cfg } = await admin.from("kv").select("data").eq("collection", "config").eq("id", "lists").maybeSingle();
-  const staff = ((cfg?.data as { staff?: unknown[] })?.staff ?? []) as { email?: string }[];
+  const staff = ((cfg?.data as { staff?: unknown[] })?.staff ?? []) as { email?: string; team?: string }[];
   const clients = ((cfg?.data as { clients?: unknown[] })?.clients ?? []) as { email?: string }[];
-  const listed = (a: { email?: string }[]) => a.some((x) => typeof x === "object" && String(x.email ?? "").toLowerCase() === em);
-  if (!listed(staff) && !listed(clients)) return json({ error: "Save this email in Clients & Staff first" }, 400);
+  const find = (a: { email?: string }[]) => a.find((x) => typeof x === "object" && String(x.email ?? "").toLowerCase() === em);
+  if (role !== "md") {
+    const { data: org } = await sb.rpc("partner_org");
+    const m = find(staff) as { team?: string } | undefined;
+    if (!org || !m || m.team !== org) return json({ error: "You can invite only your own team" }, 403);
+  } else if (!find(staff) && !find(clients)) return json({ error: "Save this email in Clients & Staff first" }, 400);
+  if (link) {
+    let r = await admin.auth.admin.generateLink({ type: "invite", email: em, options: { redirectTo: "https://portal.vgrlegal.in/?invite=1" } });
+    if (r.error && /already/i.test(r.error.message)) r = await admin.auth.admin.generateLink({ type: "recovery", email: em, options: { redirectTo: "https://portal.vgrlegal.in/" } });
+    if (r.error) return json({ error: r.error.message }, 400);
+    return json({ ok: true, link: r.data.properties.action_link });
+  }
   const { error } = await admin.auth.admin.inviteUserByEmail(em, { redirectTo: "https://portal.vgrlegal.in/?invite=1" });
   if (error) {
     if (/already/i.test(error.message)) {
@@ -136,7 +148,7 @@ Deno.serve(async (req) => {
     const { data: role } = await sb.rpc("my_role");
     if (!role) return json({ error: "Not allowed" }, 403);
     const body = await req.json();
-    if (body?.kind === "invite") return await invite(role, body.email);
+    if (body?.kind === "invite") return await invite(sb, role, body.email, body.link);
     if (body?.kind === "client_file") return await clientFile(sb, role, body.doc, body.url);
     if (role === "client") return json({ error: "Not allowed" }, 403);
     const key = Deno.env.get("ANTHROPIC_API_KEY");
