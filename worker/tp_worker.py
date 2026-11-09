@@ -1811,11 +1811,134 @@ def run_modt(page, job, case):
     except Stop as e:
         prop_note = f" Property NOT done: {e} Add the property by hand (Add property → copy from the linked document)."
         job.step("Property not done", page)
+    if not prop_note.startswith(" Property NOT"):
+        # 8. Loan → title deposit → possession → legal conditions → reasons → supporting → preview → Create Document
+        return modt_second_half(P, job, page, d, case, comments)
     note = ("MODT draft saved on TNREGINET: title deed linked, title holder(s), company, witnesses, presenter." + prop_note +
             " Continue by hand from Loan details in My Documents (loan, legal conditions, Create Document and uploads are next for the robot).")
     if P.warn:
         note += " Warnings: " + "; ".join(P.warn[:8])
     job.upd(status="done", message=note)
+
+
+def label_select(page, label_re, opt_re):
+    """Pick an option in the visible dropdown whose label matches (e.g. Purpose of Loan)."""
+    return page.evaluate("""([pat,op])=>{const re=new RegExp(pat,'i'),ro=new RegExp(op,'i');
+        const s=[...document.querySelectorAll('select')].find(e=>{if(!e.offsetParent)return false;let l=e.labels&&e.labels[0]?e.labels[0].innerText:'';
+          if(!l){let p=e.parentElement;for(let i=0;i<3&&p&&!l;i++){const x=p.querySelector('label');if(x)l=x.innerText;p=p.parentElement}}return re.test(l)||re.test(e.id||'')});
+        if(!s)return 'NOFIELD';const o=[...s.options].find(o=>ro.test(o.text));if(!o)return 'NOOPT '+[...s.options].map(o=>o.text.trim()).slice(0,8).join('|');
+        if(window.jQuery)jQuery(s).val(o.value).trigger('change');else{s.value=o.value;s.dispatchEvent(new Event('change',{bubbles:true}))}return 'ok '+o.text}""", [label_re, opt_re])
+
+
+def modt_next(P, job, page, what):
+    """Save and Continue to the next main step; stop with TNREGINET's own words if it refuses."""
+    msg = main_next(P, page, 5)
+    errs = form_errors(P)
+    if errs or (msg and re.search(r"mandatory|please enter|please select|invalid|required", msg, re.I)):
+        job.step(f"{what}: not accepted", page)
+        raise Stop(f"{what}: TNREGINET wants: {'; '.join(errs) or msg[:160]}. The draft is saved; finish this page by hand or fix Drafting and start again.")
+    return msg
+
+
+APPEND_LOD_JS = r"""(txt)=>{const html='<p>&nbsp;</p>'+txt.split(/\n/).map(l=>'<p>'+l.replace(/[<>&]/g,c=>({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]))+'</p>').join('');
+  if(window.CKEDITOR&&CKEDITOR.instances){const k=Object.keys(CKEDITOR.instances).find(k=>{const e=CKEDITOR.instances[k];return e&&e.container&&e.container.$&&e.container.$.offsetParent});
+    if(k){const e=CKEDITOR.instances[k];e.setData(e.getData()+html);return 'ckeditor '+k}}
+  if(window.tinymce&&tinymce.activeEditor){tinymce.activeEditor.setContent(tinymce.activeEditor.getContent()+html);return 'tinymce'}
+  const ce=[...document.querySelectorAll('[contenteditable=true]')].find(e=>e.offsetParent);if(ce){ce.insertAdjacentHTML('beforeend',html);ce.dispatchEvent(new Event('input',{bubbles:true}));return 'editable'}
+  const ta=[...document.querySelectorAll('textarea')].filter(e=>e.offsetParent).pop();if(ta){ta.value+='\n'+txt;['input','change','blur'].forEach(t=>ta.dispatchEvent(new Event(t,{bubbles:true})));return 'textarea '+ta.id}
+  return ''}"""
+
+
+def modt_second_half(P, job, page, d, case, comments):
+    """MODT robot part 2 (from the screenshots of 10 Nov): Mortgage & security (loan amount, purpose) → title deposit (skip) →
+    possession remarks (skip) → legal conditions (tick + Copy, then the list of documents) → reasons (save) →
+    supporting details (place of execution EN/TA; SRO selection only checked) → preview → Create Document. Stops before payment."""
+    # Mortgage and Security Details
+    job.step("9 · Mortgage and security details", page)
+    main_next(P, page, 6)
+    wait_for(P, "()=>/Loan Amount/i.test(document.body.innerText)", 20)
+    amt = re.sub(r"[^\d.]", "", g(d, "Loan amount", "Loan Amount") or str(case.get("loanAmount") or ""))
+    if not amt:
+        raise Stop("Loan amount is empty in Drafting (12 · Loan). The draft is saved on TNREGINET.")
+    if not label_fill(page, r"Loan Amount", amt):
+        comments.append("Loan amount box not found")
+    r = label_select(page, r"Purpose of Loan", r"does not have concession")
+    if not str(r).startswith("ok"):
+        comments.append(f"Purpose of loan not set ({r[:80]})")
+    P.wait(1)
+    job.step(f"9 · Loan amount {amt}", page)
+    modt_next(P, job, page, "Mortgage and security details")
+    # Details of Documents of Title Deposited: nothing to change
+    job.step("10 · Documents of title deposited (no change)", page)
+    modt_next(P, job, page, "Documents of title deposited")
+    # Possession of Property Remarks: optional
+    job.step("11 · Possession remarks (no change)", page)
+    modt_next(P, job, page, "Possession remarks")
+    # Legal Conditions: tick the standard conditions, Copy, then the list of documents deposited from the MODT draft
+    job.step("12 · Legal conditions", page)
+    wait_for(P, "()=>/Legal Condition/i.test(document.body.innerText)", 15)
+    n = page.evaluate("()=>{let n=0;[...document.querySelectorAll('input[type=checkbox]')].filter(e=>e.offsetParent&&!e.checked&&/legal|cond|chk/i.test((e.id||'')+(e.name||'')+(e.className||'')+(e.closest('div,label,td,p')||{}).innerText)).forEach(e=>{e.click();n++});return n}")
+    copied = click_btn_text(P, r"^copy legal condition")
+    P.wait(2); P.popup_ok()
+    if not copied:
+        comments.append("'Copy Legal Condition' button not found - check the legal conditions")
+    lod = g(d, "List of documents deposited")
+    if lod:
+        how = page.evaluate(APPEND_LOD_JS, lod)
+        if not how:
+            comments.append("List of documents deposited not added (editor not found) - add it by hand")
+    else:
+        comments.append("List of documents deposited is empty in Drafting - add it by hand")
+    job.step(f"12 · Legal conditions ticked ({n}) and copied", page)
+    modt_next(P, job, page, "Legal conditions")
+    # Reasons for availing loan: just save
+    job.step("13 · Reasons for availing loan (save)", page)
+    modt_next(P, job, page, "Reasons for availing loan")
+    # Supporting details: place of execution only; SRO selection is checked, never changed
+    job.step("14 · Supporting details · place of execution", page)
+    wait_for(P, "()=>/Place of Execution/i.test(document.body.innerText)", 20)
+    sro = g(d, "Execution SRO", "Property SRO")
+    sro_ta = g(d, "SRO Tamil")
+    if not sro_ta and sro:
+        sro_ta = english_pass(P, job, "SRO Tamil", kind="tamil", texts={"sro": sro}).get("sro", "")
+    if not label_fill(page, r"Place of\s*Execution(?!.*Tam)", sro):
+        comments.append("Place of execution (English) box not found")
+    if sro_ta and not label_fill(page, r"Place of Execution in Tam", sro_ta):
+        comments.append("Place of execution (Tamil) box not found")
+    shown = page.evaluate("""()=>{const s=[...document.querySelectorAll('select')].find(e=>{if(!e.offsetParent)return false;let p=e.parentElement,l='';for(let i=0;i<3&&p&&!l;i++){const x=p.querySelector('label');if(x)l=x.innerText;p=p.parentElement}return /Sub Registrar Office/i.test(l)});
+        return s?((s.selectedOptions[0]||{}).text||''):''}""")
+    if shown and sro and nz(sro)[:6] not in nz(shown):
+        comments.append(f"SRO selection on Supporting details shows '{shown}' (Drafting says '{sro}') - not changed, please check")
+    modt_next(P, job, page, "Supporting details")
+    # Preview: look, then continue
+    job.step("15 · Document preview", page)
+    P.wait(3)
+    if page.evaluate("()=>{const b=document.getElementById('btnMainNext');return !!(b&&b.offsetParent)}"):
+        main_next(P, page, 5)
+    # Document valuation → Create Document (once; again only for the survey-number check, max 3)
+    job.step("16 · Stamp duty and fees", page)
+    tp = tp_on_page(page)
+    if not tp:
+        if job.fresh().get("createClicked"):
+            raise Stop("Create Document was already pressed for this job. Check My Documents before trying again.")
+        for attempt in range(1, 4):
+            tp, said = press_create(P, job, page, attempt)
+            if tp:
+                break
+            if not re.search(r"survey", said, re.I) or attempt == 3:
+                job.step("TP number not seen", page)
+                raise Stop(f"Create Document was pressed but no TP number appeared ({said[:150]}). Check My Documents (do NOT press Create again).")
+            comments.append(f"Create Document attempt {attempt}: survey number check - retried")
+            survey_fix(P, job, page, edit=(attempt == 2))
+    kv_merge("cases", job.d.get("case", ""), {"tpNo": tp, "tpStop": None})
+    job.step(f"17 · TP created: {tp}", page)
+    note = f"MODT TP created: {tp}. Upload the documents (ID proofs, property image, title deed, EC, patta) and print from My Documents by hand for now. Do biometric + payment yourself. "
+    if comments:
+        note += "CHECK: " + " · ".join(comments) + ". "
+    if P.warn:
+        note += "Warnings: " + "; ".join(P.warn[:8])
+    job.upd(status="done", tpNo=tp, message=note.strip(), comments=comments)
+    return tp
 
 
 def finish_dor(P, job, page, t, case, comments):
@@ -1867,10 +1990,14 @@ def handle(pw, jid, data):
         if data.get("kind") == "modt":
             if str(case.get("tpNo") or "").startswith("TP/"):
                 raise Stop(f"This case already has {case['tpNo']}. A new TP is not created.")
+            if case.get("createPressedAt"):
+                raise Stop("Create Document was already pressed for this case earlier but no TP number was saved. Check My Documents on TNREGINET first "
+                           "(if a TP is there, use Enter TP No.; if not, press 'Allow a new TP' on the case).")
             try:
                 run_modt(page, job, case)
-            except Exception:
+            except Exception as e:
                 job.step("Stopped here", page)
+                record_stop(job, data.get("case", ""), e)
                 raise
             return
         if data.get("kind", "dor") != "dor":
