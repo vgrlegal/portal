@@ -1241,7 +1241,25 @@ def upload_docs(P, job, page, t, case, comments):
     job.step("13 · Upload documents", page)
     folder = os.path.join(os.path.dirname(os.path.abspath(__file__)), "files", job.id[:8])
     os.makedirs(folder, exist_ok=True)
-    rep_k, rep_i = get_file(case, "rep_kyc", folder), get_file(case, "rep_id", folder)
+    # rep / witness KYC: from the case, else from the saved client profile and witness list (mail cases never copy them)
+    lists = kv_get("config", "lists") or {}
+    def saved(files, key):
+        f = (files or [None])[0]
+        if not f or not f.get("url"):
+            return None
+        ext = (re.search(r"\.(pdf|jpe?g|png)$", f.get("name") or "", re.I) or [".pdf"])[0].lower()
+        try:
+            return download(f["url"], os.path.join(folder, UPNAME.get(key, key.upper()) + ext))
+        except Exception as e:
+            P.warn.append(f"{key} download failed: {e}")
+            return None
+    prof = ((lists.get("profiles") or {}).get(case.get("bank") or "") or {})
+    rep = next((r for r in (prof.get("reps") or []) if nz(r.get("name")) == nz(g(t, "Rep name"))), None) or ((prof.get("reps") or [None])[0])
+    wit = {n: next((w for w in (lists.get("wit") or []) if nz(w.get("name")) == nz(g(t, f"Witness {n} name"))), None) for n in (1, 2)}
+    rep_k = get_file(case, "rep_kyc", folder) or (rep and saved(rep.get("kyc"), "rep_kyc"))
+    rep_i = get_file(case, "rep_id", folder) or (rep and saved(rep.get("idcard"), "rep_id"))
+    w1_f = get_file(case, "w1_kyc", folder) or (wit[1] and saved(wit[1].get("kyc"), "w1_kyc"))
+    w2_f = get_file(case, "w2_kyc", folder) or (wit[2] and saved(wit[2].get("kyc"), "w2_kyc"))
     rep_pdf = None
     if rep_k or rep_i:
         try:
@@ -1251,8 +1269,8 @@ def upload_docs(P, job, page, t, case, comments):
             rep_pdf = rep_k or rep_i
     plan = [  # (type option, document name (as TNREGINET lists it), file, label, file tag)
         ("Identification", g(t, "Rep name"), rep_pdf, "Bank rep KYC + ID", "REP_KYC"),
-        ("Identification", g(t, "Witness 1 name"), get_file(case, "w1_kyc", folder), "Witness 1 KYC", "WITNESS1"),
-        ("Identification", g(t, "Witness 2 name"), get_file(case, "w2_kyc", folder), "Witness 2 KYC", "WITNESS2"),
+        ("Identification", g(t, "Witness 1 name"), w1_f, "Witness 1 KYC", "WITNESS1"),
+        ("Identification", g(t, "Witness 2 name"), w2_f, "Witness 2 KYC", "WITNESS2"),
         ("Reference", "Reference Original Document", get_file(case, "modt", folder), "MODT", "MODT"),
         ("Reference", "Reference Bank Certificate", get_file(case, "noc", folder), "NOC", "NOC"),
     ]
