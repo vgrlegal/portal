@@ -11,14 +11,14 @@ Watches the portal's tp_jobs. For each job it:
 Never clicks E-Payment or final Submit.
 Config: /opt/vgr/worker.env  (SUPABASE_URL, SUPABASE_SERVICE_KEY)
 """
-import base64, datetime, json, os, re, sys, time, traceback
+import base64, datetime, json, os, platform, re, sys, time, traceback
 import requests
 import uuid
 from playwright.sync_api import sync_playwright
 
 _here = os.path.dirname(os.path.abspath(__file__))
 ENV = os.environ.get("VGR_ENV") or (os.path.join(_here, "worker.env") if os.path.exists(os.path.join(_here, "worker.env")) else "/opt/vgr/worker.env")
-for line in open(ENV) if os.path.exists(ENV) else []:
+for line in open(ENV, encoding="utf-8-sig") if os.path.exists(ENV) else []:
     if "=" in line and not line.strip().startswith("#"):
         k, v = line.strip().split("=", 1)
         os.environ.setdefault(k, v)
@@ -78,6 +78,29 @@ def kv_list(col, **where):
     r = HTTP.get(f"{SB}/rest/v1/kv", headers=H, params=params, timeout=20)
     r.raise_for_status()
     return r.json()
+
+
+HOST = platform.node() or "tp-computer"
+
+
+def claim_job(jid):
+    """Take a queued job for THIS computer only (two TP computers never start the same job)."""
+    try:
+        r = HTTP.post(f"{SB}/rest/v1/rpc/claim_job", headers=H, json={"p_id": jid, "p_host": HOST}, timeout=20)
+        if r.status_code == 404:
+            return True  # older database without claim_job: one computer only
+        r.raise_for_status()
+        return bool(r.json())
+    except Exception as e:
+        log("claim failed", e)
+        return False
+
+
+def kv_insert_new(col, id_, data):
+    """Create a row only if it does not exist yet (used for the daily biometric check, so two computers make it once)."""
+    h = dict(H, Prefer="resolution=ignore-duplicates")
+    r = HTTP.post(f"{SB}/rest/v1/kv", headers=h, json={"collection": col, "id": id_, "data": data, "updated_at": now()}, timeout=20)
+    r.raise_for_status()
 
 
 def kv_merge(col, id_, patch):
@@ -2178,12 +2201,90 @@ def finish_dor(P, job, page, t, case, comments):
     return tp
 
 
+BIO_DONE_RE = re.compile(r"biometric\s*(completed|complete|done|captured|success)|submitted|checker|verif|registered|pending\s*(for\s*)?payment|payment\s*pending|paid|e-?stamp", re.I)
+BIO_PENDING_RE = re.compile(r"biometric\s*pending|pending\s*(for\s*)?biometric|awaiting\s*biometric", re.I)
+
+
+def run_bio(page, job, data):
+    """Daily biometric check: My Documents → the row of each TP → its status. All done → the case goes to Payment."""
+    P = Portal(page, job)
+    res = []
+    page.evaluate("""()=>{const a=[...document.querySelectorAll('a,[title]')].find(e=>/^My Documents?$/i.test((e.title||e.textContent||'').trim()));if(a)a.click()}""")
+    wait_loader(page); P.wait(3)
+    job.step("My Documents opened", page)
+    for cid in data.get("cases") or []:
+        c = kv_get("cases", cid) or {}
+        tp = c.get("tpNo") or ""
+        if not tp.startswith("TP/") or c.get("stage") != "Photo/Biometric":
+            continue
+        no = tp.split("/")[1]
+        info = None
+        for _ in range(3):
+            info = page.evaluate(r"""(no)=>{const tr=[...document.querySelectorAll('tr')].find(r=>r.offsetParent&&r.innerText.includes(no));if(!tr)return null;
+                const tb=tr.closest('table'),hr=tb?[...tb.querySelectorAll('th')].map(x=>x.innerText.trim()):[];
+                return {head:hr,cells:[...tr.children].map(x=>x.innerText.trim().replace(/\s+/g,' ')),row:tr.innerText.replace(/\s+/g,' ').trim()}}""", no)
+            if info:
+                break
+            P.wait(3)
+        if not info:
+            kv_merge("cases", cid, {"bioCheck": {"at": now(), "found": False, "text": f"{tp} not in My Documents of {job.d.get('loginUser', '')}"}})
+            res.append(f"{c.get('applicant', cid)}: not found")
+            continue
+        head, cells = info.get("head") or [], info.get("cells") or []
+        st = next((cells[i] for i, h in enumerate(head) if i < len(cells) and re.search(r"status", h, re.I)), "") or info.get("row", "")
+        done = bool(BIO_DONE_RE.search(st)) and not BIO_PENDING_RE.search(st)
+        ch = {"bioCheck": {"at": now(), "found": True, "status": st[:200], "row": info.get("row", "")[:400], "head": head[:15], "done": done, "by": "TP robot · daily check"}}
+        if done:
+            b = dict(c.get("bio") or {})
+            for k in ("rep", "w1", "w2"):
+                b.setdefault(k, {"at": now(), "by": "TNREGINET (daily check)"})
+            ch.update(bio=b, stage="Payment", stageAt=now(), updatedAt=now(),
+                      stageLog=(c.get("stageLog") or [])[-39:] + [{"s": "Payment", "at": now(), "by": "TP robot · daily check"}],
+                      log=(c.get("log") or [])[-79:] + [{"at": now(), "by": "TP robot", "text": f"{tp}: TNREGINET shows '{st[:80]}' → biometric complete → Payment"}])
+        kv_merge("cases", cid, ch)
+        res.append(f"{c.get('applicant', cid)}: {st[:60] or '?'}{' → Payment' if done else ''}")
+    job.step("Biometric check finished", page)
+    job.upd(status="done", message="Biometric check: " + ("; ".join(res) or "no TP to check"))
+
+
+def schedule_bio(force=False):
+    """07:00 India time, once a day: one check job per login that has TPs waiting for biometric."""
+    ist = datetime.datetime.utcnow() + datetime.timedelta(hours=5, minutes=30)
+    day = ist.strftime("%Y%m%d")
+    if not force and (ist.hour < 7 or BIO.get("day") == day):
+        return
+    BIO["day"] = day
+    rows = kv_list("cases", stage="Photo/Biometric")
+    by = {}
+    for r in rows:
+        d = r["data"] or {}
+        if str(d.get("tpNo") or "").startswith("TP/") and d.get("tpLogin") and not d.get("mergedInto"):
+            by.setdefault(d["tpLogin"], []).append(r["id"])
+    if not by:
+        return
+    lr = HTTP.get(f"{SB}/rest/v1/tn_logins", headers=H, params={"select": "id,username"}, timeout=20)
+    lr.raise_for_status()
+    ids = {x["username"]: x["id"] for x in lr.json()}
+    for user, cids in by.items():
+        if user not in ids:
+            continue
+        kv_insert_new("tp_jobs", f"bio-{day}-{re.sub(r'[^A-Za-z0-9]', '', user)[:24]}",
+                      {"kind": "bio", "login": ids[user], "loginUser": user, "cases": cids, "status": "queued", "at": now(), "by": "Daily 7 am biometric check"})
+    log("daily biometric check queued for", len(by), "login(s)")
+
+
+BIO = {"day": ""}
+
+
 def handle(pw, jid, data):
     job = Job(jid, data)
     job.upd(status="starting", pickedAt=now(), message="")
-    case = kv_get("cases", data.get("case", ""))
-    if not case:
-        raise Stop("Case not found")
+    if data.get("kind") == "bio":
+        case = {}
+    else:
+        case = kv_get("cases", data.get("case", ""))
+        if not case:
+            raise Stop("Case not found")
     if data.get("kind") == "dor" and part_survey(case.get("tp") or {}) and not case.get("partOk"):
         ps = part_survey(case.get("tp") or {})
         msg = (f"Survey number is '{ps}' (Part). TNREGINET will not make a TP with a Part survey number. "
@@ -2214,6 +2315,9 @@ def handle(pw, jid, data):
             raise
         if data.get("kind") == "dor_upload":
             upload_only(page, job, case)
+            return
+        if data.get("kind") == "bio":
+            run_bio(page, job, data)
             return
         if data.get("kind") == "modt":
             if str(case.get("tpNo") or "").startswith("TP/"):
@@ -2456,8 +2560,8 @@ def self_update():
     try:
         r = HTTP.get(SRC, timeout=20)
         me = os.path.abspath(__file__)
-        if r.ok and "def main()" in r.text and r.text != open(me).read():
-            open(me, "w").write(r.text)
+        if r.ok and "def main()" in r.text and r.text != open(me, encoding="utf-8").read():
+            open(me, "w", encoding="utf-8", newline="\n").write(r.text)
             log("updated from GitHub, restarting")
             sys.exit(0)
     except SystemExit:
@@ -2501,7 +2605,7 @@ def daily_backup():
     today = t.strftime("%Y-%m-%d")
     old = None
     try:
-        with open(BACKUP_FILE) as f:
+        with open(BACKUP_FILE, encoding="utf-8") as f:
             old = json.load(f)
     except Exception:
         pass
@@ -2518,7 +2622,7 @@ def daily_backup():
            "note": "Restore: portal > Clients & Staff > Backup > Restore settings from a backup. TNREGINET passwords are not in this file."}
     os.makedirs(BACKUP_DIR, exist_ok=True)
     tmp = BACKUP_FILE + ".tmp"
-    with open(tmp, "w") as f:
+    with open(tmp, "w", encoding="utf-8") as f:
         json.dump(out, f, ensure_ascii=False, indent=1)
     os.replace(tmp, BACKUP_FILE)
     log("daily backup saved:", BACKUP_FILE, len(cases), "cases")
@@ -2529,7 +2633,7 @@ def beat():
         if time.time() - v.get("t", 0) > 3 * 3600:
             BUSY.pop(k, None)
     busy = [{x: v.get(x, "") for x in ("job", "case", "kind", "login", "status", "step", "since")} for v in list(BUSY.values())]
-    kv_set("tp_jobs", "_worker", {"at": now(), "host": os.uname().nodename, "probe": PROBE["res"], "busy": busy})
+    kv_set("tp_jobs", "_worker", {"at": now(), "host": HOST, "probe": PROBE["res"], "busy": busy})
 
 
 def beat_loop():
@@ -2563,7 +2667,7 @@ def main():
                     probe()
                 if not PROBE["ok"]:
                     # this computer cannot open TNREGINET: stay out of the way (another computer may take the jobs)
-                    kv_set("tp_jobs", "_blocked_" + os.uname().nodename, {"at": now(), "probe": PROBE["res"]})
+                    kv_set("tp_jobs", "_blocked_" + HOST, {"at": now(), "probe": PROBE["res"]})
                     time.sleep(30)
                     continue
                 if not PROBE.get("cleaned"):
@@ -2576,6 +2680,10 @@ def main():
                 if time.time() - last_beat > 30:
                     beat()
                     last_beat = time.time()
+                try:
+                    schedule_bio()
+                except Exception as e:
+                    log("biometric schedule failed", e)
                 for row in kv_list("tp_jobs", status="queued"):
                     if row["id"].startswith("_") or (row["data"] or {}).get("status") != "queued":
                         continue
@@ -2586,7 +2694,10 @@ def main():
                             if key in ACTIVE:
                                 continue
                             ACTIVE.add(key)
-                        kv_merge("tp_jobs", jid, {"status": "starting", "pickedAt": now()})
+                        if not claim_job(jid):
+                            with ACTIVE_LOCK:
+                                ACTIVE.discard(key)
+                            continue
                         threading.Thread(target=run_record, args=(jid, data), daemon=True).start()
                         continue
                     if data.get("batch"):
@@ -2595,12 +2706,17 @@ def main():
                             if key in ACTIVE or len(ACTIVE) >= MAX_CHAINS or any(k[1] == key[1] for k in ACTIVE):
                                 continue  # that chain is already running (it takes its own next case), or too many logins at once
                             ACTIVE.add(key)
-                        kv_merge("tp_jobs", jid, {"status": "starting", "pickedAt": now()})
+                        if not claim_job(jid):
+                            with ACTIVE_LOCK:
+                                ACTIVE.discard(key)
+                            continue
                         threading.Thread(target=run_chain, args=(data["batch"], data.get("login", ""), jid, data), daemon=True).start()
                         continue
                     with ACTIVE_LOCK:
                         if any(k[1] == data.get("login", "") for k in ACTIVE):
                             continue  # this login is busy in a Bulk Run - one TNREGINET session per login
+                    if not claim_job(jid):
+                        continue  # another TP computer took it
                     try:
                         handle(pw, jid, data)
                     except Stop as e:

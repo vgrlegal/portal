@@ -355,7 +355,7 @@ tr.hf input,tr.hf select{font-size:12.5px;padding:5px 7px;margin:2px 0}
 <main class="wrap">
   <div id="banner" class="banner" hidden></div>
 
-  <section id="v-dash" hidden><div class="dash" id="dash"></div></section>
+  <section id="v-dash" hidden><div id="bioBox"></div><div class="dash" id="dash"></div></section>
 
   <section id="v-list">
     <div class="bar">
@@ -673,7 +673,7 @@ const DOCS={
     {k:"mdraft",l:"MODT draft (Word copy)",h:"Loan amount, company address, extent, boundaries, legal conditions, list of documents",req:1},
     {k:"th_kyc",l:"Title holder Aadhaar + signature",h:"A ready KYC PDF is used as it is. Photos (front, back, signature) are made into one KYC PDF with the signature background erased.",kyc:1,req:1},
     {k:"revenue",l:"Revenue documents",h:"Online Patta or TSLR"},
-    {k:"photos",l:"Property photographs",h:"With GPS location",multi:1},
+    {k:"photos",l:"Property photographs",h:"With GPS location · photos or PDF",multi:1},
     {k:"ec",l:"SRO EC or online EC"},
     {k:"w1_kyc",l:"Witness 1 Aadhaar + signature",h:"Filled from the saved witness. Or upload here.",kyc:1,req:1},
     {k:"w2_kyc",l:"Witness 2 Aadhaar + signature",h:"Filled from the saved witness. Or upload here.",kyc:1,req:1},
@@ -1270,7 +1270,7 @@ function renderDocs(type){
   $("docList").innerHTML=mrows.join("")+list.filter(d=>!hideK.has(d.k)).map(d=>{const files=draftDocs[d.k]||[];
     return`<div class="docrow"><div class="docl"><b>${esc(d.l)}${d.req?" *":""}${d.grp?" †":""}</b>${d.h?`<span class="sub">${esc(d.h)}</span>`:""}
       ${files.map((f,i)=>`<span class="docf"><a href="${esc(f.url)}" target="_blank" rel="noopener" title="View">${f.kyc?"🗂 ":""}${esc(f.name)}</a><button type="button" class="xbtn" data-dl="${esc(f.url)}" data-name="${esc(f.name)}" title="Download" aria-label="Download ${esc(f.name)}">⬇</button>${canWrite&&!d.auto?`<button type="button" class="xbtn" data-rmk="${d.k}" data-rmi="${i}" title="Remove this file" aria-label="Remove ${esc(f.name)}">×</button>`:""}</span>${f.from?`<span class="sub">auto · saved ${f.from==="rep"?"bank rep":"witness"}</span>`:""}`).join("")||`<span class="sub">${d.auto?"Added automatically":"Not uploaded"}</span>`}</div>
-      ${canWrite&&!d.auto?`<label class="btn" for="up_${d.k}">${files.length?(d.multi?"Add more":"Replace"):"Upload"}</label><input type="file" id="up_${d.k}" data-k="${d.k}" ${d.kyc||d.multi?"multiple":""} accept="${d.k==="photos"?"image/*":d.k==="mdraft"?".doc,.docx,application/pdf,image/*":"image/*,application/pdf,.pdf"}" hidden>`:""}</div>`}).join("")+
+      ${canWrite&&!d.auto?`<label class="btn" for="up_${d.k}">${files.length?(d.multi?"Add more":"Replace"):"Upload"}</label><input type="file" id="up_${d.k}" data-k="${d.k}" ${d.kyc||d.multi?"multiple":""} accept="${d.k==="photos"?"image/*,application/pdf,.pdf":d.k==="mdraft"?".doc,.docx,application/pdf,image/*":"image/*,application/pdf,.pdf"}" hidden>`:""}</div>`}).join("")+
     (isRD(type)&&!suppOn&&canWrite?`<div class="docrow"><button type="button" class="btn" id="addSupp">+ Supplementary MODT</button><span class="sub" style="margin-left:8px">Only if this case has a second (supplementary) MODT</span></div>`:"")+
     (list.some(d=>d.grp)?`<p class="sf-note">† Title deed or legal report: one of the two is enough to create the case.</p>`:"");
   if($("addSupp"))$("addSupp").onclick=()=>{window.__showSupp=1;renderDocs(type)};
@@ -1841,7 +1841,28 @@ $("csvBtn").onclick=async()=>{
 };
 
 /* ================= dashboard ================= */
-function renderDash(){
+/* daily biometric check (the TP computer queues it at 7 am; "Check now" any time): type the captcha here, see the result */
+const BIOJ={list:[],t:0,timer:null};
+function istDay(){return new Date(Date.now()+330*60000).toISOString().slice(0,10).replace(/-/g,"")}
+async function bioPoll(){if(!window.__sb||!canTp())return;const{data}=await window.__sb.from("kv").select("id,data").eq("collection","tp_jobs").like("id",`bio-${istDay()}%`);
+  BIOJ.list=(data||[]).map(r=>({_id:r.id,...r.data}));renderBioBox()}
+function renderBioBox(){const box=$("bioBox");if(!box)return;const waiting=cases.filter(c=>c.stage==="Photo/Biometric"&&/^TP\//.test(c.tpNo||""));
+  if(!canTp()||(!waiting.length&&!BIOJ.list.length)){box.innerHTML="";return}
+  const L={queued:"waiting for the TP computer",starting:"opening TNREGINET",captcha:"type the captcha",captcha_sent:"signing in",done:"done",error:"stopped",cancelled:"stopped"};
+  box.innerHTML=`<div class="card" style="margin:0 0 12px;padding:14px 16px"><div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><b>Biometric check · TNREGINET</b><span class="sf-note">${waiting.length} TP(s) waiting for biometric · the TP computer checks every day at 7 am</span>
+    <span style="flex:1"></span><button type="button" class="btn" id="bioNow">Check now</button></div>
+    ${BIOJ.list.map(j=>`<div class="mrow" data-bio="${esc(j._id)}" style="align-items:center"><b>${esc(j.loginUser||"")}</b><span class="sf-note">${(j.cases||[]).length} TP(s) · ${esc(L[j.status]||j.status||"")}</span>
+      ${j.status==="captcha"&&j.captchaImg?`<span style="display:flex;gap:6px;align-items:center"><img src="${j.captchaImg}" alt="Captcha" style="height:40px;border:1px solid var(--line);border-radius:6px"><input placeholder="Type the code" autocomplete="off" style="width:130px"><button type="button" class="btn primary">Sign in</button></span>`:""}
+      ${j.message?`<div class="mf">${esc(j.message)}</div>`:""}</div>`).join("")}</div>`;
+  box.querySelectorAll("[data-bio]").forEach(r=>{const b=r.querySelector("button"),i=r.querySelector("input");if(!b)return;const go=async()=>{const t=i.value.trim();if(!t)return;b.disabled=true;await db.doc("tp_jobs/"+r.dataset.bio).update({captcha:t,status:"captcha_sent"});bioPoll()};b.onclick=go;i.onkeydown=e=>{if(e.key==="Enter"){e.preventDefault();go()}}});
+  if($("bioNow"))$("bioNow").onclick=bioNow;
+  clearTimeout(BIOJ.timer);if(tab==="dash"&&BIOJ.list.some(j=>!["done","error","cancelled"].includes(j.status)))BIOJ.timer=setTimeout(bioPoll,8000)}
+async function bioNow(){const by={};cases.filter(c=>c.stage==="Photo/Biometric"&&/^TP\//.test(c.tpNo||"")&&c.tpLogin).forEach(c=>(by[c.tpLogin]=by[c.tpLogin]||[]).push(c._doc));
+  if(!Object.keys(by).length){toast("No TP is waiting for biometric");return}let ids={};try{(await tnLogins()).forEach(x=>ids[x.username]=x.id)}catch(e){}
+  let n=0;for(const[u,cs]of Object.entries(by)){if(!ids[u])continue;const id=`bio-${istDay()}-${u.replace(/[^A-Za-z0-9]/g,"").slice(0,24)}`,old=BIOJ.list.find(j=>j._id===id);
+    if(old&&!["done","error","cancelled"].includes(old.status))continue;await db.doc("tp_jobs/"+id).set({kind:"bio",login:ids[u],loginUser:u,cases:cs,status:"queued",at:nowISO(),by:who()});n++}
+  toast(n?`Biometric check started for ${n} login(s). Type the captcha when it appears here.`:"Already running");setTimeout(bioPoll,1500)}
+function renderDash(){if(Date.now()-BIOJ.t>20000){BIOJ.t=Date.now();setTimeout(bioPoll,300)}else setTimeout(renderBioBox,0);
   const vis=cases.filter(c=>allowedTab(c.type)),cs=vis.filter(inRange),open=vis.filter(c=>!FINAL.has(c.stage));
   const now=new Date(),hr=now.getHours(),greet=hr<12?"Good morning":hr<17?"Good afternoon":"Good evening";
   const types=cfg.types.filter(allowedTab);
