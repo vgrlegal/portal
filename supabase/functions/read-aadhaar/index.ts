@@ -135,9 +135,15 @@ async function mailIn(body: Record<string, unknown>) {
   // the same mail conversation (thread) is ONE case; so is the same subject, the same file or the same loan number
   let same: { id: string; data: Record<string, unknown> } | null = null, why = "";
   if (threadId) { const { data: r } = await admin.from("kv").select("id,data").eq("collection", "cases").eq("data->>mailThread", threadId).limit(1); if (r && r.length) { same = r[0] as never; why = "same mail conversation"; } }
-  if (!same && subjKey.length > 8) { const { data: r } = await admin.from("kv").select("id,data").eq("collection", "cases").eq("data->>mailSubjectKey", subjKey).eq("data->>source", "mail").limit(1); if (r && r.length) { same = r[0] as never; why = "same subject"; } }
+  if (!same && subjKey.length > 8) { const { data: r } = await admin.from("kv").select("id,data").eq("collection", "cases").eq("data->>mailSubjectKey", subjKey).eq("data->>source", "mail").limit(5); const h = (r ?? []).find((x) => !(x.data as Record<string, unknown>)?.notCase); if (h) { same = h as never; why = "same subject"; } }
   for (const it of items) { if (same) break; const { data: r } = await admin.from("kv").select("id,data").eq("collection", "cases").filter("data->fileHashes", "cs", JSON.stringify([it.hash])).limit(1); if (r && r.length) { same = r[0] as never; why = "same file (" + it.name + ")"; } }
-  for (const lk of loanKeys) { if (same) break; const { data: r } = await admin.from("kv").select("id,data").eq("collection", "cases").filter("data->loanKeys", "cs", JSON.stringify([lk])).limit(1); if (r && r.length) { same = r[0] as never; why = "same loan number " + lk; } }
+  for (const lk of loanKeys) { if (same) break; const { data: r } = await admin.from("kv").select("id,data").eq("collection", "cases").filter("data->loanKeys", "cs", JSON.stringify([lk])).limit(5); const h = (r ?? []).find((x) => !(x.data as Record<string, unknown>)?.notCase); if (h) { same = h as never; why = "same loan number " + lk; } }
+  // removed in the portal as "not a case": a later mail of the same conversation (or the same files) is not made a case again
+  if (same && (same.data as Record<string, unknown>)?.notCase) {
+    const d = same.data as Record<string, unknown>; const t2 = new Date().toISOString().replace(/\.\d+Z$/, "Z");
+    await admin.from("kv").update({ data: { ...d, mailIds: [...((d.mailIds as string[]) ?? []), mailId].slice(-50), log: [...((d.log as unknown[]) ?? []), { at: t2, by: "Mail", text: `Another mail ignored (${why}): this was removed as not a case` }].slice(-80) }, updated_at: new Date().toISOString() }).eq("collection", "cases").eq("id", same.id);
+    return json({ ok: true, ignored: "removed as not a case", doc: same.id });
+  }
   const known = new Set(((same?.data as Record<string, unknown>)?.fileHashes as string[]) ?? []);
   const docs: Record<string, unknown[]> = {};
   const hashes: string[] = [];

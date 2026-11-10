@@ -844,7 +844,9 @@ function missingReq(type,docs){
 function prevStage(c){const L=stageLog(c).filter(e=>e.s!=="Case Created");for(let i=L.length-2;i>=0;i--)if(L[i].s!==c.stage)return L[i].s;return""}
 function canBack(){return isMD||isPartner()||!!(myStaff&&myStaff.back===true)}
 function doubtful(c){return c.source==="mail"&&c.stage==="Draft Pending"&&(c.multiCustomer||c.dupOf)}
-function actionsFor(c){const a0=actionsFor0(c);if(canWrite&&doubtful(c)){a0.push(["split","Split case"],["merge","Same case · merge into…"]);if(c.dupOf||c.multiCustomer)a0.push(["notdup","Separate · no change"])}return a0}
+/* mail that is not a real case: hidden from every list (kept, can be restored); later mails of the same conversation or with the same files are ignored */
+let REMOVED=[];
+function actionsFor(c){const a0=actionsFor0(c);if(canWrite&&c.source==="mail"&&!c.tpNo&&!c.notCase)a0.push(["notcase","Not a case · Remove"]);if(canWrite&&doubtful(c)){a0.push(["split","Split case"],["merge","Same case · merge into…"]);if(c.dupOf||c.multiCustomer)a0.push(["notdup","Separate · no change"])}return a0}
 function actionsFor0(c){
   const s=c.stage,a=[],fl=flowOf(c.type);
   if(fl==="legal"){
@@ -889,7 +891,8 @@ function render(){
   renderSegs(baseList());$("bulkBar").hidden=!bulkOk();bulkCount();
   {const n=baseList().filter(needsAttn).length;let bar=$("attnBar");if(!bar){bar=document.createElement("div");bar.id="attnBar";bar.style.margin="8px 0";$("tbody").closest("table").before(bar)}
     bar.innerHTML=n||ATTN?`<div class="banner" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">${ATTN?`Showing ${n} mail case(s) that need attention: no MODT, or company not known.`:`⚠ ${n} mail case(s) need attention (no MODT or company not known). They are kept out of this list.`}<button class="btn" type="button" id="attnBtn">${ATTN?"Back to the normal list":"Show them"}</button></div>`:"";
-    if($("attnBtn"))$("attnBtn").onclick=()=>{ATTN=!ATTN;page=0;render()}}
+    if($("attnBtn"))$("attnBtn").onclick=()=>{ATTN=!ATTN;page=0;render()};
+    const rm=REMOVED.filter(c=>c.type===tab||(tab==="all"));if(rm.length){bar.insertAdjacentHTML("beforeend",`<p class="sf-note" style="margin:6px 0 0">${rm.length} mail(s) removed as not a case · <button class="btn" type="button" id="rmBtn">Removed (${rm.length})</button></p>`);$("rmBtn").onclick=()=>removedList(rm)}}
   const all=listed(),ps=+$("pageSize").value,pages=Math.max(1,Math.ceil(all.length/ps));if(page>=pages)page=pages-1;
   const rows=all.slice(page*ps,page*ps+ps);
   $("tbody").innerHTML=rows.map(c=>{
@@ -1112,6 +1115,8 @@ function bioAsk(c){const b=c.bio||{};ask("Biometric done for",`<p class="sf-note
   ()=>{const nb={};BIO_P.forEach(([k])=>{if($("bio_"+k).checked)nb[k]=b[k]||{at:nowISO(),by:who()}});const all=BIO_P.every(([k])=>nb[k]);
     const done=BIO_P.filter(([k])=>nb[k]).map(([,l])=>l).join(", ")||"none";
     return patch(c,all?{bio:nb,stage:"Payment"}:{bio:nb},all?"Biometric complete (all) → Payment":`Biometric done: ${done}`)},"Save")}
+function removedList(rm){ask(`Removed mails (${rm.length})`,rm.slice().sort((a,b)=>String(b.notCase.at).localeCompare(String(a.notCase.at))).map(c=>`<div class="mrow"><b>${esc(c.applicant||c.mailSubject||c.id)}</b><span>${canWrite?`<button class="btn" type="button" data-rest="${esc(c._doc)}">Restore</button>`:""}</span><div class="mf">${esc(c.id)} · ${esc(c.bank||"company not known")} · removed ${esc(fmtD(c.notCase.at))} by ${esc(c.notCase.by||"")}${c.notCase.why?" · "+esc(c.notCase.why):""}</div></div>`).join(""),null,"Close");
+  document.querySelectorAll("[data-rest]").forEach(b=>b.onclick=async()=>{const c=REMOVED.find(x=>x._doc===b.dataset.rest);if(!c)return;await patch(c,{notCase:null},"Restored: this mail is a case");b.closest(".mrow").remove();toast(c.id+" is back in the list")})}
 function runAction(c,k){
   if(k==="info")return openInfo(c);
   if(k==="bio")return bioAsk(c);
@@ -1123,6 +1128,8 @@ function runAction(c,k){
   if(k==="split")return splitCase(c);
   if(k==="merge")return mergeCase(c);
   if(k==="allowtp")return ask("Allow a new TP?",`<p class="sf-note">Create Document was pressed for this case on ${esc(new Date(c.createPressedAt).toLocaleString("en-IN"))} but no TP number was saved. Open <b>My Documents</b> on TNREGINET first. If a TP is there, use <b>Enter TP No.</b> instead. Allow a new TP only if none was made.</p>`,()=>patch(c,{createPressedAt:null},"Checked My Documents: no TP made, new TP allowed"),"Allow");
+  if(k==="notcase")return ask("Not a case · Remove",`<p>${esc(c.id)} · ${esc(c.applicant||c.mailSubject||"")}</p><p class="sf-note">It leaves every list but is kept under <b>Removed</b>, where it can be restored. Later mails of the same conversation, or with the same files, will not make a new case.</p><label>Reason (optional)<input id="ncWhy" placeholder="e.g. general mail, data request, duplicate"></label>`,
+    ()=>patch(c,{notCase:{at:nowISO(),by:who(),why:($("ncWhy").value||"").trim()}},"Removed: not a case"+(($("ncWhy").value||"").trim()?" ("+$("ncWhy").value.trim()+")":"")),"Remove");
   if(k==="notdup")return patch(c,{dupOf:null,multiCustomer:false},"Checked: this mail is a separate case");
   if(k==="undo"){const p=prevStage(c);if(!p||!canBack())return;return ask("Move back a stage?",`<p class="sf-note">${esc(c.applicant||c.id)}: <b>${esc(c.stage)}</b> → <b>${esc(p)}</b>. This is recorded in the case history.</p>`,()=>patch(c,{stage:p},`Stage moved back: ${c.stage} → ${p} (${isMD?"Admin":who()})`),"Move back")}
   if(k==="draft")return openReview(c,false);
@@ -2742,7 +2749,7 @@ setInterval(()=>{if(!$("v-list").hidden||!$("v-dash").hidden)render()},60000);
     myStaff=!isMD&&SELF_EMAIL?cfg.staff.find(x=>x.email&&x.email.toLowerCase()===SELF_EMAIL)||null:null;if(myStaff)me=myStaff.name;
     applyBrand();if(!["dash","__all","__set","__reg","__tools","__sro","__ppl","__team","__rep"].includes(tab)&&!cfg.types.includes(tab))tab="dash";fillStatic();render()},()=>{});
   db.doc("tp_jobs/_worker").onSnapshot(s=>{const w=s.exists?(s.data()||{}):{};W.at=w.at||null;W.busy=w.busy||[];if(!$("tpbar").hidden)renderHelperChip()},()=>{});
-  db.collection("cases").onSnapshot(s=>{if(!s.metadata.fromCache)clearTimeout(timer);cases=s.docs.map(d=>({...d.data(),_doc:d.id})).filter(c=>!c.mergedInto);
+  db.collection("cases").onSnapshot(s=>{if(!s.metadata.fromCache)clearTimeout(timer);{const all=s.docs.map(d=>({...d.data(),_doc:d.id})).filter(c=>!c.mergedInto);cases=all.filter(c=>!c.notCase);REMOVED=all.filter(c=>c.notCase)}
     if(editing){const fresh=cases.find(c=>c._doc===editing._doc);if(fresh){editing=fresh;if($("timeline"))renderTimeline(fresh)}}
     if(rv.c){const f=cases.find(c=>c._doc===rv.c._doc);if(f)rv.c=f}
     render();if(H.ok)autoCapture();bankReads()},
