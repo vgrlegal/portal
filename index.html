@@ -1077,7 +1077,7 @@ async function bankReads(){if(!(isMD||isAdmin||isPartner())||!canWrite||!CFG_OK)
   if(isMD||isAdmin){const learn={};cases.filter(x=>x.source==="mail"&&x.bank).forEach(x=>{const d=domOf(x.mailOrigFrom||x.mailFrom);if(d&&!FREE_MAIL.test(d)&&!(cfg.domains||{})[d]&&!DOMAIN_SEED[d])learn[d]=x.bank});
     if(Object.keys(learn).length)await saveCfg({...cfg,domains:{...(cfg.domains||{}),...learn}})}
   for(const c of cases.filter(x=>x.source==="mail"&&!x.bank&&!x.mailBankDone&&!BR.has("b"+x._doc))){BR.add("b"+c._doc);
-    try{const lab=(c.mailLabels||[]).filter(l=>!/^(inbox|important|starred|unread|vgr-portal|opinion-portal)$/i.test(l));let b=bankOfDomain(domOf(c.mailOrigFrom))||bankOfDomain(domOf(c.mailFrom))||(lab.length?matchBank(lab.join(" ")):"");
+    try{const lab=(c.mailLabels||[]).filter(l=>!/^(inbox|important|starred|unread|vgr-portal|opinion-portal)$/i.test(l)&&!/[\/]|receipt|auto|logged|done|pending|follow/i.test(l));let b=bankOfDomain(domOf(c.mailOrigFrom))||bankOfDomain(domOf(c.mailFrom))||(lab.length?matchBank(lab.join(" ")):"");
       if(!b&&lab.length&&(isMD||isAdmin)){const nm=lab[0].toLowerCase().replace(/\b\w/g,x=>x.toUpperCase());if(!cfg.banks.some(x=>x.toLowerCase()===nm.toLowerCase())){await saveCfg({...cfg,banks:[...cfg.banks,nm].sort((a,b)=>a.localeCompare(b))})}b=nm}
       const ch={mailBankDone:true};if(b){ch.bank=b;const who2=cfg.staff.map(staffObj).filter(m=>m.team&&(m.banks||[]).includes(b));if(who2.length===1&&!c.assignee)ch.assignee=who2[0].name}
       await db.collection("cases").doc(c._doc).update(ch)}catch(e){BR.delete("b"+c._doc)}}
@@ -1518,11 +1518,17 @@ async function classifyMail(c){const seen=new Set(),F=allFiles(c).filter(x=>{con
   const ch={docs,classified:true,noModt:!docs.modt,multiCustomer:multi,needsRead:docs.modt?"modt":null};
   if(inside)ch.log=[...(c.log||[]),{at:nowISO(),by:"Claude",text:`MODT found inside ${inside.name}, pages ${inside.from}–${inside.to}; those pages saved as the MODT copy`}].slice(-80);
   if(!c.phone&&data.fields.phone)ch.phone=String(data.fields.phone).replace(/\D/g,"").slice(-10);
+  if(!c.bank&&data.fields.lender){const b=await bankFromName(data.fields.lender);if(b){ch.bank=b;ch.mailBankDone=true}}
   const ln=(R.find(x=>x.type==="modt"&&x.loan_no)||R.find(x=>x.loan_no)||{}).loan_no||lanOf(c.mailSubject);if(!c.loanNo&&ln)ch.loanNo=String(ln);
   const nm=(R.find(x=>x.type==="modt"&&x.customer)||R.find(x=>x.customer)||{}).customer;if(c.applicantFromMail&&nm){ch.applicant=cleanCust(nm)}
   if(multi)ch.robotQs=[...(c.robotQs||[]),{id:crypto.randomUUID(),q:"This mail seems to have more than one customer / MODT. Split it?",options:["Yes, I'll use Split case","No, one case"],hint:[...custs].join(", ")}];
   await db.collection("cases").doc(c._doc).update(ch)}
 let ATTN=false;
+/* a lender not in the company list: add it (Admin) and use it, instead of holding the case */
+function cleanBankName(n){n=String(n||"").replace(/\s+/g," ").replace(/[.,]+$/,"").trim();if(!n)return"";n=n.replace(/\bltd\b\.?/i,"Limited").replace(/\bpvt\b\.?/i,"Private");
+  return /[a-z]/.test(n)?n:n.toLowerCase().replace(/\b\w/g,x=>x.toUpperCase()).replace(/\b(Llp|Nbfc|Hfc|Dcb|Idfc|Icici|Hdfc|Sbi|Iifl|Smfg|Ugro)\b/g,x=>x.toUpperCase())}
+async function bankFromName(n){const m=matchBank(n||"");if(m)return m;const nm=cleanBankName(n);if(!nm||nm.length<4||!(isMD||isAdmin)||!CFG_OK)return"";
+  if(!cfg.banks.some(x=>x.toLowerCase()===nm.toLowerCase()))await saveCfg({...cfg,banks:[...cfg.banks,nm].sort((a,b)=>a.localeCompare(b))});return nm}
 function needsAttn(c){return c.source==="mail"&&c.classified&&(c.noModt||!c.bank)}
 /* ---- split one mail case into two (several customers in one mail) / merge duplicates; decided by the Admin after checking the documents ---- */
 function allFiles(c){const out=[];Object.entries(c.docs||{}).forEach(([k,arr])=>(arr||[]).forEach((f,i)=>out.push({k,i,f})));return out}
@@ -2656,7 +2662,7 @@ async function rereadModt(c,force){const f=((c.docs||{}).modt||[])[0];if(!f){toa
   try{const r=await claudeModt(await fileOfDoc(f));if(!r||!Object.keys(r.d).length){toast("Could not read the MODT. Check that it is clear and try again.");return false}
     const tp={...(c.tp||{})};let n=0;Object.entries(r.d).forEach(([k,v])=>{if(force||!String(tp[k]||"").trim()){if(tp[k]!==v)n++;tp[k]=v}});
     const ch={tp,tpAuto:{...(c.tpAuto||{}),...r.d},modtReadOf:f.url||f.name};if((r.doubts||[]).length)ch.robotQs=await doubtQs(c,r.doubts,"tp",r.src);
-    {const ps=partSurvey({...c,tp});if(ps&&!((c.docs||{}).revenue||[]).length&&/Draft Pending|TP Creation|Docs Received|Drafting/.test(c.stage||"Draft Pending")){ch.stage="TP On Hold";ch.holdReason=PART_REASON(ps)}}if((!c.applicant||c.applicantFromMail)&&r.d.Mortgagor){ch.applicant=cleanCust(r.d.Mortgagor);ch.applicantFromMail=null}if(!c.loanNo){const ln=r.d["Loan account"]||lanOf(c.mailSubject);if(ln)ch.loanNo=ln}if(!c.phone&&r.d["Mortgagor mobile"])ch.phone=String(r.d["Mortgagor mobile"]).replace(/\D/g,"").slice(-10);if(!c.bank&&r.bankText){const b=matchBank(r.bankText);if(b)ch.bank=b}if(!c.loanAmount&&r.d["Loan Amount"])ch.loanAmount=r.d["Loan Amount"];
+    {const ps=partSurvey({...c,tp});if(ps&&!((c.docs||{}).revenue||[]).length&&/Draft Pending|TP Creation|Docs Received|Drafting/.test(c.stage||"Draft Pending")){ch.stage="TP On Hold";ch.holdReason=PART_REASON(ps)}}if((!c.applicant||c.applicantFromMail)&&r.d.Mortgagor){ch.applicant=cleanCust(r.d.Mortgagor);ch.applicantFromMail=null}if(!c.loanNo){const ln=r.d["Loan account"]||lanOf(c.mailSubject);if(ln)ch.loanNo=ln}if(!c.phone&&r.d["Mortgagor mobile"])ch.phone=String(r.d["Mortgagor mobile"]).replace(/\D/g,"").slice(-10);if(!c.bank&&r.bankText){const b=await bankFromName(r.bankText);if(b){ch.bank=b;ch.mailBankDone=true}}if(!c.loanAmount&&r.d["Loan Amount"])ch.loanAmount=r.d["Loan Amount"];
     await patch(c,ch,`MODT read again (${n} fields filled)`+(ch.holdReason?` · On hold: ${ch.holdReason}`:""));toast(`MODT read: ${n} field${n===1?"":"s"} filled.${(r.doubts||[]).length?` 🔔 ${r.doubts.length} doubt(s) to check, with the picture, at the top of the case.`:" Check them."}`);
     try{await autoDup({...c,...ch})}catch(e){console.warn(e)}
     const fresh=cases.find(x=>x._doc===c._doc)||{...c,...ch};if(rv.c&&rv.c._doc===c._doc)openReview(fresh,rv.gen);return true}
