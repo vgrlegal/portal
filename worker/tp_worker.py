@@ -1922,7 +1922,10 @@ def modt_party(P, job, page, d, n):
     P.sel("salutationId", sal_re(sal))
     P.set("fullName", name)
     P.tamil("fullNameLL", same_len_tamil(g(d, f"{pre} name Tamil"), name), name)
-    P.sel("firstRelationTypeId", rel_re(g(d, f"{pre} relation") or "S/o"))
+    rel = g(d, f"{pre} relation") or "S/o"
+    if rel.lower().startswith("c"):  # TNREGINET has no Care of: C/O → Son of for a man, Daughter of for a woman
+        rel = "D/o" if sal.lower().startswith(("mrs", "ms", "miss")) else "S/o"
+    P.sel("firstRelationTypeId", rel_re(rel))
     P.set("firstRelativeName", g(d, f"{pre} relative name"))
     P.tamil("firstRelativeNameLL", g(d, f"{pre} relative name Tamil"), g(d, f"{pre} relative name"))
     dob = dob_tn(g(d, f"{pre} date of birth"))
@@ -1960,13 +1963,18 @@ def run_modt(page, job, case):
     deeds = [n for n in (1, 2, 3) if g(d, f"Deed {n} Doc No")]
     if not deeds:
         raise Stop("No title deed in Drafting (1 · Linked documents). Fill Deed 1 SRO, Doc No and Year.")
+    comments = []
     for n in deeds:
         link_doc(P, job, page, g(d, f"Deed {n} SRO") or g(d, "Property SRO"), "1", g(d, f"Deed {n} Doc No"),
                  g(d, f"Deed {n} Year"), "Regular Document", f"title deed {n}")
+    linked_check(page, d, deeds, comments)
+    job.step("1 · Linked documents checked", page)
     P.click("createDocProceed", 6)
     # 2. Mortgagors (title holders)
     wait_for(P, "()=>{const e=document.getElementById('partyType');return !!(e&&e.offsetParent)}", 20)
     holders = int(re.sub(r"\D", "", g(d, "Title holders")) or "1")
+    P.wait(2)
+    clear_copied_holders(P, job, page, d, holders, comments)
     for n in range(1, min(holders, 4) + 1):
         if g(d, f"Mortgagor {n} name"):
             modt_party(P, job, page, d, n)
@@ -1991,9 +1999,12 @@ def run_modt(page, job, case):
     lists = kv_get("config", "lists") or {}
     wl = lists.get("wit") or []
     t = {}
+    cw = case.get("caseWit") or {}
     for n in (1, 2):
-        nm = g(d, f"Witness {n}") or case.get(f"w{n}") or ""
-        w = next((x for x in wl if x.get("name") == nm), None)
+        w = cw.get(str(n)) or cw.get(n)  # the customer's own witness, read from the Aadhaar in this case (this case only)
+        nm = (w or {}).get("name") or g(d, f"Witness {n}") or case.get(f"w{n}") or ""
+        if not (w and w.get("name")):
+            w = next((x for x in wl if x.get("name") == nm), None)
         if not w:
             P.warn.append(f"Witness {n} '{nm}' not in the saved witness list")
             continue
@@ -2020,12 +2031,17 @@ def run_modt(page, job, case):
     open_subtab(P, "Presenter Details", "cmb_presenter")
     job.step("6 · Presenter", page)
     wait_for(P, "()=>document.getElementById('cmb_presenter').options.length>1", 15)
+    # presenter: the first title holder with a phone number (Drafting's choice when that holder has a phone)
     pn = re.sub(r"\D", "", g(d, "Presenter")) or "1"
+    with_phone = [n for n in range(1, min(holders, 4) + 1) if g(d, f"Mortgagor {n} name") and len(re.sub(r"\D", "", g(d, f"Mortgagor {n} phone"))) >= 10]
+    if with_phone and int(pn) not in with_phone:
+        pn = str(with_phone[0])
+    elif not with_phone:
+        comments.append("no title holder has a phone number - presenter set to title holder " + pn)
     P.fuzzy("cmb_presenter", g(d, f"Mortgagor {pn} name") or g(d, "Mortgagor 1 name"), 1)
     P.click("btnMainSaveAsDraft", 4)
     job.step("Parties done - draft saved", page)
     # 7. Property (MODT flow of 11 Nov 2026) → 8. loan … Create Document → uploads → print → fees
-    comments = []
     try:
         modt_property(P, job, page, d, case, comments)
     except Stop as e:
@@ -2157,6 +2173,50 @@ def unit_re(u):
     u = (u or "").lower()
     return ("Square\\s*Met|Sq\\.?\\s*M" if re.search(r"sq\.?\s*m|met", u) else "Hect" if "hect" in u else "Acre" if "acre" in u
             else "Cent" if "cent" in u else "Square\\s*Feet|Sq\\.?\\s*F")
+
+
+PART_WORD = re.compile(r"\(?\s*\b(part|pt)\b\.?\s*\)?|\(p\)", re.I)
+
+
+def strip_part(x):
+    return re.sub(r"\s+", " ", PART_WORD.sub(" ", x)).strip(" ,-/")
+
+
+def linked_check(page, d, deeds, comments):
+    """After linking: the linked-documents table must show each deed's number, year and SRO (and its nature)."""
+    txt = page.evaluate("()=>[...document.querySelectorAll('table')].filter(t=>t.getClientRects().length).map(t=>t.innerText.replace(/\\s+/g,' ')).join(' || ')")
+    for n in deeds:
+        no, yr, sro = num(g(d, f"Deed {n} Doc No")), g(d, f"Deed {n} Year"), g(d, f"Deed {n} SRO") or g(d, "Property SRO")
+        rows = [r for r in re.split(r"\s\|\|\s|(?<=\d{4})\s(?=\d+\s)", txt) if re.search(rf"\b0*{no}\b", r)]
+        if not rows:
+            comments.append(f"Linked deed {n} ({no}/{yr}) not seen in the linked-documents table - check")
+            continue
+        row = rows[0]
+        if yr and yr not in row:
+            comments.append(f"Linked deed {n}: year {yr} not in the table row - check")
+        if sro and nz(sro)[:5] not in nz(row):
+            comments.append(f"Linked deed {n}: SRO '{sro}' not in the table row - check")
+        if not re.search(r"sale|gift|settle|partition|release|deed|conveyance|exchange|will|agreement|document", row, re.I):
+            comments.append(f"Linked deed {n}: nature of document not shown - check")
+
+
+def clear_copied_holders(P, job, page, d, holders, comments):
+    """Old deeds (before 2018) add their parties by themselves. Check the names, delete those rows, then each holder is
+    added once, fresh, from our Aadhaar data."""
+    ours = [nz(g(d, f"Mortgagor {n} name")) for n in range(1, min(holders, 4) + 1) if g(d, f"Mortgagor {n} name")]
+    gone = []
+    for _ in range(8):
+        row = page.evaluate(DEL_ICONS_JS)
+        if not row:
+            break
+        P.wait(1.5); P.popup_ok(); wait_loader(page); P.wait(1.5)
+        gone.append(row)
+    if gone:
+        job.step(f"2 · {len(gone)} party row(s) copied from the old deed removed", page)
+        for r in gone:
+            if not any(o and (o[:6] in nz(r)) for o in ours):
+                comments.append(f"copied party '{r[:60]}' from the old deed does not match our title holder names - check")
+        comments.append(f"{len(gone)} party row(s) copied from the old deed were deleted and the title holder(s) added fresh from Aadhaar")
 
 
 def surveys_of(d):
@@ -2369,11 +2429,16 @@ def survey_tab(P, job, page, d, ptype, note):
                 page.evaluate(SELECT_AFTER_JS, ["^Street Name$", "^" + re.escape(hit) + "$"])
         if i == 0:
             for o in old:
-                page.evaluate(FILL_AFTER_JS, ["^Old Survey No\\.?$", o, ""])
-                page.evaluate(CLICK_AFTER_JS, ["^Old Survey No\\.?$", "^Add Old Survey Number$"])
-                P.wait(1.5); P.popup_ok()
+                for v in ([o, strip_part(o)] if PART_WORD.search(o) else [o]):
+                    page.evaluate(FILL_AFTER_JS, ["^Old Survey No\\.?$", v, ""])
+                    page.evaluate(CLICK_AFTER_JS, ["^Old Survey No\\.?$", "^Add Old Survey Number$"])
+                    P.wait(1.5); P.popup_ok()
+                    if nz(v) in nz(page.evaluate(TABLE_TEXT_JS, "Old Survey No")):
+                        if v != o:
+                            note(f"old survey '{o}' was not accepted with 'Part'; added as {v} (the remarks keep 'Part')")
+                        break
             have = page.evaluate(TABLE_TEXT_JS, "Old Survey No")
-            miss = [o for o in old if nz(o) not in nz(have)]
+            miss = [o for o in old if nz(o) not in nz(have) and nz(strip_part(o)) not in nz(have)]
             if miss:
                 note("old survey no. not added: " + ", ".join(miss))
         if "Agri" in ptype and g(d, "Total survey extent"):
@@ -2567,15 +2632,27 @@ def modt_plan(case, d, folder, P, comments):
     docs = case.get("docs") or {}
     plan = []
     th = docs.get("th_kyc") or []
+    names = {x.get("url"): x.get("name") or "" for x in (case.get("thKyc") or [])}
     holders = int(re.sub(r"\D", "", g(d, "Title holders")) or "1")
+    used = set()
     for n in range(1, min(holders, 4) + 1):
         nm = g(d, f"Mortgagor {n} name")
-        f = fetch(th[n - 1], f"HOLDER{n}_KYC") if len(th) >= n else None
+        tok = [t for t in re.split(r"[^a-z]+", nm.lower()) if len(t) > 2]
+        hit = next((x for x in th if x.get("url") not in used and tok and all(t in names.get(x.get("url"), "").lower() for t in tok)), None) or \
+            next((x for x in th if x.get("url") not in used and tok and tok[0] in names.get(x.get("url"), "").lower()), None)
+        if not hit and len(th) >= n and th[n - 1].get("url") not in used:
+            hit = th[n - 1]
+            if names:
+                comments.append(f"Title holder {n} ({nm}): no Aadhaar file with this name - file {n} used, check")
+        if hit:
+            used.add(hit.get("url"))
+        f = fetch(hit, f"HOLDER{n}_KYC") if hit else None
         if not f:
             comments.append(f"Title holder {n} ({nm}) Aadhaar not uploaded in the case - not uploaded")
         plan.append(("Identification", nm, f, f"Title holder {n} ID", f"HOLDER{n}"))
+    cw = case.get("caseWit") or {}
     for n in (1, 2):
-        nm = g(d, f"Witness {n}") or case.get(f"w{n}") or ""
+        nm = ((cw.get(str(n)) or cw.get(n) or {}).get("name")) or g(d, f"Witness {n}") or case.get(f"w{n}") or ""
         f = get_file(case, f"w{n}_kyc", folder)
         if not f:
             w = next((x for x in (lists.get("wit") or []) if nz(x.get("name")) == nz(nm)), None)

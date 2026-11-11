@@ -1361,6 +1361,7 @@ function openReview(c,gen){
       if(t==="sro"){const L=sroNames(),m=bestOf(L,data[f]);const bad=data[f]&&!m;return`<label>${esc(f)}${req} <span class="lg en">EN</span><select id="${id}" data-sro="1"><option value="">— select SRO —</option>${bad?`<option selected value="${esc(data[f])}">⚠ ${esc(data[f])} (not in list, pick the right one)</option>`:""}${L.map(x=>`<option${x===m?" selected":""}>${esc(x)}</option>`).join("")}</select></label>`}
       if(t==="year"){const y=new Date().getFullYear(),Y=[];for(let i=y;i>=1975;i--)Y.push(String(i));return`<label>${esc(f)}${req}<select id="${id}"><option value=""></option>${Y.map(x=>`<option${x===String(data[f]||"").trim()?" selected":""}>${x}</option>`).join("")}</select></label>`}
       if(t==="vil")return`<label class="full">${esc(f)} <span class="lg en">EN</span><select id="${id}" data-vil="1" data-raw="${esc(data[f]||"")}"></select></label>`;
+      if(t==="wsel"&&!dor&&(c.caseWit||{})[f.slice(-1)]){const w=c.caseWit[f.slice(-1)];return`<label class="full">${esc(f)} name<input value="${esc(w.name||"")}" readonly><span class="sub">Customer's own witness, read from the Aadhaar uploaded in this case. Used for this case only (not added to KYC Master). Remove that upload to pick from KYC Master.</span></label>`}
       if(t==="wsel"){const n=f.slice(-1),cur=c["w"+n]||data[`Witness ${n} name`]||((cfg.wit||[]).find(x=>x.def===+n)||{}).name||"";return`<label class="full">${esc(f)} name<select id="${id}" data-wsel="${n}"><option value="">— select —</option>${(cfg.wit||[]).map(w=>`<option${w.name===cur?" selected":""}>${esc(w.name)}</option>`).join("")}</select><span class="sub">Aadhaar, address and KYC come from KYC Master.</span></label>`}
       if(dor){const ta=/Tamil/.test(f),txt=!/Age|age|Aadhaar|pincode|Pincode|mobile|Doc No|Loan|date|Extent|Survey/.test(f);return`<label class="${t==="w"?"full":""}">${esc(f)}${req}${txt?` <span class="lg ${ta?"ta":"en"}">${ta?"தமிழ்":"EN"}</span>`:""}<input id="${id}" value="${esc(data[f]||"")}"${ta?' lang="ta"':""}></label>`}
       if(f==="Bank Sheet")return`<label>${f} *<select id="${id}"><option value="">— select —</option>${[...new Set([...BANK_SHEETS,data[f]].filter(Boolean))].map(x=>`<option${x===data[f]?" selected":""}>${esc(x)}</option>`).join("")}</select></label>`;
@@ -2702,6 +2703,14 @@ async function readModtCase(c,force){const D=c.docs||{};if(!(D.mdraft||[]).lengt
     const F=data.fields,doubts=String(F.Doubts||"").trim(),dq=(Array.isArray(F.doubts)?F.doubts:[]).filter(q=>q&&q.field&&q.field in F).slice(0,10).map(q=>({field:q.field,read:String(q.read??"")||String(F[q.field]??""),options:(q.options||[]).map(String),why:String(q.why||""),img:cropOf(cvs[(+q.img||0)-1],q.box,q.read)}));delete F.Doubts;delete F.doubts;
     const d={...(c.draft||{})};let n=0;Object.entries(F).forEach(([k,v])=>{v=Array.isArray(v)?v.join("\n"):String(v??"").trim();if(!v)return;if(force||!String(d[k]||"").trim()){if(d[k]!==v)n++;d[k]=v}});
     const ch={draft:d,tpAuto:{...(c.tpAuto||{}),...Object.fromEntries(Object.entries(F).map(([k,v])=>[k,String(v??"")]))},tpNotes:doubts};if(lodHtml)ch.lodHtml=lodHtml;
+    /* customer's own witnesses (Aadhaar uploaded in this case: used for this case only, never added to KYC Master) and the name on each title holder Aadhaar */
+    {const say=m=>toast(m),cw={...(c.caseWit||{})};let chg=false;
+      for(const n of [1,2]){const f=(D[`w${n}_kyc`]||[])[0];if(!f){if(cw[n]){delete cw[n];chg=true}continue}if(cw[n]&&cw[n].from===f.url)continue;
+        try{const o=await readAadhaar([await fileOfDoc(f)],say);cw[n]={...o,from:f.url};chg=true}catch(e){console.warn("witness",e)}}
+      if(chg)ch.caseWit=cw;
+      const thk=[];for(const f of D.th_kyc||[]){const old=(c.thKyc||[]).find(x=>x.url===f.url);if(old&&old.name){thk.push(old);continue}
+        try{const o=await readAadhaar([await fileOfDoc(f)],say);thk.push({url:f.url,name:o.name||""})}catch(e){thk.push({url:f.url,name:""})}}
+      if(thk.length)ch.thKyc=thk}
     if(dq.length)ch.robotQs=await doubtQs(c,dq,"draft","MODT documents");
     if(/urban|rural|natham/i.test(doubts)&&!(ch.robotQs||c.robotQs||[]).some(q=>q.field==="Land type"&&!q.answer))ch.robotQs=[...(ch.robotQs||c.robotQs||[]),{id:crypto.randomUUID(),q:"Is this property Urban, Rural or Natham?",options:["Urban","Rural","Natham"],field:"Land type",hint:doubts.slice(0,300)}];
     await patch(c,ch,`MODT documents read by Claude (${n} fields filled)`);toast(`Claude filled ${n} field${n===1?"":"s"}. Check every field${doubts?" and the doubts at the top":""}.`);
