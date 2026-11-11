@@ -1594,6 +1594,8 @@ function caseFiles(c){const pri=["modt","deed","legal","noc","sanction","revenue
 async function docUrl(u){if(String(u).startsWith("sb:")&&window.__signed)return window.__signed(u);return u}
 async function showDoc(f){const v=$("rvDocView");v.innerHTML=`<p style="color:#fff">Loading…</p>`;
   try{const u=await docUrl(f.url);$("rvDocNew").href=u;const pdf=/\.pdf$/i.test(f.name)||f.kyc;
+    if(/\.docx?$/i.test(f.name)){const bl=await (await fetch(u)).blob(),fl=new File([bl],f.name);const t=/\.docx$/i.test(f.name)?await docxText(fl):await docBinText(fl);
+      v.innerHTML=`<div style="background:#fff;color:#111;margin:12px;padding:16px 20px;border-radius:6px;white-space:pre-wrap;font:14px/1.55 system-ui,sans-serif;overflow:auto;max-height:calc(100% - 24px)">${esc(t||"(No readable text in this Word file – use Open in new tab)")}</div>`;return}
     v.innerHTML=pdf?`<iframe src="${esc(u)}#view=FitH" title="${esc(f.name)}"></iframe>`:`<img src="${esc(u)}" alt="${esc(f.name)}">`}
   catch(e){v.innerHTML=`<p style="color:#fff">Could not open: ${esc(e.message||e)}</p>`}}
 function openDocPane(c){const fs=caseFiles(c);if(!fs.length){toast("No documents uploaded for this case yet");return}
