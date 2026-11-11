@@ -2483,7 +2483,8 @@ async function canvasesOf(files,say,maxPages=3){const out=[];let text="";
         try{const tc=await pg.getTextContent();text+=`\n[Page ${out.length+1}]\n`+tc.items.map(x=>x.str+(x.hasEOL?"\n":" ")).join("");
           c._items=tc.items.filter(x=>x.str&&x.str.trim()).map(x=>{const t=pdfjsLib.Util.transform(vp.transform,x.transform),h=Math.hypot(t[2],t[3]);return{s:x.str,x:t[4],y:t[5]-h,w:(x.width||0)*vp.scale,h}})}catch(e){}
         c.width=vp.width;c.height=vp.height;await pg.render({canvasContext:c.getContext("2d"),viewport:vp}).promise;out.push(c)}}
-    else{const bm=await createImageBitmap(f),k=Math.min(1,2600/Math.max(bm.width,bm.height)),c=document.createElement("canvas");c.width=bm.width*k;c.height=bm.height*k;c.getContext("2d").drawImage(bm,0,0,c.width,c.height);out.push(c)}}
+    else if(!/^image\//.test(f.type||"")&&!/\.(jpe?g|png|webp|gif|bmp)$/i.test(f.name||"")){console.warn("not a picture or PDF, skipped:",f.name);continue}
+    else{let bm;try{bm=await createImageBitmap(f)}catch(e){console.warn("picture could not be opened, skipped:",f.name,e);continue}const k=Math.min(1,2600/Math.max(bm.width,bm.height)),c=document.createElement("canvas");c.width=bm.width*k;c.height=bm.height*k;c.getContext("2d").drawImage(bm,0,0,c.width,c.height);out.push(c)}}
   return{canvases:out,text}}
 function sharpen(c){const g=c.getContext("2d"),im=g.getImageData(0,0,c.width,c.height),d=im.data;let lo=255,hi=0;
   for(let i=0;i<d.length;i+=4){const y=(d[i]*299+d[i+1]*587+d[i+2]*114)/1000;d[i]=y;if(y<lo)lo=y;if(y>hi)hi=y}
@@ -2704,11 +2705,17 @@ async function docxLodTable(file){await loadScript("https://cdnjs.cloudflare.com
   if(!best||bestScore<3)return"";
   const td="border:1px solid #000;padding:2px 4px;vertical-align:top";
   return `<table border="1" cellpadding="2" style="border-collapse:collapse;width:100%">`+[...best.getElementsByTagNameNS(W,"tr")].map(tr=>"<tr>"+[...tr.getElementsByTagNameNS(W,"tc")].map(tc=>`<td style="${td}">${cell(tc)}</td>`).join("")+"</tr>").join("")+"</table>"}
+/* old Word (.doc, not .docx): pull the readable text out of the file (Unicode and plain runs); tables become " | " */
+async function docBinText(file){const b=new Uint8Array(await file.arrayBuffer());const ok=ch=>(ch>=32&&ch<127)||(ch>=0x0B80&&ch<=0x0BFF)||ch===13||ch===7||ch===9||ch===0x20B9||ch===0x2013||ch===0x2014||ch===0x2018||ch===0x2019||ch===0x201C||ch===0x201D;
+  const runs=(get,n,step)=>{let out=[],cur="";for(let i=0;i+step<=n;i+=step){const ch=get(i);if(ok(ch))cur+=String.fromCharCode(ch);else{if(cur.replace(/[^A-Za-z\u0B80-\u0BFF0-9]/g,"").length>=6)out.push(cur);cur=""}}if(cur.length>=6)out.push(cur);return out.join("\n")};
+  const u16=runs(i=>b[i]|(b[i+1]<<8),b.length,2),u8=runs(i=>b[i],b.length,1);
+  const score=t=>(t.match(/[A-Za-z\u0B80-\u0BFF]/g)||[]).length;
+  return (score(u16)>=score(u8)*0.6?u16:u8).replace(/\x07\x07/g,"\n").replace(/\x07/g," | ").replace(/\r/g,"\n").replace(/\t/g," ").replace(/\n{3,}/g,"\n\n").trim()}
 async function readModtCase(c,force){const D=c.docs||{};if(!(D.mdraft||[]).length&&!(D.deed||[]).length){toast("Upload the MODT draft and title deed first");return}
   toast("Claude is reading the MODT draft, title deed, Aadhaar and patta… about 1 minute.");
   try{let draft="";const imgs=[],labels=[],cvs=[];
     const add=async(list,label,maxPages,cap)=>{let n=0;for(const f of list||[]){if(n>=cap)break;const file=await fileOfDoc(f);const{canvases}=await canvasesOf([file],()=>{},maxPages);for(const cv of canvases){if(n>=cap||imgs.length>=20)break;imgs.push(jpegOf(cv,1400));cvs.push(cv);labels.push(label);n++}}};
-    let lodHtml="";for(const f of D.mdraft||[]){const file=await fileOfDoc(f);if(/\.docx$/i.test(f.name)){draft+=await docxText(file)+"\n";if(!lodHtml)try{lodHtml=await docxLodTable(file)}catch(e){console.warn(e)}}else{const r=await canvasesOf([file],()=>{},4);draft+=r.text||"";if(!r.text.trim())r.canvases.slice(0,4).forEach(cv=>{imgs.push(jpegOf(cv,1400));cvs.push(cv);labels.push("MODT DRAFT page")})}}
+    let lodHtml="";for(const f of D.mdraft||[]){const file=await fileOfDoc(f);if(/\.docx$/i.test(f.name)){draft+=await docxText(file)+"\n";if(!lodHtml)try{lodHtml=await docxLodTable(file)}catch(e){console.warn(e)}}else if(/\.doc$/i.test(f.name)||/msword/.test(file.type||"")){draft+=await docBinText(file)+"\n"}else{const r=await canvasesOf([file],()=>{},4);draft+=r.text||"";if(!r.text.trim())r.canvases.slice(0,4).forEach(cv=>{imgs.push(jpegOf(cv,1400));cvs.push(cv);labels.push("MODT DRAFT page")})}}
     await add(D.th_kyc,"TITLE HOLDER AADHAAR / KYC",3,5);
     await add(D.deed,"TITLE DEED page",6,7);
     await add(D.revenue,"PATTA / REVENUE page",2,3);
