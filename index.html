@@ -1674,6 +1674,7 @@ function modtDoneCheck(c,d){const P=[],v=k=>String(d[k]??"").trim(),n=Math.max(1
   BSIDES.forEach(x=>{if(String(d["Boundary "+x]??"")==="")P.push(`Boundary ${x}: empty (a single space if there is no boundary on this side)`);if(String(d[`Boundary ${x} Tamil`]??"")==="")P.push(`Boundary ${x} Tamil: empty`)});
   if(!v("Property type"))P.push("Property type");if(!v("Village"))P.push("Village");if(!v("New survey no"))P.push("New survey number");
   const u=caseUnit(d);if(!u)P.push("Unit");if(!v("Extent"))P.push("Mortgaged extent");else if(u&&!areaIn(v("Extent"),u)&&/[a-z]/i.test(v("Extent")))P.push("Mortgaged extent: unit not clear");
+  if(/agri/i.test(v("Property type"))&&!v("Land classification"))P.push("Land classification (Punjai / Nanjai … from the patta) - TNREGINET's Land Type");
   if(/agri/i.test(v("Property type"))){if(!v("Total survey extent"))P.push("Total survey extent (agricultural land: from the patta)");else{const a=areaSqm(v("Extent")),b=areaSqm(v("Total survey extent"));if(a&&b&&a>b*1.002)P.push(`Mortgaged extent ${v("Extent")} is MORE than the patta total ${areaIn(v("Total survey extent"),u)} ${u}`)}}
   if(!v("Property remarks"))P.push("Property remarks (English) - press ✎ Build remarks");
   if(!v("Loan amount"))P.push("Loan amount");
