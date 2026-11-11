@@ -94,7 +94,8 @@ tr:last-child td{border-bottom:0}
 body.client #modal{z-index:5300;max-height:90vh;overflow:auto}body.client #mscrim{z-index:5250}body.client #toast{z-index:5400}
 #clientApp{position:fixed;inset:0;z-index:5000;background:var(--bg);overflow:auto;color:var(--ink)}
 #clientApp .ch{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:12px 18px;background:var(--surface);border-bottom:1px solid var(--line)}
-#clientApp .ch img{height:42px}#clientApp .ch .co{font-weight:700}#clientApp .ch .sp{flex:1}
+#clientApp .ch img{height:42px;max-width:180px;object-fit:contain}#clientApp .ch .x{width:1px;align-self:stretch;background:var(--line)}#clientApp .ch .pw{font-size:11px;color:var(--muted);display:flex;align-items:center;gap:4px}#clientApp .ch .pw img{height:16px}
+.chip img.blogo{height:18px;max-width:54px;object-fit:contain;background:#fff;border-radius:3px}.chip .lg-btn{font-size:11px;padding:0 4px}#clientApp .ch .co{font-weight:700}#clientApp .ch .sp{flex:1}
 #clientApp main{max-width:1200px;margin:0 auto;padding:16px}
 #clientApp .band{display:flex;gap:12px;align-items:center;flex-wrap:wrap;padding:16px 18px;border-radius:14px;background:linear-gradient(120deg,#13284d,#1f3c88);color:#fff;margin-bottom:14px}
 #clientApp .band h1{margin:0;font:700 20px var(--display);flex:1}#clientApp .band .new{background:#e6c46a;color:#13284d;border:0;border-radius:10px;padding:11px 18px;font:700 15px var(--body);cursor:pointer}
@@ -746,6 +747,11 @@ const nowISO=()=>new Date().toISOString();
 const who=()=>me||"Office";
 const money=v=>v===""||v==null?"":"₹"+Number(v).toLocaleString("en-IN");
 const ORGS={oo:{name:"Opinion & Ownership",logo:"oo-logo-wide.png"}};
+/* company logos: public bucket "logos", file name = company name without the branch part */
+const logoSlug=b=>String(b||"").split(" - ")[0].toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,"");
+const LOGO_V={};const logoUrl=b=>`${SB_URL}/storage/v1/object/public/logos/${logoSlug(b)}${LOGO_V[logoSlug(b)]?"?v="+LOGO_V[logoSlug(b)]:""}`;
+const BANK_SITES={"aadhar-housing-finance-limited":"https://aadharhousing.com","aditya-birla-housing-finance-limited":"https://homefinance.adityabirlacapital.com","capital-india-finance-limited":"https://www.capitalindia.com","clix-capital-services-private-limited":"https://www.clix.capital","dcb-bank-limited":"https://www.dcbbank.com","equitas-small-finance-bank-limited":"https://www.equitasbank.com","fedbank-financial-services-limited":"https://www.fedfina.com","godrej-housing-finance-limited":"https://www.godrejhousingfinance.com","growth-source-financial-technologies-private-limited":"https://www.growthsource.co.in","hero-housing-finance-limited":"https://www.herohousingfinance.com","icici-home-finance-company-limited":"https://www.icicihfc.com","idfc-first-bank-limited":"https://www.idfcfirstbank.com","idfc-first-bharat-limited":"https://www.idfcfirstbharat.com","iifl-home-finance-limited":"https://www.iiflhomeloans.com","jana-small-finance-bank-limited":"https://www.janabank.com","l-t-finance-limited":"https://www.ltfs.com","lendingkart-finance-limited":"https://www.lendingkart.com","muthoot-fincorp-limited":"https://www.muthootfincorp.com","muthoot-housing-finance-company-limited":"https://www.muthoothousing.com","poonawalla-fincorp-limited":"https://poonawallafincorp.com","protium-finance-limited":"https://protium.co.in","smfg-india-credit-company-limited":"https://www.smfgindiacredit.com","ugro":"https://www.ugrocapital.com","veritas-finance-limited":"https://www.veritasfin.in","yes-bank":"https://www.yesbank.in","yes-bank-limited":"https://www.yesbank.in","truhome-finance-limited":"https://www.truhomefinance.in"};
+async function fetchLogo(bank,extra){const{data,error}=await window.__sb.functions.invoke("read-aadhaar",{body:{kind:"logo",bank,...extra}});if(error||!data)throw new Error((data&&data.error)||(error&&error.message)||"no reply");if(data.ok)LOGO_V[logoSlug(bank)]=Date.now();return data}
 function myOrg(){return myStaff?(myStaff.partner||myStaff.team||""):""}
 function isPartner(){return !!(myStaff&&myStaff.partner)}
 function canTp(){return isMD||!!(myStaff&&myStaff.tp===true)}
@@ -1005,7 +1011,7 @@ async function clientApp(){
   const dr=document.createElement("aside");dr.id="cDrawer";dr.hidden=true;document.body.appendChild(dr);
   try{CA.me=(await sb.rpc("client_me")).data||{};CA.key=(await sb.rpc("client_key")).data||""}catch(e){}
   const me=CA.me||{};
-  root.innerHTML=`<div class="ch"><img src="logo.webp" alt="VGR Legal"><div><div class="co">${esc(me.company||"")}</div><div class="sub">${esc(me.branch?me.branch+" branch":"All branches")} · ${esc(me.name||"")}</div></div><span class="sp"></span><button class="btn" id="cOut">Sign out</button></div>
+  root.innerHTML=`<div class="ch"><img src="oo-logo-wide.png" alt="Opinion &amp; Ownership"><span class="x"></span>${me.company?`<img src="${esc(logoUrl(me.company))}" alt="${esc(me.company)}" onerror="this.remove()">`:""}<div><div class="co">${esc(me.company||"")}</div><div class="sub">${esc(me.branch?me.branch+" branch":"All branches")} · ${esc(me.name||"")}</div></div><span class="sp"></span><span class="pw">Powered by <img src="logo.webp" alt="VGR Legal"></span><button class="btn" id="cOut">Sign out</button></div>
     <main><div class="band"><h1>Deed of Receipt · VGR Legal</h1><button class="new" id="cNew">+ New case</button></div>
     <div class="nums" id="cNums"></div>
     <div class="tools"><input id="cQ" placeholder="Search customer or loan no."><select id="cSt"><option value="">All stages</option>${[...new Set(C_STAGES.map(x=>x[1])),"Refused by SRO"].map(x=>`<option>${esc(x)}</option>`).join("")}</select>${me.branch?"":`<select id="cBr"><option value="">All branches</option></select>`}</div>
@@ -1922,7 +1928,13 @@ $("dash").addEventListener("click",e=>{const o=e.target.closest("[data-open]");i
 function renderSettings(){
   const ro=!(canWrite&&(isAdmin||(isPartner()&&tab==="__reg")));$("setNote").hidden=!ro;
   $("banksSum").textContent=`${cfg.banks.length} companies · tap to see or remove`;const bq="";$("bankQ").oninput=e=>{const q=e.target.value.trim().toLowerCase();document.querySelectorAll("#ch-banks .chip").forEach(c=>c.hidden=!!q&&!c.textContent.toLowerCase().includes(q))};
-  $("ch-banks").innerHTML=cfg.banks.length?cfg.banks.map((x,i)=>!bq||x.toLowerCase().includes(bq)?`<span class="chip">${esc(x)}${ro?"":`<button data-k="banks" data-i="${i}" aria-label="Remove ${esc(x)}">×</button>`}</span>`:"").join(""):`<span style="color:var(--muted);font-size:13px">No clients yet</span>`;
+  $("ch-banks").innerHTML=cfg.banks.length?cfg.banks.map((x,i)=>!bq||x.toLowerCase().includes(bq)?`<span class="chip"><img class="blogo" src="${esc(logoUrl(x))}" alt="" onerror="this.hidden=true">${esc(x)}${isMD?`<button type="button" class="lg-btn" data-logo="${i}" title="Change the logo (picture file)">🖼</button>`:""}${ro?"":`<button data-k="banks" data-i="${i}" aria-label="Remove ${esc(x)}">×</button>`}</span>`:"").join(""):`<span style="color:var(--muted);font-size:13px">No clients yet</span>`;
+  if(isMD&&!$("logoAll")){const b=document.createElement("button");b.type="button";b.className="btn";b.id="logoAll";b.textContent="🌐 Get logos from company websites";b.style.marginTop="8px";$("ch-banks").closest(".card").appendChild(b);
+    b.onclick=async()=>{b.disabled=true;const miss=[];let ok=0;for(const x of cfg.banks){const sl=logoSlug(x);if(!BANK_SITES[sl]){miss.push(x+" (website not known)");continue}b.textContent=`🌐 ${x}…`;
+        try{const r=await fetchLogo(x,{site:BANK_SITES[sl]});if(r.ok)ok++;else miss.push(x)}catch(e){miss.push(x+" ("+e.message+")")}}
+      b.disabled=false;b.textContent="🌐 Get logos from company websites";renderSettings();toast(`${ok} logos saved.`+(miss.length?` Not found: ${miss.length}`:""));if(miss.length)ask("Logos not found",`<p class="sf-note">Upload these with the 🖼 button next to the company:</p><ul>${miss.map(m=>`<li>${esc(m)}</li>`).join("")}</ul>`,()=>true,"OK")}}
+  document.querySelectorAll("#ch-banks [data-logo]").forEach(btn=>btn.onclick=()=>{const bank=cfg.banks[+btn.dataset.logo];const inp=document.createElement("input");inp.type="file";inp.accept="image/*";
+    inp.onchange=async()=>{const f=inp.files[0];if(!f)return;if(f.size>1.5e6){toast("Picture too big (max 1.5 MB)");return}const fr=new FileReader();fr.onload=async()=>{try{const r=await fetchLogo(bank,{dataUrl:fr.result});toast(r.ok?"Logo saved for "+bank:"Could not save");renderSettings()}catch(e){toast("Logo not saved: "+e.message)}};fr.readAsDataURL(f)};inp.click()});
   document.querySelectorAll(".addline[data-k]").forEach(f=>f.hidden=ro);
   const staff=cfg.staff.map(staffObj);
   $("staffTbl").innerHTML=`<tr><th>Name</th><th>Email</th><th>Phone</th>${TAB_KEYS.map(t=>`<th class="c">${esc(t[1])}</th>`).join("")}<th class="c" title="Can press TP Generate for single cases (Bulk Run stays Admin only)">TP Generate</th><th>Login</th><th></th></tr>`+

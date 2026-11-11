@@ -236,6 +236,69 @@ async function logUsage(sb: any, kind: string, images: number, usage: any, model
     at: new Date().toISOString(), email, name: st?.name ?? "", org: st?.partner || st?.team || "vgr", kind, images, model, inTok: inT, outTok: outT, usd: Math.round(usd * 10000) / 10000 } });
 }
 
+// company logos: Admin only. From the company's website (server side, no browser CORS limits) or an uploaded picture,
+// saved in the public "logos" bucket as logos/<slug> so the bank login can show it without signing anything.
+const logoSlug = (b: string) => String(b || "").split(" - ")[0].toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+// deno-lint-ignore no-explicit-any
+async function logo(role: string, body: any) {
+  if (role !== "md") return json({ error: "Only the Admin can change logos" }, 403);
+  const slug = logoSlug(body.bank);
+  if (!slug) return json({ error: "No company" }, 400);
+  const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+  const { data: b } = await admin.storage.getBucket("logos");
+  if (!b) await admin.storage.createBucket("logos", { public: true });
+  let bytes: Uint8Array | null = null, type = "", from = "";
+  const UA = { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36", "Accept": "text/html,image/*,*/*" };
+  const grab = async (u: string) => {
+    try {
+      const r = await fetch(u, { headers: UA, redirect: "follow" });
+      const t = (r.headers.get("content-type") || "").toLowerCase();
+      const buf = new Uint8Array(await r.arrayBuffer());
+      const svg = t.includes("svg") || /^\s*<(\?xml|svg)/.test(new TextDecoder().decode(buf.slice(0, 200)));
+      if (r.ok && (t.startsWith("image/") || svg) && buf.length > 300) return { buf, t: svg ? "image/svg+xml" : t.split(";")[0] };
+    } catch (_) { /* next */ }
+    return null;
+  };
+  if (typeof body.dataUrl === "string" && body.dataUrl.startsWith("data:image/")) {
+    const m = body.dataUrl.match(/^data:(image\/[\w+.-]+);base64,(.+)$/);
+    if (!m) return json({ error: "Bad picture" }, 400);
+    bytes = Uint8Array.from(atob(m[2]), (c) => c.charCodeAt(0)); type = m[1]; from = "uploaded";
+  } else {
+    const site = String(body.site || "").replace(/\/$/, "");
+    const cands: string[] = [];
+    if (body.url) cands.push(String(body.url));
+    if (site) {
+      try {
+        const r = await fetch(site, { headers: UA, redirect: "follow" });
+        const base = r.url || site, html = (await r.text()).slice(0, 400000);
+        const abs = (x: string) => { try { return new URL(x.replace(/&amp;/g, "&"), base).href; } catch (_) { return ""; } };
+        const imgs = [...html.matchAll(/<img\b[^>]*>/gi)].map((m) => m[0]).filter((t) => /logo/i.test(t));
+        for (const t of imgs.slice(0, 6)) {
+          const src = (t.match(/\s(?:data-src|src)\s*=\s*["']([^"']+)["']/i) || [])[1];
+          if (src && !src.startsWith("data:")) cands.push(abs(src));
+        }
+        const links = [...html.matchAll(/<link\b[^>]*>/gi)].map((m) => m[0]);
+        for (const re of [/apple-touch-icon/i, /rel=["'][^"']*icon/i]) {
+          const l = links.find((x) => re.test(x));
+          const h = l && (l.match(/href\s*=\s*["']([^"']+)["']/i) || [])[1];
+          if (h) cands.push(abs(h));
+        }
+        const og = (html.match(/<meta[^>]+property=["']og:image["'][^>]*content=["']([^"']+)["']/i) || [])[1];
+        if (og) cands.push(abs(og));
+      } catch (_) { /* site not reachable */ }
+      cands.push(`https://t3.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=${encodeURIComponent(site)}&size=256`);
+    }
+    for (const u of cands.filter(Boolean)) {
+      const g = await grab(u);
+      if (g) { bytes = g.buf; type = g.t; from = u; break; }
+    }
+  }
+  if (!bytes) return json({ ok: false, error: "No logo found" });
+  const { error } = await admin.storage.from("logos").upload(slug, bytes, { contentType: type, upsert: true, cacheControl: "300" });
+  if (error) return json({ error: error.message }, 500);
+  return json({ ok: true, slug, from, type, size: bytes.length, url: `${Deno.env.get("SUPABASE_URL")}/storage/v1/object/public/logos/${slug}` });
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
   try {
@@ -247,6 +310,7 @@ Deno.serve(async (req) => {
     const body = await req.json();
     if (body?.kind === "invite") return await invite(sb, role, body.email, body.link);
     if (body?.kind === "client_file") return await clientFile(sb, role, body.doc, body.url);
+    if (body?.kind === "logo") return await logo(role, body);
     if (role === "client") return json({ error: "Not allowed" }, 403);
     const key = Deno.env.get("ANTHROPIC_API_KEY");
     if (!key) return json({ error: "ANTHROPIC_API_KEY is not set" }, 500);
