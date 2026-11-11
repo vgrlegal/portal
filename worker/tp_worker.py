@@ -633,10 +633,19 @@ def open_presenceless(page, job):
     to_english(page)
     if page.locator("#deedType").count():
         return
-    for attempt in range(3):
+    relog = 0
+    for attempt in range(4):
         if attempt or "error" in page.url.lower() or page.evaluate("()=>/தவறு ஏற்பட்டுள்ளது|error occurred/i.test(document.body.innerText)"):
             page.goto(URL, wait_until="domcontentloaded", timeout=90000)
             page.wait_for_timeout(3000)
+        if not logged_in(page) and getattr(job, "acc", None) and relog < 1:
+            # 11 Nov 2026: TNREGINET signed the robot out (same login used in another browser, or the session ended) -
+            # the home page shows Sign In and the Presence-less banner. Sign in again (a new captcha is asked).
+            relog += 1
+            job.step("TNREGINET signed out - signing in again (type the new captcha)", page)
+            page.keyboard.press("Escape")
+            do_login(page, job, job.acc)
+            to_english(page)
         hit = click_text(page, "நேரடி வருகை இல்லா|presence ?less")
         page.wait_for_timeout(4000)
         if page.locator("#deedType").count():
@@ -3543,6 +3552,7 @@ def handle(pw, jid, data):
                 job.step("Stopped here", page)
                 raise
             return
+        job.acc = acc
         try:
             do_login(page, job, acc)
         except Exception:
