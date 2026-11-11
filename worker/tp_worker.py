@@ -564,8 +564,10 @@ def address(P, state="Tamil Nadu", district="", taluk="", village="", addr="", a
         P.fuzzy("cmb_Taluk", taluk, 2.5)
     if village:
         P.fuzzy("cmb_Village", village, 1)
-    addr = (addr or "").replace(":", " ").replace("：", " ")  # TNREGINET refuses ':' in addresses (e.g. "Branch:", "PO:")
-    addr_ta = (addr_ta or "").replace(":", " ").replace("：", " ")
+    # TNREGINET refuses ':' in addresses (e.g. "Branch:", "PO:"); "PO: Moongilpadi" is written "Moongilpadi (PO)"
+    po = lambda a: ", ".join(re.sub(r"^P\.?\s*O\b\.?\s*[:：\-–]?\s*(\S.*)$", r"\1 (PO)", x.strip(), flags=re.I) for x in (a or "").split(","))
+    addr = re.sub(r"\s+", " ", po(addr).replace(":", " ").replace("：", " ")).strip()
+    addr_ta = re.sub(r"\s+", " ", po(addr_ta).replace(":", " ").replace("：", " ")).strip()
     P.set("txt_FullAddress", addr)
     P.tamil("multi_tamil_fullAddress", addr_ta, addr)
     P.set("txt_PinCode", pin)
