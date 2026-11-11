@@ -720,7 +720,7 @@ const MODT_FIELDS=[
 function modtFill(c,d){const set=(k,v)=>{if(v!=null&&String(v).trim()!==""&&!String(d[k]||"").trim())d[k]=String(v)};
   /* the customer (borrower) need not be the title holder: title holder names come only from the title deed / Aadhaar;
      title holder 1's phone is the phone given in the case */
-  set("Mortgagor 1 phone",c.phone||d.Phone);set("Mortgagor 1 Aadhaar",d.Aadhaar);set("Mortgagor 1 address",d.Address);set("Mortgagor 1 pincode",d.Pincode);set("Mortgagor 1 relative name",d["Relative name"]);
+  set("Mortgagor 1 phone",c.phone||d.Phone);for(let k=1;k<=8;k++)if(d[`Mortgagor ${k} address`]||d[`Mortgagor ${k} address Tamil`])cleanAddrPair(d,`Mortgagor ${k} address`,`Mortgagor ${k} address Tamil`,`Mortgagor ${k} district`);set("Mortgagor 1 Aadhaar",d.Aadhaar);set("Mortgagor 1 address",d.Address);set("Mortgagor 1 pincode",d.Pincode);set("Mortgagor 1 relative name",d["Relative name"]);
   set("Loan amount",c.loanAmount);set("Title holders","1");set("Presenter","Title holder 1");set("Property SRO",d.SRO||c.sro);set("Execution SRO",d["Property SRO"]||c.sro);
   ["North","South","East","West"].forEach(x=>set("Boundary "+x,d["Boundary "+x]));set("Extent",d.Extent);set("New survey no",d["Survey number"]);
   const p=profOf(c.bank)||{},co=p.company||{};set("Govt Body Name",co.full_name||d["Company name"]||c.bank);set("Company state",co.state);set("Company address",co.addr_en||d["Branch address"]);set("Company address Tamil",co.addr_ta);set("Company pincode",co.pincode);
@@ -1431,11 +1431,13 @@ function robotQsHtml(c){const qs=(c.robotQs||[]).filter(q=>!q.answer);if(!qs.len
   return`<div class="rvsec" id="rqBox" style="border:1px solid var(--warn,#c80);border-radius:10px;padding:10px"><div class="sect">❓ Robot questions (${qs.length})</div>`+qs.map(q=>`<div class="rq" data-q="${esc(q.id)}" style="margin:8px 0">
     <b>${q.kind==="doubt"?"🔔 ":""}${esc(q.q)}</b>${q.hint?`<div class="sf-note">${esc(q.hint)}${q.src?` · ${esc(q.src)}`:""}</div>`:""}
     ${q.shot?`<a class="dshotA" target="_blank" rel="noopener"><img class="dshot" data-shot="${esc(q.shot)}" alt="The spot in the document" style="max-width:100%;max-height:260px;border:1px solid #ccc;border-radius:6px;margin:6px 0;cursor:zoom-in;display:block"></a>`:""}
-    <div style="display:flex;gap:6px;flex-wrap:wrap;margin:6px 0">${(q.options||[]).map(o=>`<button type="button" class="btn rqo" data-v="${esc(o)}">${esc(o)}</button>`).join("")}<input class="rqa" placeholder="Other answer" style="width:auto"></div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin:6px 0;align-items:center">${(q.options||[]).map(o=>`<span style="display:inline-flex;gap:2px"><button type="button" class="btn rqo" data-v="${esc(o)}">${esc(o)}</button>${copyBtn(o)}</span>`).join("")}<input class="rqa" placeholder="Or type the correct one (Enter saves)" style="width:auto;flex:1;min-width:180px"><button type="button" class="btn rqc" title="Copy what you typed" style="padding:4px 8px;font-size:12px">📋</button></div>
     <label class="full">Why? (one line, becomes a rule)<input class="rqw" placeholder="e.g. Ward number in the deed means Urban"></label>
     <button type="button" class="btn primary rqs">Save answer</button></div>`).join("")+`</div>`}
 function wireRobotQs(c){document.querySelectorAll("#rqBox img.dshot").forEach(async im=>{try{const u=await docUrl(im.dataset.shot);im.src=u;im.parentElement.href=u}catch(e){}});
-  document.querySelectorAll("#rqBox .rq").forEach(box=>{let pick="";
+  document.querySelectorAll("#rqBox .dshotA").forEach(a=>a.onclick=e=>{const im=a.querySelector("img");if(im&&im.src){e.preventDefault();zoomImg(im.src)}});
+  document.querySelectorAll("#rqBox .rq").forEach(box=>{let pick="";box.querySelectorAll(".cpy").forEach(b=>b.onclick=()=>copyText(b.dataset.c,b));
+  {const inp=box.querySelector(".rqa");box.querySelector(".rqc").onclick=e=>copyText(inp.value,e.target);inp.oninput=()=>{if(inp.value.trim())box.querySelectorAll(".rqo").forEach(x=>x.classList.remove("primary"))};inp.onkeydown=e=>{if(e.key==="Enter"){e.preventDefault();box.querySelector(".rqs").click()}}}
   box.querySelectorAll(".rqo").forEach(b=>b.onclick=()=>{pick=b.dataset.v;box.querySelectorAll(".rqo").forEach(x=>x.classList.toggle("primary",x===b))});
   box.querySelector(".rqs").onclick=async()=>{const ans=box.querySelector(".rqa").value.trim()||pick,why=box.querySelector(".rqw").value.trim();if(!ans){toast("Pick or type the answer");return}
     const q=(c.robotQs||[]).find(x=>x.id===box.dataset.q);if(!q)return;const admin=isMD||isAdmin;
@@ -2500,22 +2502,53 @@ function jpegOf(c,max=1800){const k=Math.min(1,max/Math.max(c.width,c.height)),d
 /* ---- doubts: Claude lists what it is unsure of with the image and spot; we cut out that spot so the person decides there and then ---- */
 function findBox(cv,needle){const it=cv&&cv._items;if(!it||!needle)return null;const w=String(needle).toLowerCase().split(/[\s,]+/).filter(x=>x.length>=3).sort((a,b)=>b.length-a.length)[0];if(!w)return null;
   const m=it.find(x=>x.s.toLowerCase().includes(w));if(!m)return null;return[m.x/cv.width,m.y/cv.height,(m.x+Math.max(m.w,m.h*3))/cv.width,(m.y+m.h)/cv.height]}
-function cropOf(cv,box,needle){if(!cv)return"";let b=Array.isArray(box)&&box.length===4?box.map(Number):null;if(b&&(b.some(v=>isNaN(v)||v<0||v>1.01)||b[2]<=b[0]||b[3]<=b[1]))b=null;b=findBox(cv,needle)||b;
+function cropOf(cv,box,needle,wide){if(!cv)return"";let b=Array.isArray(box)&&box.length===4?box.map(Number):null;if(b&&(b.some(v=>isNaN(v)||v<0||v>1.01)||b[2]<=b[0]||b[3]<=b[1]))b=null;b=findBox(cv,needle)||b;
   /* Claude's spot is approximate: keep the full width and a generous band above and below so the words are surely in the picture */
   const W=cv.width,H=cv.height;let x0=0,y0=0,x1=W,y1=H;
-  if(b){const cy=(b[1]+b[3])/2,hh=Math.max(0.11,(b[3]-b[1])/2+0.08);y0=Math.max(0,cy-hh)*H;y1=Math.min(1,cy+hh)*H}
-  const k=Math.min(1,1100/(x1-x0)),d=document.createElement("canvas");d.width=Math.round((x1-x0)*k);d.height=Math.round((y1-y0)*k);const g=d.getContext("2d");g.drawImage(cv,x0,y0,x1-x0,y1-y0,0,0,d.width,d.height);
+  if(b&&!wide){const cy=(b[1]+b[3])/2,hh=Math.max(0.11,(b[3]-b[1])/2+0.08);y0=Math.max(0,cy-hh)*H;y1=Math.min(1,cy+hh)*H}
+  const k=Math.min(1,(wide?1600:1100)/(x1-x0)),d=document.createElement("canvas");d.width=Math.round((x1-x0)*k);d.height=Math.round((y1-y0)*k);const g=d.getContext("2d");g.drawImage(cv,x0,y0,x1-x0,y1-y0,0,0,d.width,d.height);
   if(b){g.strokeStyle="#e00";g.lineWidth=3;g.setLineDash([10,6]);g.strokeRect((b[0]*W-x0)*k-4,(b[1]*H-y0)*k-4,(b[2]-b[0])*W*k+8,(b[3]-b[1])*H*k+8)}
   return d.toDataURL("image/jpeg",0.82)}
 const dataBlob=u=>fetch(u).then(r=>r.blob());
+/* small helpers for the "Please check" boxes: copy a value, see a picture full size */
+function copyText(t,btn){const done=()=>{if(btn){const o=btn.textContent;btn.textContent="✓ Copied";setTimeout(()=>btn.textContent=o,1200)}};
+  try{navigator.clipboard.writeText(t).then(done,()=>{fallback()})}catch(e){fallback()}
+  function fallback(){const ta=document.createElement("textarea");ta.value=t;document.body.appendChild(ta);ta.select();try{document.execCommand("copy")}catch(e){}ta.remove();done()}}
+const copyBtn=v=>`<button type="button" class="btn cpy" data-c="${esc(v)}" title="Copy" style="padding:4px 8px;font-size:12px">📋</button>`;
+function zoomImg(src){const z=document.createElement("div");z.style.cssText="position:fixed;inset:0;z-index:100002;background:rgba(0,0,0,.85);overflow:auto;cursor:zoom-out;padding:12px;text-align:center";
+  z.innerHTML=`<div style="color:#fff;font-size:13px;margin-bottom:6px">Click anywhere or press Esc to close</div><img src="${src}" style="max-width:none;width:min(1600px,96vw);background:#fff;border-radius:6px">`;
+  const close=()=>{z.remove();document.removeEventListener("keydown",k)},k=e=>{if(e.key==="Escape")close()};z.onclick=close;document.addEventListener("keydown",k);document.body.appendChild(z)}
+/* address box: only the part before the district. Takes out a leading S/O …, the pincode, Tamil Nadu / தமிழ்நாடு, and the district at the end (they have their own boxes) */
+function addrClean(a,dist,ta,dropLast,enN){a=String(a||"").replace(/\s+/g," ").trim();addrClean.dropped=false;if(!a)return a;
+  a=a.replace(/^\s*[SWDC]\s*\/\s*O\.?\s*[:\-]?\s*[^,]*,\s*/i,"");
+  let p=a.split(/\s*,\s*/).map(x=>x.replace(/(pin(\s*code)?\s*[:\-]?\s*)?\b\d{6}\b/ig,"").replace(/[\s\-–:.]+$/,"").trim()).filter(Boolean);
+  const st=/^(tamil\s*nadu|tamilnadu|t\.?\s*n|தமிழ்\s*நாடு|india|இந்தியா)$/i;while(p.length>1&&st.test(p[p.length-1]))p.pop();
+  if(p.length>1){const l=p[p.length-1].toLowerCase(),dn=String(dist||"").toLowerCase().replace(/\s*(dist(rict)?\.?)\s*$/,"").trim(),bare=l.replace(/\s*(dist(rict)?\.?|மாவட்டம்)\s*$/,"").trim();
+    if((dn&&bare===dn)||/\bdist(rict)?\.?$|மாவட்டம்$/.test(l)||(ta&&dropLast&&(!enN||p.length>enN))){p.pop();addrClean.dropped=true}}
+  return p.join(", ")}
+function cleanAddrPair(o,en,taK,dist){if(o[en]){o[en]=addrClean(o[en],o[dist]);const d=addrClean.dropped,n=o[en].split(",").length;if(o[taK])o[taK]=addrClean(o[taK],o[dist],true,d,n)}else if(o[taK])o[taK]=addrClean(o[taK],o[dist],true,false)}
+/* a status strip that stays on screen while Claude reads: step, a moving bar, seconds; errors stay red until closed */
+function readProg(){let el=$("readProg");if(!el){el=document.createElement("div");el.id="readProg";el.style.cssText="position:fixed;left:50%;transform:translateX(-50%);bottom:84px;z-index:100001;width:min(560px,92vw);background:#1f2a44;color:#fff;border-radius:10px;padding:10px 14px;box-shadow:0 6px 24px rgba(0,0,0,.3);font-size:14px";document.body.appendChild(el)}
+  let t0=Date.now(),timer=null,txt="",pct=0;const draw=(bg)=>{const sec=Math.round((Date.now()-t0)/1000);el.style.background=bg||"#1f2a44";
+    el.innerHTML=`<div style="display:flex;justify-content:space-between;gap:8px"><b>${esc(txt)}</b><span style="opacity:.8">${sec}s</span></div><div style="height:6px;background:rgba(255,255,255,.25);border-radius:3px;margin-top:6px;overflow:hidden"><div style="height:100%;width:${pct}%;background:#7fd1ff;transition:width .4s"></div></div>`};
+  const api={step(t,p){txt=t;if(p!=null)pct=p;draw();if(!timer)timer=setInterval(()=>draw(),1000)},
+    done(t){clearInterval(timer);timer=null;txt=t;pct=100;draw("#1d6b3a");setTimeout(()=>{if(el.isConnected&&el.style.background.includes("29, 107, 58"))el.remove()},7000)},
+    fail(t){clearInterval(timer);timer=null;el.style.background="#9b1c1c";el.innerHTML=`<div style="display:flex;justify-content:space-between;gap:8px;align-items:flex-start"><b>⚠ ${esc(t)}</b><button type="button" class="btn" style="padding:2px 8px">✕</button></div>`;el.querySelector("button").onclick=()=>el.remove()}};
+  return api}
+
 /* Aadhaar read while the person is uploading: show each doubt with its spot right away and use the answer */
 function doubtDialog(list){return new Promise(ok=>{const ov=document.createElement("div");ov.style.cssText="position:fixed;inset:0;z-index:100000;background:rgba(0,0,0,.45);display:flex;align-items:flex-start;justify-content:center;overflow:auto;padding:24px 12px";
   ov.innerHTML=`<div style="background:var(--card,#fff);color:inherit;max-width:760px;width:100%;border-radius:12px;padding:16px"><div class="sect">🔔 Please check (${list.length}) · சரிபார்க்கவும்</div>`+list.map((q,i)=>`<div class="dq" data-i="${i}" style="margin:12px 0;border-top:1px solid #ddd;padding-top:10px"><b>${esc(q.label)}</b>${q.why?` <span class="sf-note">· ${esc(q.why)}</span>`:""}
-    ${q.img?`<div><img src="${q.img}" style="max-width:100%;border:1px solid #ccc;border-radius:6px;margin:6px 0"></div>`:""}
-    <div style="display:flex;gap:6px;flex-wrap:wrap">${[q.read,...(q.options||[])].filter((v,j,a)=>v&&a.indexOf(v)===j).map((o,j)=>`<button type="button" class="btn dqo${j?"":" primary"}" data-v="${esc(o)}">${esc(o)}</button>`).join("")}<input class="dqa" placeholder="Or type the correct one" style="width:auto;flex:1;min-width:180px"></div></div>`).join("")+
+    ${q.img?`<div><img class="dqz" src="${q.img}" title="Click to see it big" style="max-width:100%;border:1px solid #ccc;border-radius:6px;margin:6px 0;cursor:zoom-in"><div class="sf-note">🔍 Click the picture to see it big</div></div>`:""}
+    <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">${[q.read,...(q.options||[])].filter((v,j,a)=>v&&a.indexOf(v)===j).map((o,j)=>`<span style="display:inline-flex;gap:2px"><button type="button" class="btn dqo${j?"":" primary"}" data-v="${esc(o)}">${esc(o)}</button>${copyBtn(o)}</span>`).join("")}<input class="dqa" placeholder="Or type the correct one (Enter)" style="width:auto;flex:1;min-width:180px"><button type="button" class="btn dqc" title="Copy what you typed" style="padding:4px 8px;font-size:12px">📋</button></div><div class="sf-note dqn" hidden style="color:#1d6b3a">✓ Your typed answer will be used</div></div>`).join("")+
     `<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px"><button type="button" class="btn primary" id="dqOk">Confirm</button></div></div>`;
   document.body.appendChild(ov);const pick=list.map(q=>q.read||"");
-  ov.querySelectorAll(".dq").forEach(box=>{const i=+box.dataset.i;box.querySelectorAll(".dqo").forEach(b=>b.onclick=()=>{pick[i]=b.dataset.v;box.querySelectorAll(".dqo").forEach(x=>x.classList.toggle("primary",x===b))})});
+  ov.querySelectorAll(".dq").forEach(box=>{const i=+box.dataset.i,inp=box.querySelector(".dqa"),note=box.querySelector(".dqn");
+    const useTyped=()=>{const v=inp.value.trim();note.hidden=!v;inp.style.outline=v?"2px solid #1d6b3a":"";if(v){pick[i]=v;box.querySelectorAll(".dqo").forEach(x=>x.classList.remove("primary"))}};
+    box.querySelectorAll(".dqo").forEach(b=>b.onclick=()=>{inp.value="";useTyped();pick[i]=b.dataset.v;box.querySelectorAll(".dqo").forEach(x=>x.classList.toggle("primary",x===b))});
+    inp.oninput=useTyped;inp.onblur=useTyped;inp.onkeydown=e=>{if(e.key==="Enter"){e.preventDefault();useTyped();const nx=ov.querySelector(`.dq[data-i="${i+1}"] .dqa`);(nx||ov.querySelector("#dqOk")).focus()}};
+    box.querySelectorAll(".cpy").forEach(b=>b.onclick=()=>copyText(b.dataset.c,b));box.querySelector(".dqc").onclick=e=>copyText(inp.value,e.target);
+    const z=box.querySelector(".dqz");if(z)z.onclick=()=>zoomImg(z.src)});
   ov.querySelector("#dqOk").onclick=()=>{const ans=list.map((q,i)=>ov.querySelector(`.dq[data-i="${i}"] .dqa`).value.trim()||pick[i]);ov.remove();ok(ans)}})}
 const AAD_KEY={name:["name","Name"],name_ta:["name_ta","Name in Tamil"],rel_name:["rel_name","Father / husband name"],rel_name_ta:["rel_ta","Father / husband name in Tamil"],dob:["dob","Date of birth"],aadhaar:["aadhaar","Aadhaar number"],address_en:["addr","Address"],address_ta:["addr_ta","Address in Tamil"],district:["district","District"],pincode:["pincode","Pincode"],mobile:["mobile","Mobile"],gender:["gender","Gender"]};
 async function claudeRead(canvases){if(!window.__sb)return null;
@@ -2525,20 +2558,21 @@ async function claudeRead(canvases){if(!window.__sb)return null;
   const put=(k,v)=>{v=String(v||"").trim();if(v)o[k]=v};
   put("name",f.name);put("name_ta",f.name_ta);put("rel_name",f.rel_name);put("rel_ta",f.rel_name_ta);put("dob",f.dob);put("gender",/^f/i.test(f.gender||"")?"Female":/^m/i.test(f.gender||"")?"Male":"");
   put("aadhaar",String(f.aadhaar||"").replace(/\D/g,"").length===12?String(f.aadhaar).replace(/\D/g,""):"");put("addr",f.address_en);put("addr_ta",f.address_ta);put("district",f.district);put("state",f.state);put("pincode",f.pincode);put("mobile",f.mobile);
+  cleanAddrPair(o,"addr","addr_ta","district");
   if(rt)o.rel_type=rt;if(o.gender)o.sal=o.gender==="Female"?(rt==="Wife of"?"Mrs":"Ms"):"Mr";
   lastOcrText=JSON.stringify(f,null,1);
-  o._doubts=(Array.isArray(f.doubts)?f.doubts:[]).filter(q=>q&&AAD_KEY[q.field]).map(q=>({key:AAD_KEY[q.field][0],label:AAD_KEY[q.field][1],read:String(q.read||f[q.field]||""),options:(q.options||[]).map(String),why:q.why||"",img:cropOf(canvases[(+q.img||1)-1]||canvases[0],q.box,q.read)}));
+  o._doubts=(Array.isArray(f.doubts)?f.doubts:[]).filter(q=>q&&AAD_KEY[q.field]).map(q=>({key:AAD_KEY[q.field][0],label:AAD_KEY[q.field][1],read:String(q.read||f[q.field]||""),options:(q.options||[]).map(String),why:q.why||"",img:cropOf(canvases[(+q.img||1)-1]||canvases[0],q.box,q.read,/address/i.test(q.field))}));
   return o}
 /* Aadhaar: free reading first (text inside the PDF, then free OCR); Claude only when the free result fails the checks */
 function verhoeff(n){const d=[[0,1,2,3,4,5,6,7,8,9],[1,2,3,4,0,6,7,8,9,5],[2,3,4,0,1,7,8,9,5,6],[3,4,0,1,2,8,9,5,6,7],[4,0,1,2,3,9,5,6,7,8],[5,9,8,7,6,0,4,3,2,1],[6,5,9,8,7,1,0,4,3,2],[7,6,5,9,8,2,1,0,4,3],[8,7,6,5,9,3,2,1,0,4],[9,8,7,6,5,4,3,2,1,0]],p=[[0,1,2,3,4,5,6,7,8,9],[1,5,7,6,2,8,3,0,9,4],[5,8,0,3,7,9,6,1,4,2],[8,9,1,6,0,4,3,5,2,7],[9,4,5,3,1,2,6,8,7,0],[4,2,8,6,5,7,3,9,0,1],[2,7,9,3,8,0,6,4,1,5],[7,0,4,6,9,1,3,2,5,8]];
   n=String(n||"");if(!/^[2-9]\d{11}$/.test(n))return false;let c=0;n.split("").reverse().forEach((x,i)=>{c=d[c][p[i%8][+x]]});return c===0}
 function aadhaarGood(o){return!!(o&&o.name&&o.name.split(/\s+/).join("").length>=3&&verhoeff(o.aadhaar)&&o.dob&&o.gender)}
 /* ID cards (Aadhaar of witness, representative, mortgagor, KYC): always read by Claude, no free OCR */
-async function readAadhaar(files,say){const{canvases}=await canvasesOf(files,say);
+async function readAadhaar(files,say,noAsk){const{canvases}=await canvasesOf(files,say);
   say("Reading the card with Claude… about 5–10 seconds.");const c=await claudeRead(canvases);
   if(!c||!c.name)throw new Error(window.__noCredit?"Claude credit is finished":"Claude could not read this card. Try a clearer photo or PDF.");
   const dq=c._doubts||[];delete c._doubts;
-  if(dq.length){const ans=await doubtDialog(dq);dq.forEach((q,i)=>{if(ans[i])c[q.key]=q.key==="aadhaar"?digits(ans[i]):ans[i]})}
+  if(dq.length&&!noAsk){const ans=await doubtDialog(dq);dq.forEach((q,i)=>{if(ans[i])c[q.key]=q.key==="aadhaar"?digits(ans[i]):ans[i]})}
   if(c.name)c.name=c.name.toUpperCase();if(c.rel_name)c.rel_name=c.rel_name.toUpperCase();c._how="claude";return c}
 /* English → Tamil (same as TNREGINET's F8 typing), via Google Input Tools */
 async function toTamil(text){text=String(text||"").trim();if(!text)return"";const segs=text.split(/(\s*[,\/\-]\s*|\s+)/);const out=[];
@@ -2679,7 +2713,7 @@ async function claudeModt(file){if(!window.__sb)return null;const{canvases,text}
   const nl=applyLearned(d);if(nl)console.info("applied",nl,"learned corrections");
   /* the MODT often prints the company address only in English: make the Tamil one the same way TNREGINET's F8 typing does */
   if(d["Company address"]&&!/[\u0B80-\u0BFF]/.test(d["Company address (Tamil)"]||"")){try{const ta=await toTamil(d["Company address"]);if(ta&&/[\u0B80-\u0BFF]/.test(ta))d["Company address (Tamil)"]=ta}catch(e){}}
-  const doubts=(Array.isArray(f.doubts)?f.doubts:[]).map(q=>{const k=modtKey(q.field);return k&&{field:k,read:String(q.read??"")||d[k]||"",options:(q.options||[]).map(String),why:String(q.why||""),img:cropOf(canvases[(+q.img||1)-1],q.box,q.read)}}).filter(Boolean).slice(0,8);
+  const doubts=(Array.isArray(f.doubts)?f.doubts:[]).map(q=>{const k=modtKey(q.field);return k&&{field:k,read:String(q.read??"")||d[k]||"",options:(q.options||[]).map(String),why:String(q.why||""),img:cropOf(canvases[(+q.img||1)-1],q.box,q.read,/address|boundar/i.test(k))}}).filter(Boolean).slice(0,8);
   return{d,doubts,src:file.name,bankText:[f.bank,f.bank_branch].filter(Boolean).join(" ")}}
 const MODT_KEY={sro:"SRO",sro_ta:"SRO Tamil",book:"Book",doc_no:"Doc No",year:"Year",mortgagor_sal:"Mortgagor salutation",mortgagor:"Mortgagor",mortgagor_ta:"Mortgagor name (Tamil)",age:"Mortgagor Age",rel_type:"Mortgagor relation",rel_name:"Mortgagor relative name",aadhaar:"Mortgagor Aadhaar",address:"Mortgagor address",pincode:"Mortgagor pincode",mobile:"Mortgagor mobile",bank_address:"Company address",bank_address_ta:"Company address (Tamil)",branch_address:"Company address",branch_address_ta:"Company address (Tamil)",bank_state:"Company state",bank_district:"Company district",bank_pincode:"Company pincode",loan_amount:"Loan Amount",loan_account:"Loan account",property_district:"Property district",property_sro:"Property SRO",village:"Village",survey_no:"Survey number",extent:"Extent",north:"Boundary North",east:"Boundary East",west:"Boundary West",south:"Boundary South",earlier_doc_no:"Supp MODT Doc No",earlier_year:"Supp MODT Year",earlier_sro:"Supp MODT SRO",earlier_loan_amount:"Supp loan amount"};
 function modtKey(k){k=String(k||"");if(MODT_KEY[k])return MODT_KEY[k];const m=k.match(/co_mortgagors\W*(\d)\W*(\w+)/);if(!m)return"";const n=+m[1]+2,sub={name:"name",name_ta:"name (Tamil)",age:"age",rel_type:"relation",rel_name:"relative name"}[m[2]];return sub?`Mortgagor ${n} ${sub}`:""}
@@ -2731,9 +2765,9 @@ async function docBinText(file){const b=new Uint8Array(await file.arrayBuffer())
   docBinText.lod="";
   return (score(u16)>=score(u8)*0.6?u16:u8).replace(/\x07\x07/g,"\n").replace(/\x07/g," | ").replace(/\r/g,"\n").replace(/\t/g," ").replace(/\n{3,}/g,"\n\n").trim()}
 async function readModtCase(c,force){const D=c.docs||{};if(!(D.mdraft||[]).length&&!(D.deed||[]).length){toast("Upload the MODT draft and title deed first");return}
-  toast("Claude is reading the MODT draft, title deed, Aadhaar and patta… about 1 minute.");
-  try{let draft="";const imgs=[],labels=[],cvs=[];
-    const add=async(list,label,maxPages,cap)=>{let n=0;for(const f of list||[]){if(n>=cap)break;const file=await fileOfDoc(f);const{canvases}=await canvasesOf([file],()=>{},maxPages);for(const cv of canvases){if(n>=cap||imgs.length>=20)break;imgs.push(jpegOf(cv,1400));cvs.push(cv);labels.push(label);n++}}};
+  const pg=readProg();pg.step("Step 1/4 · Opening the MODT draft…",5);
+  try{let draft="";const imgs=[],labels=[],cvs=[];let dn=0;const dTot=["th_kyc","deed","revenue","photos","ec","sanction"].filter(k=>(D[k]||[]).length).length||1;
+    const add=async(list,label,maxPages,cap)=>{if((list||[]).length){dn++;pg.step(`Step 2/4 · Opening documents ${dn}/${dTot}: ${label.replace(/ page$/,"").toLowerCase()}…`,8+Math.round(dn/dTot*22))}let n=0;for(const f of list||[]){if(n>=cap)break;const file=await fileOfDoc(f);const{canvases}=await canvasesOf([file],()=>{},maxPages);for(const cv of canvases){if(n>=cap||imgs.length>=20)break;imgs.push(jpegOf(cv,1400));cvs.push(cv);labels.push(label);n++}}};
     let lodHtml="";for(const f of D.mdraft||[]){const file=await fileOfDoc(f);if(/\.docx$/i.test(f.name)){draft+=await docxText(file)+"\n";if(!lodHtml)try{lodHtml=await docxLodTable(file)}catch(e){console.warn(e)}}else if(/\.doc$/i.test(f.name)||/msword/.test(file.type||"")){draft+=await docBinText(file)+"\n";if(!lodHtml&&docBinText.lod)lodHtml=docBinText.lod}else{const r=await canvasesOf([file],()=>{},4);draft+=r.text||"";if(!r.text.trim())r.canvases.slice(0,4).forEach(cv=>{imgs.push(jpegOf(cv,1400));cvs.push(cv);labels.push("MODT DRAFT page")})}}
     await add(D.th_kyc,"TITLE HOLDER AADHAAR / KYC",3,5);
     await add(D.deed,"TITLE DEED page",6,7);
@@ -2741,26 +2775,33 @@ async function readModtCase(c,force){const D=c.docs||{};if(!(D.mdraft||[]).lengt
     await add((D.photos||[]).slice(0,1),"PROPERTY PHOTO",1,1);
     await add(D.ec,"EC page",2,2);
     await add(D.sanction,"SANCTION LETTER page",1,1);
-    if(!imgs.length&&!draft.trim()){toast("Nothing readable in the uploaded documents");return}
+    if(!imgs.length&&!draft.trim()){pg.fail("Nothing readable in the uploaded documents");return}
+    const s3=`Step 3/4 · Claude is reading ${imgs.length} pages + the draft… (about 1 minute)`;let p3=35;pg.step(s3,p3);const slow=setInterval(()=>pg.step(s3,p3=Math.min(88,p3+1)),1500);
     const hints=[...ruleHints(),...learned().slice(0,30).map(x=>`${x.field}: "${x.read}" → "${x.fixed}"`)].slice(0,40);
-    const{data,error}=await window.__sb.functions.invoke("read-aadhaar",{body:{kind:"modt_case",draft:draft.slice(0,30000),images:imgs,labels,hints}});
+    let data,error;try{({data,error}=await window.__sb.functions.invoke("read-aadhaar",{body:{kind:"modt_case",draft:draft.slice(0,30000),images:imgs,labels,hints}}))}finally{clearInterval(slow)}
     if(error||!data||!data.fields){let m=(data&&data.error)||(error&&error.message)||"no reply";try{if(error&&error.context){const b=await error.context.json();m=b.error||m}}catch(e){}throw new Error(m+" (try once more)")}
-    const F=data.fields,doubts=String(F.Doubts||"").trim(),dq=(Array.isArray(F.doubts)?F.doubts:[]).filter(q=>q&&q.field&&q.field in F).slice(0,10).map(q=>({field:q.field,read:String(q.read??"")||String(F[q.field]??""),options:(q.options||[]).map(String),why:String(q.why||""),img:cropOf(cvs[(+q.img||0)-1],q.box,q.read)}));delete F.Doubts;delete F.doubts;
+    const F=data.fields,doubts=String(F.Doubts||"").trim(),dq=(Array.isArray(F.doubts)?F.doubts:[]).filter(q=>q&&q.field&&q.field in F).slice(0,10).map(q=>({field:q.field,read:String(q.read??"")||String(F[q.field]??""),options:(q.options||[]).map(String),why:String(q.why||""),img:cropOf(cvs[(+q.img||0)-1],q.box,q.read,/address|boundar/i.test(q.field))}));delete F.Doubts;delete F.doubts;
+    pg.step("Step 4/4 · Saving what Claude read…",90);if(String(c.phone||"").replace(/\D/g,"").length>=10)delete F["Mortgagor 1 phone"];
+    Object.keys(F).forEach(k=>{const m=/^Mortgagor (\d+) address$/.exec(k);if(m)cleanAddrPair(F,k,`Mortgagor ${m[1]} address Tamil`,`Mortgagor ${m[1]} district`)});
     const d={...(c.draft||{})};let n=0;Object.entries(F).forEach(([k,v])=>{v=Array.isArray(v)?v.join("\n"):String(v??"").trim();if(!v)return;if(force||!String(d[k]||"").trim()){if(d[k]!==v)n++;d[k]=v}});
     const ch={draft:d,tpAuto:{...(c.tpAuto||{}),...Object.fromEntries(Object.entries(F).map(([k,v])=>[k,String(v??"")]))},tpNotes:doubts};if(lodHtml)ch.lodHtml=lodHtml;
-    /* customer's own witnesses (Aadhaar uploaded in this case: used for this case only, never added to KYC Master) and the name on each title holder Aadhaar */
-    {const say=m=>toast(m),cw={...(c.caseWit||{})};let chg=false;
-      for(const n of [1,2]){const f=(D[`w${n}_kyc`]||[])[0];if(!f){if(cw[n]){delete cw[n];chg=true}continue}if(cw[n]&&cw[n].from===f.url)continue;
-        try{const o=await readAadhaar([await fileOfDoc(f)],say);cw[n]={...o,from:f.url};chg=true}catch(e){console.warn("witness",e)}}
-      if(chg)ch.caseWit=cw;
-      const thk=[];for(const f of D.th_kyc||[]){const old=(c.thKyc||[]).find(x=>x.url===f.url);if(old&&old.name){thk.push(old);continue}
-        try{const o=await readAadhaar([await fileOfDoc(f)],say);thk.push({url:f.url,name:o.name||""})}catch(e){thk.push({url:f.url,name:""})}}
-      if(thk.length)ch.thKyc=thk}
     if(dq.length)ch.robotQs=await doubtQs(c,dq,"draft","MODT documents");
     if(/urban|rural|natham/i.test(doubts)&&!(ch.robotQs||c.robotQs||[]).some(q=>q.field==="Land type"&&!q.answer))ch.robotQs=[...(ch.robotQs||c.robotQs||[]),{id:crypto.randomUUID(),q:"Is this property Urban, Rural or Natham?",options:["Urban","Rural","Natham"],field:"Land type",hint:doubts.slice(0,300)}];
-    await patch(c,ch,`MODT documents read by Claude (${n} fields filled)`);toast(`Claude filled ${n} field${n===1?"":"s"}. Check every field${doubts?" and the doubts at the top":""}.`);
-    const fresh=cases.find(x=>x._doc===c._doc)||{...c,...ch};if(rv.c&&rv.c._doc===c._doc)openReview(fresh,rv.gen)}
-  catch(e){console.warn(e);toast("Could not read the MODT documents: "+(e.message||e))}}
+    await patch(c,ch,`MODT documents read by Claude (${n} fields filled)`);
+    let fresh=cases.find(x=>x._doc===c._doc)||{...c,...ch};if(rv.c&&rv.c._doc===c._doc)openReview(fresh,rv.gen);
+    /* saved first; now the customer's own witnesses (Aadhaar uploaded in this case: used for this case only, never added to KYC Master) and the name on each title holder Aadhaar */
+    const wl=[1,2].filter(k=>(D[`w${k}_kyc`]||[]).length),cw={...(fresh.caseWit||c.caseWit||{})},ch2={};let chg=false,wi=0;
+    for(const k of [1,2]){const f=(D[`w${k}_kyc`]||[])[0];if(!f){if(cw[k]){delete cw[k];chg=true}continue}if(cw[k]&&cw[k].from===f.url)continue;
+      wi++;pg.step(`Reading witness ${k} Aadhaar (${wi}/${wl.length})… answer any "Please check" box`,92);
+      try{const o=await readAadhaar([await fileOfDoc(f)],()=>{});cw[k]={...o,from:f.url};chg=true}catch(e){console.warn("witness",e)}}
+    if(chg)ch2.caseWit=cw;
+    const thk=[];for(const f of D.th_kyc||[]){const old=(fresh.thKyc||c.thKyc||[]).find(x=>x.url===f.url);if(old&&old.name){thk.push(old);continue}
+      pg.step("Reading the name on the title holder Aadhaar…",96);
+      try{const o=await readAadhaar([await fileOfDoc(f)],()=>{},true);thk.push({url:f.url,name:o.name||""})}catch(e){thk.push({url:f.url,name:""})}}
+    if(thk.length)ch2.thKyc=thk;
+    if(Object.keys(ch2).length){fresh=cases.find(x=>x._doc===c._doc)||fresh;await patch(fresh,ch2,"Witness / title holder Aadhaar read for this case");fresh=cases.find(x=>x._doc===c._doc)||{...fresh,...ch2};if(rv.c&&rv.c._doc===c._doc)openReview(fresh,rv.gen)}
+    pg.done(`✓ Claude filled ${n} field${n===1?"":"s"}. Check every field${doubts?" and the doubts at the top":""}.`);toast(`Claude filled ${n} field${n===1?"":"s"}. Check every field.`)}
+  catch(e){console.warn(e);pg.fail("Could not read the MODT documents: "+(e.message||e));toast("Could not read the MODT documents: "+(e.message||e))}}
 /* a MODT sent as several PDFs (MOD 1001, MOD 2001, …): join them, in name order, into one file */
 async function mergePdfs(files,name){const L=await loadPdfLib(),out=await L.PDFDocument.create();
   for(const f of files){try{const src=await L.PDFDocument.load(await f.arrayBuffer(),{ignoreEncryption:true});(await out.copyPages(src,src.getPageIndices())).forEach(p=>out.addPage(p))}catch(e){console.warn("merge",e)}}
