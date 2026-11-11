@@ -2710,12 +2710,24 @@ async function docBinText(file){const b=new Uint8Array(await file.arrayBuffer())
   const runs=(get,n,step)=>{let out=[],cur="";for(let i=0;i+step<=n;i+=step){const ch=get(i);if(ok(ch))cur+=String.fromCharCode(ch);else{if(cur.replace(/[^A-Za-z\u0B80-\u0BFF0-9]/g,"").length>=6)out.push(cur);cur=""}}if(cur.length>=6)out.push(cur);return out.join("\n")};
   const u16=runs(i=>b[i]|(b[i+1]<<8),b.length,2),u8=runs(i=>b[i],b.length,1);
   const score=t=>(t.match(/[A-Za-z\u0B80-\u0BFF]/g)||[]).length;
+  {const head=(b[0]===0xFF&&b[1]===0xFE)?new TextDecoder("utf-16le").decode(b.slice(0,4000)):new TextDecoder("utf-8").decode(b.slice(0,4000));
+    if(/<html|<body|xmlns:w=/i.test(head)){const html=(b[0]===0xFF&&b[1]===0xFE)?new TextDecoder("utf-16le").decode(b):new TextDecoder(/charset=["']?windows-1252/i.test(head)?"windows-1252":"utf-8").decode(b);
+      const dom=new DOMParser().parseFromString(html,"text/html");dom.querySelectorAll("style,script,xml,head").forEach(x=>x.remove());
+      const txt=e=>(e.textContent||"").replace(/\s+/g," ").trim();
+      const out=[];const walk=n=>{for(const k of n.children){if(k.tagName==="TABLE"){[...k.rows].forEach(r=>out.push([...r.cells].map(txt).join(" | ")))}else if(/^(P|H\d|LI)$/.test(k.tagName)){const t=txt(k);if(t)out.push(t)}else walk(k)}};walk(dom.body);
+      /* the list of documents table, with its boxes, for the robot */
+      let best=null,bestScore=0,seen=false;for(const el of dom.body.querySelectorAll("p,h1,h2,h3,h4,table")){if(el.tagName!=="TABLE"){if(/list\s+of\s+(title\s+)?documents|schedule\s+of\s+(title\s+)?documents|documents\s+deposited/i.test(txt(el)))seen=true;continue}
+        const t=txt(el);let sc=(t.match(/\b(sale|gift|settlement|partition|release|patta|deed|EC|encumbrance|doc(ument)?\.?\s*no)\b/gi)||[]).length+(t.match(/\b(19|20)\d\d\b/g)||[]).length;if(seen){sc+=50;seen=false}if(sc>bestScore){bestScore=sc;best=el}}
+      const td="border:1px solid #000;padding:2px 4px;vertical-align:top",esc2=x=>x.replace(/[<>&]/g,ch=>({"<":"&lt;",">":"&gt;","&":"&amp;"}[ch]));
+      docBinText.lod=best&&bestScore>=3?`<table border="1" cellpadding="2" style="border-collapse:collapse;width:100%">`+[...best.rows].map(r=>"<tr>"+[...r.cells].map(c=>`<td style="${td}"${c.colSpan>1?` colspan="${c.colSpan}"`:""}>${esc2(txt(c))}</td>`).join("")+"</tr>").join("")+"</table>":"";
+      return out.join("\n")}}
+  docBinText.lod="";
   return (score(u16)>=score(u8)*0.6?u16:u8).replace(/\x07\x07/g,"\n").replace(/\x07/g," | ").replace(/\r/g,"\n").replace(/\t/g," ").replace(/\n{3,}/g,"\n\n").trim()}
 async function readModtCase(c,force){const D=c.docs||{};if(!(D.mdraft||[]).length&&!(D.deed||[]).length){toast("Upload the MODT draft and title deed first");return}
   toast("Claude is reading the MODT draft, title deed, Aadhaar and patta… about 1 minute.");
   try{let draft="";const imgs=[],labels=[],cvs=[];
     const add=async(list,label,maxPages,cap)=>{let n=0;for(const f of list||[]){if(n>=cap)break;const file=await fileOfDoc(f);const{canvases}=await canvasesOf([file],()=>{},maxPages);for(const cv of canvases){if(n>=cap||imgs.length>=20)break;imgs.push(jpegOf(cv,1400));cvs.push(cv);labels.push(label);n++}}};
-    let lodHtml="";for(const f of D.mdraft||[]){const file=await fileOfDoc(f);if(/\.docx$/i.test(f.name)){draft+=await docxText(file)+"\n";if(!lodHtml)try{lodHtml=await docxLodTable(file)}catch(e){console.warn(e)}}else if(/\.doc$/i.test(f.name)||/msword/.test(file.type||"")){draft+=await docBinText(file)+"\n"}else{const r=await canvasesOf([file],()=>{},4);draft+=r.text||"";if(!r.text.trim())r.canvases.slice(0,4).forEach(cv=>{imgs.push(jpegOf(cv,1400));cvs.push(cv);labels.push("MODT DRAFT page")})}}
+    let lodHtml="";for(const f of D.mdraft||[]){const file=await fileOfDoc(f);if(/\.docx$/i.test(f.name)){draft+=await docxText(file)+"\n";if(!lodHtml)try{lodHtml=await docxLodTable(file)}catch(e){console.warn(e)}}else if(/\.doc$/i.test(f.name)||/msword/.test(file.type||"")){draft+=await docBinText(file)+"\n";if(!lodHtml&&docBinText.lod)lodHtml=docBinText.lod}else{const r=await canvasesOf([file],()=>{},4);draft+=r.text||"";if(!r.text.trim())r.canvases.slice(0,4).forEach(cv=>{imgs.push(jpegOf(cv,1400));cvs.push(cv);labels.push("MODT DRAFT page")})}}
     await add(D.th_kyc,"TITLE HOLDER AADHAAR / KYC",3,5);
     await add(D.deed,"TITLE DEED page",6,7);
     await add(D.revenue,"PATTA / REVENUE page",2,3);
