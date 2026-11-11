@@ -1945,15 +1945,38 @@ def age_of(dob):
     return str(t.year - b.year - ((t.month, t.day) < (b.month, b.day)))
 
 
-def clean_addr(a, district=""):
-    """Address only up to the district (state/district/pincode have their own boxes); no ':' characters."""
-    a = (a or "").replace("：", " ").replace(":", " ")
-    if district:
-        i = a.lower().find(district.lower())
-        if i > 8:
-            a = a[:i]
-    a = re.sub(r"\b\d{6}\b", "", a)
-    return re.sub(r"\s+", " ", re.sub(r"[,\s]+$", "", a)).strip(" ,-")
+TA_DIST = {"ariyalur": "அரியலூர்", "chengalpattu": "செங்கல்பட்டு", "chennai": "சென்னை", "coimbatore": "கோயம்புத்தூர்|கோவை", "cuddalore": "கடலூர்",
+           "dharmapuri": "தருமபுரி|தர்மபுரி", "dindigul": "திண்டுக்கல்", "erode": "ஈரோடு", "kallakurichi": "கள்ளக்குறிச்சி", "kanchipuram": "காஞ்சிபுரம்",
+           "kanniyakumari": "கன்னியாகுமரி", "kanyakumari": "கன்னியாகுமரி", "karur": "கரூர்", "krishnagiri": "கிருஷ்ணகிரி", "madurai": "மதுரை",
+           "mayiladuthurai": "மயிலாடுதுறை", "nagapattinam": "நாகப்பட்டினம்", "namakkal": "நாமக்கல்", "nilgiris": "நீலகிரி", "perambalur": "பெரம்பலூர்",
+           "pudukkottai": "புதுக்கோட்டை", "ramanathapuram": "இராமநாதபுரம்|ராமநாதபுரம்", "ranipet": "இராணிப்பேட்டை|ராணிப்பேட்டை", "salem": "சேலம்",
+           "sivaganga": "சிவகங்கை", "tenkasi": "தென்காசி", "thanjavur": "தஞ்சாவூர்", "theni": "தேனி", "thoothukudi": "தூத்துக்குடி", "tuticorin": "தூத்துக்குடி",
+           "tiruchirappalli": "திருச்சிராப்பள்ளி|திருச்சி", "trichy": "திருச்சிராப்பள்ளி|திருச்சி", "tirunelveli": "திருநெல்வேலி", "tirupathur": "திருப்பத்தூர்",
+           "tirupattur": "திருப்பத்தூர்", "tiruppur": "திருப்பூர்", "tirupur": "திருப்பூர்", "tiruvallur": "திருவள்ளூர்", "thiruvallur": "திருவள்ளூர்",
+           "tiruvannamalai": "திருவண்ணாமலை", "tiruvarur": "திருவாரூர்", "thiruvarur": "திருவாரூர்", "vellore": "வேலூர்", "viluppuram": "விழுப்புரம்",
+           "villupuram": "விழுப்புரம்", "virudhunagar": "விருதுநகர்"}
+_STATE = re.compile(r"^(tamil\s*nadu|tamilnadu|t\.?\s*n|தமிழ்\s*நாடு|india|இந்தியா)$", re.I)
+
+
+def clean_addr(a, district="", ta=False):
+    """Address only up to the district (same rules as the portal): no leading S/O …, no pincode, no Tamil Nadu / தமிழ்நாடு,
+    no district at the end (English, or its Tamil name); no ':' characters."""
+    a = re.sub(r"\s+", " ", (a or "").replace("：", " ").replace(":", " ")).strip()
+    if not a:
+        return a
+    a = re.sub(r"^\s*[SWDC]\s*/\s*O\.?\s*-?\s*[^,]*,\s*", "", a, flags=re.I)
+    p = [re.sub(r"[\s\-–.]+$", "", re.sub(r"(pin(\s*code)?\s*-?\s*)?\b\d{6}\b", "", x, flags=re.I)).strip() for x in re.split(r"\s*,\s*", a)]
+    p = [x for x in p if x]
+    while len(p) > 1 and _STATE.match(p[-1]):
+        p.pop()
+    if len(p) > 1:
+        dn = re.sub(r"\s*(dist(rict)?\.?)\s*$", "", (district or "").lower()).strip()
+        last = p[-1].lower()
+        bare = re.sub(r"\s*(dist(rict)?\.?|மாவட்டம்)\s*$", "", last).strip()
+        tnames = TA_DIST.get(dn, "").split("|") if TA_DIST.get(dn) else ([] if dn else "|".join(TA_DIST.values()).split("|"))
+        if (dn and bare == dn) or re.search(r"\bdist(rict)?\.?$|மாவட்டம்$", last) or (ta and len(p) > 2 and bare in tnames):
+            p.pop()
+    return re.sub(r"\s+", " ", ", ".join(p)).strip(" ,-")
 
 
 def same_len_tamil(ta, en):
@@ -1994,7 +2017,7 @@ def modt_party(P, job, page, d, n):
     P.js("tick('aadhaarConsentCheckBox')")
     dist = g(d, f"{pre} district")
     address(P, "Tamil Nadu", dist, addr=clean_addr(g(d, f"{pre} address"), dist),
-            addr_ta=clean_addr(g(d, f"{pre} address Tamil")), pin=g(d, f"{pre} pincode"), mobile=g(d, f"{pre} phone"))
+            addr_ta=clean_addr(g(d, f"{pre} address Tamil"), dist, True), pin=g(d, f"{pre} pincode"), mobile=g(d, f"{pre} phone"))
     msg = P.click("addExecutantDetailsInGrid", 3)
     if msg and not re.search(r"success|added|also going", msg, re.I):
         raise Stop(f"Title holder {n}: TNREGINET said '{msg[:160]}'")
@@ -2062,7 +2085,7 @@ def run_modt(page, job, case):
             continue
         for k, v in (("salutation", w.get("sal")), ("name", w.get("name")), ("name (Tamil)", w.get("name_ta")), ("relation", w.get("rel_type")),
                      ("relative name", w.get("rel_name")), ("relative name (Tamil)", w.get("rel_ta")), ("gender", w.get("gender")),
-                     ("Aadhaar", re.sub(r"\D", "", str(w.get("aadhaar") or ""))), ("district", w.get("district")), ("address", w.get("addr")), ("pincode", w.get("pincode"))):
+                     ("Aadhaar", re.sub(r"\D", "", str(w.get("aadhaar") or ""))), ("district", w.get("district")), ("address", clean_addr(w.get("addr"), w.get("district"))), ("pincode", w.get("pincode"))):
             if v:
                 t[f"Witness {n} {k}"] = str(v)
         a = age_from(str(w.get("dob") or ""))
