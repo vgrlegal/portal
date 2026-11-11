@@ -1856,6 +1856,58 @@ def age_from(raw):
     return str(datetime.date.today().year - int(m.group(1))) if m else ""
 
 
+_VD = [[0, 1, 2, 3, 4, 5, 6, 7, 8, 9], [1, 2, 3, 4, 0, 6, 7, 8, 9, 5], [2, 3, 4, 0, 1, 7, 8, 9, 5, 6], [3, 4, 0, 1, 2, 8, 9, 5, 6, 7],
+       [4, 0, 1, 2, 3, 9, 5, 6, 7, 8], [5, 9, 8, 7, 6, 0, 4, 3, 2, 1], [6, 5, 9, 8, 7, 1, 0, 4, 3, 2], [7, 6, 5, 9, 8, 2, 1, 0, 4, 3],
+       [8, 7, 6, 5, 9, 3, 2, 1, 0, 4], [9, 8, 7, 6, 5, 4, 3, 2, 1, 0]]
+_VP = [[0, 1, 2, 3, 4, 5, 6, 7, 8, 9], [1, 5, 7, 6, 2, 8, 3, 0, 9, 4], [5, 8, 0, 3, 7, 9, 6, 1, 4, 2], [8, 9, 1, 6, 0, 4, 3, 5, 2, 7],
+       [9, 4, 5, 3, 1, 2, 6, 8, 7, 0], [4, 2, 8, 6, 5, 7, 3, 9, 0, 1], [2, 7, 9, 3, 8, 0, 6, 4, 1, 5], [7, 0, 4, 6, 9, 1, 3, 2, 5, 8]]
+
+
+def aadhaar_ok(v):
+    """12 digits, not starting with 0/1, Verhoeff check digit right (one wrong digit fails it)."""
+    n = re.sub(r"\D", "", str(v or ""))
+    if not re.fullmatch(r"[2-9]\d{11}", n):
+        return False
+    c = 0
+    for i, x in enumerate(reversed(n)):
+        c = _VD[c][_VP[i % 8][int(x)]]
+    return c == 0
+
+
+def aadhaar_problems(case, kind):
+    """Every Aadhaar the robot will type for this case: [] when all are right."""
+    out, people = [], []
+    if kind == "modt":
+        d = case.get("draft") or {}
+        holders = int(re.sub(r"\D", "", g(d, "Title holders")) or "1")
+        for n in range(1, min(holders, 4) + 1):
+            if g(d, f"Mortgagor {n} name"):
+                people.append((f"Title holder {n} ({g(d, f'Mortgagor {n} name')})", g(d, f"Mortgagor {n} Aadhaar")))
+        lists = kv_get("config", "lists") or {}
+        cw = case.get("caseWit") or {}
+        for n in (1, 2):
+            w = cw.get(str(n)) or cw.get(n)
+            if not (w and w.get("name")):
+                nm = g(d, f"Witness {n}") or case.get(f"w{n}") or ""
+                w = next((x for x in (lists.get("wit") or []) if x.get("name") == nm), None)
+            if w:
+                people.append((f"Witness {n} ({w.get('name', '')})", w.get("aadhaar")))
+    else:
+        t = apply_profile(case, case.get("tp") or {})
+        for pre in ("Rep", "Witness 1", "Witness 2"):
+            if g(t, f"{pre} name"):
+                people.append((f"{pre} ({g(t, f'{pre} name')})", g(t, f"{pre} Aadhaar")))
+    for who, v in people:
+        dg = re.sub(r"\D", "", str(v or ""))
+        if not dg:
+            out.append(f"{who}: Aadhaar number empty")
+        elif len(dg) != 12:
+            out.append(f"{who}: {len(dg)} digits, not 12")
+        elif not aadhaar_ok(dg):
+            out.append(f"{who}: {dg[:4]} {dg[4:8]} {dg[8:]} fails the Aadhaar check (a digit is wrong)")
+    return out
+
+
 def record_stop(job, case_id, reason):
     """Keep on the case where and why the robot stopped (and the TNREGINET draft number if one was seen)."""
     try:
@@ -2989,6 +3041,14 @@ def handle(pw, jid, data):
         job.last = "Survey number is Part"
         record_stop(job, data.get("case", ""), msg)
         raise Stop(msg)
+    if data.get("kind") in ("dor", "modt"):
+        bad = aadhaar_problems(case, data.get("kind"))
+        if bad:
+            msg = ("Aadhaar number not right - TP not started (a wrong digit fails the biometric): " + "; ".join(bad) +
+                   ". Correct it in Drafting / KYC Master and start again.")
+            job.last = "Aadhaar check"
+            record_stop(job, data.get("case", ""), msg)
+            raise Stop(msg)
     acc = login_of(data.get("login", "")) if data.get("kind") != "ec" else {"username": ""}
     if not acc:
         raise Stop("Login ID not found. Add it in Clients & Staff → TNREGINET login IDs.")

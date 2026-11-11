@@ -1412,6 +1412,11 @@ function openReview(c,gen){
     const lt=$("rv_List_of_documents_deposited");if(lt&&c.lodHtml){const dv=document.createElement("div");dv.className="sf-note full";dv.style.gridColumn="1/-1";dv.innerHTML="<b>Table from the Word draft — the robot pastes this, with its boxes, under the legal conditions (corrections above are applied):</b>"+c.lodHtml.replace(/<(?!\/?(table|tr|td|br)\b)[^>]*>/gi,"");lt.closest("label").after(dv)}
     const pr=$("rv_Property_remarks");if(pr){const b=document.createElement("button");b.type="button";b.className="btn";b.textContent="✎ Build remarks from the property fields";b.onclick=()=>{pr.value=modtRemarks()};pr.closest("label").after(b)}}
   wireRobotQs(c);
+  /* Aadhaar numbers: 12 digits + Aadhaar check digit; one wrong digit fails the biometric, so a wrong one shows red */
+  {const chk=e=>{const n=String(e.value||"").replace(/\D/g,"");const bad=n&&!verhoeff(n);e.style.borderColor=bad?"#b42318":"";e.style.background=bad?"#fde8e6":"";
+      let m=e.parentElement.querySelector(".aadbad");if(bad&&!m){m=document.createElement("span");m.className="sub aadbad";m.style.color="#b42318";e.after(m)}if(m)m.textContent=bad?(n.length!==12?`⚠ ${n.length} digits, Aadhaar has 12`:"⚠ This Aadhaar number is wrong (check digit fails) - check every digit with the card"):"";return bad};
+    const ins=[...document.querySelectorAll('#rvBody input[id*="Aadhaar"]')];ins.forEach(e=>e.addEventListener("input",()=>chk(e)));
+    if(ins.map(chk).some(Boolean))$("rvBody").insertAdjacentHTML("afterbegin",`<p class="banner" style="background:#fde8e6;color:#8a1c1c">⚠ An Aadhaar number below is wrong (shown in red). The TP robot will not start until it is corrected.</p>`)}
   if($("rvMread")){$("rvMread").onclick=()=>readModtCase(c,false);$("rvMreadAll").onclick=()=>ask("Replace all fields?",`<p class="sf-note">Every field Claude reads will replace what is in Drafting now, including your corrections.</p>`,()=>readModtCase(c,true),"Replace");
     if(!c.tpAuto&&!MREAD.has(c._doc)&&((c.docs||{}).mdraft||[]).length&&((c.docs||{}).deed||[]).length&&canWrite){MREAD.add(c._doc);setTimeout(()=>readModtCase(c,false),300)}}
   $("rvSplit").onclick=()=>$("rvDocPane").hidden?openDocPane(c):closeDocPane();
