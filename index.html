@@ -732,6 +732,7 @@ function triRemarks(en,ta){en=String(en||"");ta=String(ta||"");
   if(en&&!/triangular/i.test(en))en=/an extent of /i.test(en)?en.replace(/an extent of /i,"triangular shaped land measuring "):en.replace(/(\d+(?:\.\d+)?\s*(?:cents?|acres?|sq\.?\s*f(?:ee)?t|sq\.?\s*m|hectares?))/i,"triangular shaped land measuring $1");
   if(ta&&!/முக்கோண/.test(ta))ta=ta.replace(/(\d+(?:\.\d+)?\s*(?:சென்ட்|செண்ட்|ஏக்கர்|சதுர\s*அடி|சதுர\s*மீட்டர்|ஹெக்டேர்))(\s*நிலம்)?/,(m,a)=>`முக்கோண வடிவமுள்ள ${a} நிலம்`);
   return[en,ta]}
+const lodFit=h=>String(h||"").replace(/<(?!\/?(table|tr|td|th|br)\b)[^>]*>/gi,"").replace(/<table[^>]*>/i,'<table border="1" cellpadding="3" style="border-collapse:collapse;width:100%;table-layout:auto;font-size:12.5px;color:#111;background:#fff">').replace(/<td([^>]*)>/gi,(m,a)=>`<td${a.replace(/style="[^"]*"/,"")} style="border:1px solid #000;padding:3px 5px;vertical-align:top;word-break:break-word">`);
 const legalParas=t=>String(t||"").trim().split(/\n\s*\n/).map(x=>x.replace(/^\s*(?:[-–•]|\d+[.)])\s*/,"").replace(/\s+/g," ").trim()).filter(Boolean);
 const caseUnit=d=>(d.Unit||"").trim()||UNIT_LABEL[unitKey(d.Extent)]||"";
 function modtFill(c,d){const set=(k,v)=>{if(v!=null&&String(v).trim()!==""&&!String(d[k]||"").trim())d[k]=String(v)};
@@ -1401,7 +1402,8 @@ function openReview(c,gen){
     h+=`</div>`});
   const docs=docsFor(c.type).filter(d=>(c.docs||{})[d.k]&&c.docs[d.k].length);
   h=`<div style="margin-bottom:8px;display:flex;gap:6px;flex-wrap:wrap"><button type="button" class="btn" id="rvSplit">📄 Show documents side by side</button>${dor?`<button type="button" class="btn" id="rvReread" title="Fills the empty fields from the MODT copy">🔄 Read MODT again</button><button type="button" class="btn" id="rvRereadAll" title="Replaces every field with what the MODT says">Read MODT · replace all</button>`:`<button type="button" class="btn" id="rvMread" title="Claude reads the MODT draft, title deed, Aadhaar and patta and fills the empty fields">🔄 Read documents with Claude</button><button type="button" class="btn" id="rvMreadAll" title="Replaces every field with what the documents say">Read · replace all</button>`}</div>`+h;
-  h+=`<div class="rvsec"><div class="sect">${dor?"10 · ":""}Documents to upload on TNREGINET</div>${docs.length?docs.map(d=>`<div class="kv"><span>${esc(d.l)}</span><b>${c.docs[d.k].map(f=>esc(f.name)).join(", ")}</b></div>`).join(""):`<p class="sf-note">No documents uploaded yet.</p>`}</div>`;
+  if(!dor)h+=`<div class="rvsec"><div class="sect">Documents the robot uploads on TNREGINET</div>${modtUploads(c,c.draft||{}).map(x=>`<div class="kv"><span>${esc(x.l)}</span><b style="${x.v?"":"color:#b42318"}">${x.v?esc(x.v):"⚠ missing"}${(x.miss||[]).length?` <span style="color:#b42318">· ${esc(x.miss.join(", "))} missing</span>`:""}</b></div>`).join("")}<p class="sf-note">The MODT draft (Word copy) and sanction letter are only read for Drafting; they are not uploaded.</p></div>`;
+  else h+=`<div class="rvsec"><div class="sect">${dor?"10 · ":""}Documents to upload on TNREGINET</div>${docs.length?docs.map(d=>`<div class="kv"><span>${esc(d.l)}</span><b>${c.docs[d.k].map(f=>esc(f.name)).join(", ")}</b></div>`).join(""):`<p class="sf-note">No documents uploaded yet.</p>`}</div>`;
   if(gen)h+=`<div class="rvsec" id="rvLogin"></div>`;
   $("rvBody").innerHTML=h;
   $("rvFoot").innerHTML=`<span class="sp"></span><button type="button" class="btn" id="rvCancel">Close</button><button type="button" class="btn ${gen?"":"primary"}" id="rvSave">Save draft</button>`+
@@ -1427,8 +1429,8 @@ function openReview(c,gen){
     const autoAgri=()=>{if(/\b(cents?|acres?|ac\.?|hectares?|ஏக்கர்|சென்ட்)\b/i.test(ex.value)&&!agri()){pt.value=/building/i.test(pt.value)?"Agriculture Land with Building":"Agricultural Land";showLin()}};
     if(pt&&ex){pt.addEventListener("change",showLin);ex.addEventListener("change",autoAgri);autoAgri();showLin()}
     {const own=legalParas(((profOf(c.bank)||{}).company||{}).modt_legal),lt0=$("rv_List_of_documents_deposited");if(own.length&&lt0){const dv=document.createElement("div");dv.className="full";dv.style.cssText="grid-column:1/-1;border:1px solid #ccc;border-radius:8px;padding:12px 16px;background:#fff;color:#111";
-      dv.innerHTML=`<div class="sf-note" style="margin-bottom:6px"><b>${esc(c.bank)}'s own legal conditions</b> (Settings → company). The robot puts exactly this in TNREGINET's box, then 2 blank lines and the list of documents below:</div>`+own.map(x=>`<p style="text-align:justify;margin:0 0 1em;line-height:1.5">${esc(x)}</p>`).join("")+`<p class="sf-note" style="margin:0">⏎ ⏎ (2 blank lines) — then the list of documents table</p>`;lt0.closest("label").before(dv)}}
-    const lt=$("rv_List_of_documents_deposited");if(lt&&c.lodHtml){const dv=document.createElement("div");dv.className="sf-note full";dv.style.gridColumn="1/-1";dv.innerHTML="<b>Table from the Word draft — the robot pastes this, with its boxes, under the legal conditions (corrections above are applied):</b>"+c.lodHtml.replace(/<(?!\/?(table|tr|td|br)\b)[^>]*>/gi,"");lt.closest("label").after(dv)}
+      dv.innerHTML=`<div class="sf-note" style="margin-bottom:6px"><b>${esc(c.bank)}'s own legal conditions</b> (Settings → company). The robot puts exactly this in TNREGINET's box, then 2 blank lines and the list of documents below:</div>`+own.map(x=>`<p style="text-align:justify;margin:0 0 1em;line-height:1.5">${esc(x)}</p>`).join("")+`<p style="margin:0">&nbsp;</p><p style="margin:0">&nbsp;</p>`+(c.lodHtml?`<div style="overflow-x:auto">${lodFit(c.lodHtml)}</div><p class="sf-note" style="margin:6px 0 0">The list of documents table from the Word draft (LOD corrections below are applied by the robot).</p>`:`<p class="sf-note" style="color:#b42318">⚠ No list of documents table from the Word draft — fill "List of documents deposited" below.</p>`);lt0.closest("label").before(dv);dv.dataset.lod=c.lodHtml?"1":""}}
+    const lt=$("rv_List_of_documents_deposited");if(lt&&c.lodHtml&&!document.querySelector('#rvBody [data-lod="1"]')){const dv=document.createElement("div");dv.className="sf-note full";dv.style.gridColumn="1/-1";dv.innerHTML="<b>Table from the Word draft — the robot pastes this, with its boxes, under the legal conditions (corrections above are applied):</b><div style=\"overflow-x:auto\">"+lodFit(c.lodHtml)+"</div>";lt.closest("label").after(dv)}
     const pr=$("rv_Property_remarks");if(pr){const b=document.createElement("button");b.type="button";b.className="btn";b.textContent="✎ Build remarks from the property fields";b.onclick=()=>{pr.value=modtRemarks()};pr.closest("label").after(b)}}
   /* boundaries: all four, English and Tamil; an empty one shows red and the robot will not start */
   if(!dor&&$("rv_Boundary_North")){const ids=["North","South","East","West"].flatMap(x=>[`rv_Boundary_${x}`,`rv_Boundary_${x}_Tamil`]).map(id=>$(id)).filter(Boolean);
@@ -1651,6 +1653,35 @@ $("rvWide").onclick=()=>setFormWide(!$("review").classList.contains("wide"));
 function closeDocPane(){$("rvDocPane").hidden=true;$("rvDocPane").classList.remove("full");$("rvDocView").innerHTML="";$("review").classList.remove("split");if($("rvSplit"))$("rvSplit").textContent="📄 Show documents side by side"}
 function closeReview(){closeDocPane();$("review").classList.remove("wide");$("review").hidden=true;$("rvscrim").hidden=true;rv={c:null,gen:false}}
 $("rvscrim").onclick=closeReview;
+/* MODT: exactly what the robot uploads on TNREGINET (the Word draft, sanction letter etc. are only for reading) */
+function modtUploads(c,d){const D=c.docs||{},n=Math.max(1,Math.min(4,+String(d["Title holders"]||"1").replace(/\D/g,"")||1)),out=[];
+  for(let i=1;i<=n;i++){const f=(D.th_kyc||[])[i-1];out.push({l:`Title holder ${i} ID (Aadhaar)`,v:f?f.name:"",need:1})}
+  for(const k of [1,2]){const cf=(D[`w${k}_kyc`]||[])[0],nm=((c.caseWit||{})[k]||{}).name||d["Witness "+k]||c["w"+k]||"",w=(cfg.wit||[]).find(x=>x.name===nm),mf=w&&(w.kyc||[])[0];
+    out.push({l:`Witness ${k} ID${nm?" · "+nm:""}`,v:cf?cf.name:mf?(mf.name||"from KYC Master")+" (KYC Master)":"",need:1})}
+  out.push({l:"Property image",v:((D.photos||[])[0]||{}).name||"",need:1});
+  out.push({l:"Title deed (colour copy, all files joined)",v:(D.deed||[]).map(f=>f.name).join(", "),need:1});
+  const ep=["ec","revenue","other"].flatMap(k=>(D[k]||[]).map(f=>f.name));out.push({l:"EC + patta + others (joined)",v:ep.join(", "),need:1,miss:[!(D.ec||[]).length&&"EC",!(D.revenue||[]).length&&"patta"].filter(Boolean)});
+  return out}
+/* "Draft done" for a MODT: everything the robot needs, or a list of what is missing */
+function modtDoneCheck(c,d){const P=[],v=k=>String(d[k]??"").trim(),n=Math.max(1,+v("Title holders").replace(/\D/g,"")||1);
+  if(!v("Deed 1 Doc No")||!v("Deed 1 Year")||!v("Deed 1 SRO"))P.push("Linked title deed: Deed 1 SRO, Doc No and Year");
+  for(let i=1;i<=n;i++){const t=`Title holder ${i}`;["salutation","name","name Tamil","relation","relative name","relative name Tamil","date of birth","district","address","address Tamil"].forEach(k=>{if(!v(`Mortgagor ${i} ${k}`))P.push(`${t}: ${k}`)});
+    const a=v(`Mortgagor ${i} Aadhaar`).replace(/\D/g,"");if(!verhoeff(a))P.push(`${t}: Aadhaar ${a?"wrong (check digit fails)":"empty"}`);
+    if(!/^\d{6}$/.test(v(`Mortgagor ${i} pincode`)))P.push(`${t}: pincode (6 digits)`);if(/:/.test(v(`Mortgagor ${i} address`)+v(`Mortgagor ${i} address Tamil`)))P.push(`${t}: address has ':'`)}
+  if(v("Mortgagor 1 phone").replace(/\D/g,"").length<10)P.push("Title holder 1: phone");
+  for(const k of [1,2]){const cw=(c.caseWit||{})[k],nm=(cw&&cw.name)||d["Witness "+k]||c["w"+k]||"",w=cw||(cfg.wit||[]).find(x=>x.name===nm);
+    if(!nm)P.push(`Witness ${k}: not chosen`);else if(!w)P.push(`Witness ${k} (${nm}): not in KYC Master`);else if(!verhoeff(String(w.aadhaar||"").replace(/\D/g,"")))P.push(`Witness ${k} (${nm}): Aadhaar wrong or empty`)}
+  BSIDES.forEach(x=>{if(String(d["Boundary "+x]??"")==="")P.push(`Boundary ${x}: empty (a single space if there is no boundary on this side)`);if(String(d[`Boundary ${x} Tamil`]??"")==="")P.push(`Boundary ${x} Tamil: empty`)});
+  if(!v("Property type"))P.push("Property type");if(!v("Village"))P.push("Village");if(!v("New survey no"))P.push("New survey number");
+  const u=caseUnit(d);if(!u)P.push("Unit");if(!v("Extent"))P.push("Mortgaged extent");else if(u&&!areaIn(v("Extent"),u)&&/[a-z]/i.test(v("Extent")))P.push("Mortgaged extent: unit not clear");
+  if(/agri/i.test(v("Property type"))){if(!v("Total survey extent"))P.push("Total survey extent (agricultural land: from the patta)");else{const a=areaSqm(v("Extent")),b=areaSqm(v("Total survey extent"));if(a&&b&&a>b*1.002)P.push(`Mortgaged extent ${v("Extent")} is MORE than the patta total ${areaIn(v("Total survey extent"),u)} ${u}`)}}
+  if(!v("Property remarks"))P.push("Property remarks (English) - press ✎ Build remarks");
+  if(!v("Loan amount"))P.push("Loan amount");
+  if(!c.lodHtml&&!v("List of documents deposited"))P.push("List of documents deposited (LOD table)");
+  modtUploads(c,d).forEach(x=>{if(x.need&&!x.v)P.push(`Upload: ${x.l} - file missing`);(x.miss||[]).forEach(m=>P.push(`Upload: ${m} missing (mandatory for MODT)`))});
+  if((c.robotQs||[]).some(q=>!q.answer))P.push(`Robot questions not answered: ${(c.robotQs||[]).filter(q=>!q.answer).length}`);
+  return P}
+function showDoneProblems(P){ask(`Draft not complete (${P.length})`,`<p class="sf-note">Fix these, then press Draft done again. Saved as a draft for now.</p><ul style="margin:6px 0 0 18px;color:#8a1c1c">${P.map(x=>`<li>${esc(x)}</li>`).join("")}</ul>`,()=>{},"OK")}
 function readReview(){const c=rv.c,dor=isRD(c.type),sections=dor?DOR_PAGES:MODT_FIELDS,out={...(dor?c.tp:c.draft)||{}};
   sections.forEach(([,fields])=>fields.forEach(ff=>{const f=Array.isArray(ff)?ff[0]:ff,el=$("rv_"+f.replace(/\W+/g,"_"));if(el)out[f]=/^Boundary (North|South|East|West)( Tamil)?$/.test(f)&&el.value!==""&&!el.value.trim()?" ":el.value.trim()}));
   if(dor)[1,2].forEach(n=>{const el=$("rv_Witness_"+n);if(!el)return;const w=(cfg.wit||[]).find(x=>x.name===el.value);delete out["Witness "+n];
@@ -1669,6 +1700,7 @@ async function saveReview(done){
   const c=rv.c,dor=isRD(c.type),data=readReview(),ch=dor?{tp:data,...witPicks()}:{draft:data};
   if(c.tpAuto){const fx=fixesOf(c,data);if(fx.length!==(c.fixes||[]).length||JSON.stringify(fx)!==JSON.stringify(c.fixes||[]))ch.fixes=fx}
   if(!dor&&data.SRO)ch.sro=data.SRO;if(dor&&data.SRO)ch.sro=data.SRO;
+  if(done&&!dor){const P=modtDoneCheck({...c,...ch},data);if(P.length){await patch(c,ch,"Draft saved (Draft done refused: "+P.length+" item(s) missing)");showDoneProblems(P);return}}
   if(done)ch.stage="TP Creation";
   if(await patch(c,ch,done?"Draft done":"Draft saved")){if(done)closeReview()}
 }
@@ -1676,6 +1708,7 @@ async function approveReview(){
   const c=rv.c,dor=isRD(c.type),data=readReview();
   if(dor){const miss=DOR_REQ.filter(k=>!String(data[k]||"").trim());if(miss.length){toast("Fill these first: "+miss.join(", "));return}
     const bad=["Rep Aadhaar","Witness 1 Aadhaar","Witness 2 Aadhaar","Mortgagor Aadhaar"].filter(k=>data[k]&&digits(data[k]).length!==12);if(bad.length){toast("Check: "+bad.join(", ")+" (12 digits)");return}}
+  if(!dor){const P=modtDoneCheck(c,data);if(P.length){showDoneProblems(P);return}}
   await patch(c,dor?{tp:data,...witPicks()}:{draft:data},"Draft approved for TP");
   if(!dor){cloudTp(c);return}
   cloudTp(c);
