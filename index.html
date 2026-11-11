@@ -718,7 +718,9 @@ const MODT_FIELDS=[
   ["13 · Legal conditions",[["Legal conditions","note","The robot ticks all of TNREGINET's conditions, presses Copy, leaves two lines and pastes the list of documents below WITH its table from the Word draft."],["List of documents deposited","ta"],["LOD corrections","ta"]]],
   ["14 · Supporting details",[["Execution SRO","sro"],"SRO Tamil"]]];
 function modtFill(c,d){const set=(k,v)=>{if(v!=null&&String(v).trim()!==""&&!String(d[k]||"").trim())d[k]=String(v)};
-  /* the customer (borrower) need not be the title holder: title holder details come only from the title deed / Aadhaar */set("Mortgagor 1 Aadhaar",d.Aadhaar);set("Mortgagor 1 address",d.Address);set("Mortgagor 1 pincode",d.Pincode);set("Mortgagor 1 relative name",d["Relative name"]);
+  /* the customer (borrower) need not be the title holder: title holder names come only from the title deed / Aadhaar;
+     title holder 1's phone is the phone given in the case */
+  set("Mortgagor 1 phone",c.phone||d.Phone);set("Mortgagor 1 Aadhaar",d.Aadhaar);set("Mortgagor 1 address",d.Address);set("Mortgagor 1 pincode",d.Pincode);set("Mortgagor 1 relative name",d["Relative name"]);
   set("Loan amount",c.loanAmount);set("Title holders","1");set("Presenter","Title holder 1");set("Property SRO",d.SRO||c.sro);set("Execution SRO",d["Property SRO"]||c.sro);
   ["North","South","East","West"].forEach(x=>set("Boundary "+x,d["Boundary "+x]));set("Extent",d.Extent);set("New survey no",d["Survey number"]);
   const p=profOf(c.bank)||{},co=p.company||{};set("Govt Body Name",co.full_name||d["Company name"]||c.bank);set("Company state",co.state);set("Company address",co.addr_en||d["Branch address"]);set("Company address Tamil",co.addr_ta);set("Company pincode",co.pincode);
@@ -2793,7 +2795,7 @@ const DOR_PAGES=[
 const DOR_REQ=["SRO","Doc No","Year","Company name","Mortgagor","Rep name","Rep Aadhaar","Witness 1 name","Witness 1 Aadhaar","Witness 2 name","Witness 2 Aadhaar","Loan Amount"];
 function dorFill(c,d){const set=(k,v)=>{if(v!=null&&String(v).trim()!==""&&!String(d[k]||"").trim())d[k]=String(v)};
   set("Deed type","Deed Of Receipt");set("Execution SRO",d.SRO);set("Book","1");set("Document type","Regular Document");set("Presenter","Company representative");
-  set("Loan Amount",c.loanAmount);set("Mortgagor",c.applicant);set("Mortgagor mobile",c.phone);
+  set("Loan Amount",c.loanAmount);set("Mortgagor mobile",c.phone);
   const p=profOf(c.bank)||{},co=p.company||{};set("Company name",co.full_name||c.bank);set("Company state",co.state);set("Company district",co.district);set("Company address",co.addr_en);set("Company address (Tamil)",co.addr_ta);set("Company pincode",co.pincode);
   const r=(p.reps||[]).find(x=>x.name===c.rep)||(p.reps||[])[0];if(r){set("Rep salutation",r.sal);set("Rep name",r.name);set("Rep name (Tamil)",r.name_ta);set("Rep relation",r.rel_type);set("Rep relative name",r.rel_name);set("Rep relative name (Tamil)",r.rel_ta);set("Rep age",ageOf(r.dob));set("Rep gender",r.gender);set("Rep Aadhaar",digits(r.id_no));set("Rep designation",r.designation);set("Rep state",r.state);set("Rep district",r.district);set("Rep address",r.addr);set("Rep address (Tamil)",r.addr_ta);set("Rep pincode",r.pincode);set("Rep mobile",r.mobile)}
   [1,2].forEach(n=>{const w=(cfg.wit||[]).find(x=>x.name===c["w"+n]);if(w){set(`Witness ${n} salutation`,w.sal);set(`Witness ${n} name`,w.name);set(`Witness ${n} name (Tamil)`,w.name_ta);set(`Witness ${n} relative name (Tamil)`,w.rel_ta);set(`Witness ${n} relation`,w.rel_type);set(`Witness ${n} relative name`,w.rel_name);set(`Witness ${n} age`,ageOf(w.dob));set(`Witness ${n} gender`,w.gender);set(`Witness ${n} Aadhaar`,digits(w.aadhaar));set(`Witness ${n} district`,w.district);set(`Witness ${n} address`,w.addr);set(`Witness ${n} pincode`,w.pincode)}});
