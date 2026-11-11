@@ -732,7 +732,7 @@ function triRemarks(en,ta){en=String(en||"");ta=String(ta||"");
   if(en&&!/triangular/i.test(en))en=/an extent of /i.test(en)?en.replace(/an extent of /i,"triangular shaped land measuring "):en.replace(/(\d+(?:\.\d+)?\s*(?:cents?|acres?|sq\.?\s*f(?:ee)?t|sq\.?\s*m|hectares?))/i,"triangular shaped land measuring $1");
   if(ta&&!/முக்கோண/.test(ta))ta=ta.replace(/(\d+(?:\.\d+)?\s*(?:சென்ட்|செண்ட்|ஏக்கர்|சதுர\s*அடி|சதுர\s*மீட்டர்|ஹெக்டேர்))(\s*நிலம்)?/,(m,a)=>`முக்கோண வடிவமுள்ள ${a} நிலம்`);
   return[en,ta]}
-const lodFit=h=>String(h||"").replace(/<(?!\/?(table|tr|td|th|br)\b)[^>]*>/gi,"").replace(/<table[^>]*>/i,'<table border="1" cellpadding="3" style="border-collapse:collapse;width:100%;table-layout:auto;font-size:12.5px;color:#111;background:#fff">').replace(/<td([^>]*)>/gi,(m,a)=>`<td${a.replace(/style="[^"]*"/,"")} style="border:1px solid #000;padding:3px 5px;vertical-align:top;word-break:break-word">`);
+const lodFit=h=>String(h||"").replace(/<(?!\/?(table|tr|td|th|br)\b)[^>]*>/gi,"").replace(/<table[^>]*>/i,'<table border="1" cellpadding="3" style="border-collapse:collapse;width:100%;min-width:0;max-width:100%;table-layout:auto;font-size:12.5px;color:#111;background:#fff">').replace(/<td([^>]*)>/gi,(m,a)=>`<td${a.replace(/style="[^"]*"/,"")} style="border:1px solid #000;padding:3px 5px;vertical-align:top;word-break:break-word">`);
 const legalParas=t=>String(t||"").trim().split(/\n\s*\n/).map(x=>x.replace(/^\s*(?:[-–•]|\d+[.)])\s*/,"").replace(/\s+/g," ").trim()).filter(Boolean);
 const caseUnit=d=>(d.Unit||"").trim()||UNIT_LABEL[unitKey(d.Extent)]||"";
 function modtFill(c,d){const set=(k,v)=>{if(v!=null&&String(v).trim()!==""&&!String(d[k]||"").trim())d[k]=String(v)};
