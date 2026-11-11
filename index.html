@@ -1193,9 +1193,9 @@ async function kycFrom(files,filename){
 /* ================= New Case / Info slide ================= */
 let draftDocs={},infoMode="view";
 function opts(sel,list,first){const v=sel.value;sel.innerHTML=(first!==undefined?`<option value="">${esc(first)}</option>`:"")+list.map(x=>`<option>${esc(x)}</option>`).join("");if([...sel.options].some(o=>o.value===v))sel.value=v}
-/* case number: OO-YYYYMMDD-NNN by default (Opinion & Ownership); VGR-… for the cases the Admin marks. One running number per day for both. */
+/* case number: OO-YYYYMMDD-NNNN (date the case was made + one running serial for every case, never reset); VGR-… for the cases the Admin marks */
 const SERIES=["OO","VGR"];const seriesOf=id=>(String(id||"").match(/^([A-Z]+)-/)||[])[1]||"OO";const withSeries=(id,p)=>String(id||"").replace(/^[A-Z]+-/,p+"-");
-function newId(p){const d=localDT(new Date()).slice(0,10).replace(/-/g,"");const n=cases.map(c=>(String(c.id||"").match(new RegExp("^[A-Z]+-"+d+"-(\\d+)$"))||[])[1]).filter(Boolean).map(Number);return`${p||"OO"}-${d}-${String((n.length?Math.max(...n):0)+1).padStart(3,"0")}`}
+function newId(p){const d=localDT(new Date()).slice(0,10).replace(/-/g,"");const n=cases.map(c=>(String(c.id||"").match(/^[A-Z]+-\d{8}-(\d+)$/)||[])[1]).filter(Boolean).map(Number);return`${p||"OO"}-${d}-${String((n.length?Math.max(...n):0)+1).padStart(4,"0")}`}
 const FF=["type","bank","branch","loanNo","applicant","phone","loanAmount","assignee","rep","w1","w2"];
 function openInfo(c){window.__showSupp=0;editing=c;infoMode="view";draftDocs={...(c.docs||{})};paintInfo();showDrawer()}
 function openNew(){modtAuto=null;

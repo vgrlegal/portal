@@ -179,10 +179,10 @@ async function mailIn(body: Record<string, unknown>) {
     return json({ ok: true, doc: same.id, added: n, skipped, joined: why });
   }
   if (!n) return json({ ok: true, skipped: "no attachments and no earlier case" });
-  // case number OO-YYYYMMDD-NNN; one running number per day for OO and VGR cases
-  const { data: today } = await admin.from("kv").select("data->>id").eq("collection", "cases").like("data->>id", `%-${day}-%`);
-  const top = Math.max(0, ...((today ?? []) as Record<string, string>[]).map((r) => Number((String(Object.values(r)[0] ?? "").match(/-(\d+)$/) || [])[1] || 0)));
-  const cid = `OO-${day}-${String(top + 1).padStart(3, "0")}`;
+  // case number OO-YYYYMMDD-NNNN: today's date + one running serial for every case (OO and VGR), never reset
+  const { data: all } = await admin.from("kv").select("data->>id").eq("collection", "cases");
+  const top = Math.max(0, ...((all ?? []) as Record<string, string>[]).map((r) => Number((String(Object.values(r)[0] ?? "").match(/^[A-Z]+-\d{8}-(\d+)$/) || [])[1] || 0)));
+  const cid = `OO-${day}-${String(top + 1).padStart(4, "0")}`;
   const from = String(body.from ?? "").slice(0, 200), subject = String(body.subject ?? "").slice(0, 200);
   // forwarded mail: the bank's original sender is inside the text ("From: Name <x@bank.com>")
   const om = String(body.text ?? "").match(/From:\s*[^\n<]*<?\s*([\w.+-]+@[\w.-]+\.[a-z]{2,})/i);

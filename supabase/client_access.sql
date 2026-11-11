@@ -55,8 +55,8 @@ begin
   if my_role() <> 'client' or m is null then raise exception 'not a client login'; end if;
   if coalesce(trim(p->>'applicant'),'') = '' then raise exception 'customer name is needed'; end if;
   who := coalesce(m->>'name', auth.jwt()->>'email') || ' (bank)';
-  select coalesce(max((substring(data->>'id' from '-(\d+)$'))::int), 0) + 1 into n from kv where collection = 'cases' and data->>'id' like '%-' || day || '-%';
-  cid := 'OO-' || day || '-' || lpad(n::text, 3, '0');
+  select coalesce(max((substring(data->>'id' from '^[A-Z]+-\d{8}-(\d+)$'))::int), 0) + 1 into n from kv where collection = 'cases';
+  cid := 'OO-' || day || '-' || lpad(n::text, 4, '0');
   insert into kv(collection, id, data) values ('cases', doc, jsonb_build_object(
     'id', cid, 'type', 'Deed of Receipt', 'applicant', trim(p->>'applicant'), 'loanNo', coalesce(p->>'loanNo',''),
     'phone', coalesce(p->>'phone',''), 'bank', m->>'company',
