@@ -3070,10 +3070,20 @@ def modt_plan(case, d, folder, P, comments):
     cw = case.get("caseWit") or {}
     for n in (1, 2):
         nm = ((cw.get(str(n)) or cw.get(n) or {}).get("name")) or g(d, f"Witness {n}") or case.get(f"w{n}") or ""
-        f = get_file(case, f"w{n}_kyc", folder)
+        # the ID must be THIS witness's: a case file is used only when it is the customer's own witness (read in this case)
+        # or its file name carries the witness's name; otherwise the KYC Master copy of that witness
+        tok = [t for t in re.split(r"[^a-z]+", nm.lower()) if len(t) > 2]
+        cfs = (docs.get(f"w{n}_kyc") or [])
+        own = cw.get(str(n)) or cw.get(n)
+        cf = cfs[0] if cfs and (own or (tok and tok[0] in (cfs[0].get("name") or "").lower())) else None
+        f = fetch(cf, f"WITNESS{n}_KYC") if cf else None
         if not f:
             w = next((x for x in (lists.get("wit") or []) if nz(x.get("name")) == nz(nm)), None)
             f = w and fetch((w.get("kyc") or [None])[0], f"WITNESS{n}_KYC")
+            if cfs and not cf:
+                comments.append(f"Witness {n} is {nm}: the witness KYC uploaded in the case ({cfs[0].get('name')}) is someone else - {nm}'s KYC Master copy used")
+            if not f:
+                comments.append(f"Witness {n} ({nm}): no Aadhaar file for this witness - not uploaded")
         plan.append(("Identification", nm, f, f"Witness {n} ID", f"WITNESS{n}"))
     ph = (docs.get("photos") or [None])[0]
     plan.append(("Property", "re:^(?!\\s*-+\\s*select)", fetch(ph, "PROPERTY_IMAGE"), "Property image", "PROPERTY_IMAGE"))
