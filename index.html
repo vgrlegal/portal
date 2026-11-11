@@ -1193,7 +1193,9 @@ async function kycFrom(files,filename){
 /* ================= New Case / Info slide ================= */
 let draftDocs={},infoMode="view";
 function opts(sel,list,first){const v=sel.value;sel.innerHTML=(first!==undefined?`<option value="">${esc(first)}</option>`:"")+list.map(x=>`<option>${esc(x)}</option>`).join("");if([...sel.options].some(o=>o.value===v))sel.value=v}
-function newId(){const d=localDT(new Date()).slice(0,10).replace(/-/g,"");const n=cases.filter(c=>(c.id||"").startsWith("VGR-"+d)).map(c=>+c.id.split("-")[2]||0);return`VGR-${d}-${String((n.length?Math.max(...n):0)+1).padStart(3,"0")}`}
+/* case number: OO-YYYYMMDD-NNN by default (Opinion & Ownership); VGR-… for the cases the Admin marks. One running number per day for both. */
+const SERIES=["OO","VGR"];const seriesOf=id=>(String(id||"").match(/^([A-Z]+)-/)||[])[1]||"OO";const withSeries=(id,p)=>String(id||"").replace(/^[A-Z]+-/,p+"-");
+function newId(p){const d=localDT(new Date()).slice(0,10).replace(/-/g,"");const n=cases.map(c=>(String(c.id||"").match(new RegExp("^[A-Z]+-"+d+"-(\\d+)$"))||[])[1]).filter(Boolean).map(Number);return`${p||"OO"}-${d}-${String((n.length?Math.max(...n):0)+1).padStart(3,"0")}`}
 const FF=["type","bank","branch","loanNo","applicant","phone","loanAmount","assignee","rep","w1","w2"];
 function openInfo(c){window.__showSupp=0;editing=c;infoMode="view";draftDocs={...(c.docs||{})};paintInfo();showDrawer()}
 function openNew(){modtAuto=null;
@@ -1213,7 +1215,8 @@ function paintInfo(){
   if(edit){
     h+=`<div class="fgrid">
       <label>Work type<select id="f_type">${cfg.types.filter(allowedTab).map(t=>`<option${t===type?" selected":""}>${esc(t)}</option>`).join("")}</select></label>
-      <label>Application No.<input value="${esc(c?c.id:$("dId").textContent)}" readonly class="mono"></label>
+      <label>Application No.<input id="f_appno" value="${esc(c?c.id:$("dId").textContent)}" readonly class="mono"></label>
+      ${isMD||isAdmin?`<label>Number series<select id="f_series">${SERIES.map(x=>`<option${x===seriesOf(c?c.id:$("dId").textContent)?" selected":""}>${x}</option>`).join("")}</select></label>`:""}
       <label>Company (bank / NBFC) *<select id="f_bank" required><option value="">— select —</option>${[...new Set([...cfg.banks,c&&c.bank].filter(Boolean))].map(b=>`<option${c&&c.bank===b?" selected":""}>${esc(b)}</option>`).join("")}</select></label>
       <label>Branch *<input id="f_branch" required value="${esc(c?c.branch:"")}" placeholder="e.g. Salem"></label>
       <label>Bank loan number<input id="f_loanNo" value="${esc(c?c.loanNo:"")}"></label>
@@ -1242,6 +1245,7 @@ function paintInfo(){
     :`<span class="sp"></span><button type="button" class="btn" id="cancelEdit">Close</button>`;
   if(edit&&c)applyMasters(false);
   renderDocs(type);
+  if($("f_series"))$("f_series").onchange=()=>{const v=withSeries(c?c.id:$("dId").textContent,$("f_series").value);$("f_appno").value=v;if(!c)$("dId").textContent=v};
   const syncW=()=>{const t=$("f_type")?$("f_type").value:type;document.querySelectorAll(".wsel").forEach(l=>l.hidden=flowOf(t)==="legal")};syncW();
   if($("f_type"))$("f_type").onchange=()=>{syncW();renderDocs($("f_type").value)};
   if($("f_bank"))$("f_bank").addEventListener("change",()=>{const b=fv("f_bank"),reps=repsOf(b);$("f_rep").innerHTML=repOptions(b,reps.length?reps[0].name:"");if(reps.length)$("f_rep").value=reps[0].name;
@@ -1328,7 +1332,9 @@ async function saveCase(){
   b.requestedAt=new Date($("f_requestedAt").value).toISOString();b.docs=draftDocs;b.updatedAt=nowISO();b.state="Tamil Nadu";
   $("saveBtn").disabled=true;
   try{
-    if(editing){b.log=[...(editing.log||[]),{at:nowISO(),by:who(),text:"Case details edited"}].slice(-80);await db.collection("cases").doc(editing._doc).update(b);toast("Updated");infoMode="view";editing={...editing,...b};paintInfo()}
+    if(editing){const ser=$("f_series")?$("f_series").value:seriesOf(editing.id),nid=withSeries(editing.id,ser),moved=nid!==editing.id;
+      if(moved){if(cases.some(x=>x.id===nid&&x._doc!==editing._doc)){$("saveBtn").disabled=false;return err(nid+" is already used by another case")}b.id=nid}
+      b.log=[...(editing.log||[]),{at:nowISO(),by:who(),text:moved?`Case number changed ${editing.id} → ${nid}`:"Case details edited"}].slice(-80);await db.collection("cases").doc(editing._doc).update(b);toast("Updated");infoMode="view";editing={...editing,...b};paintInfo()}
     else{const first=FLOWS[flowOf(b.type)][0],now=nowISO();Object.assign(b,{id:$("dId").textContent,createdAt:now,stage:first,stageAt:now,stageLog:[{s:"Case Created",at:now,by:who()},{s:first,at:now,by:who()}],comments:[],log:[{at:now,by:who(),text:"Case created"}],tp:isRD(b.type)&&modtAuto?{...modtAuto}:{},tpAuto:isRD(b.type)&&modtAuto?{...modtAuto}:{},draft:{}});modtAuto=null;
       await db.collection("cases").add(b);toast("Case created");closeDrawer();if(H.ok)setTimeout(autoCapture,1500)}
   }catch(e){fail(e)}finally{if($("saveBtn"))$("saveBtn").disabled=false}
