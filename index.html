@@ -717,6 +717,14 @@ const MODT_FIELDS=[
   ["12 · Loan",["Loan amount","Sanction loan amount"]],
   ["13 · Legal conditions",[["Legal conditions","note","The robot ticks all of TNREGINET's conditions, presses Copy, leaves two lines and pastes the list of documents below WITH its table from the Word draft."],["List of documents deposited","ta"],["LOD corrections","ta"]]],
   ["14 · Supporting details",[["Execution SRO","sro"],"SRO Tamil"]]];
+/* land area: one unit for the whole property (the unit chosen at the top of TNREGINET's survey screen); the robot uses the same rules */
+const AREA_SQM={sqft:0.09290304,sqm:1,cent:40.468564224,acre:4046.8564224,hectare:10000,are:100},UNIT_LABEL={sqft:"Sq.ft",sqm:"Sq.m",cent:"Cent",acre:"Acre",hectare:"Hectare",are:"Are"};
+function unitKey(u){u=String(u||"").toLowerCase();for(const[k,rx]of[["sqft",/sq\.?\s*f|square\s*f|sft|ச\.?\s*அடி/],["sqm",/sq\.?\s*m|square\s*m|ச\.?\s*மீ/],["hectare",/hect|ஹெக்|\bha\b/],["acre",/acre|ஏக்கர்|\bac\b/],["cent",/cent|சென்ட்|செண்ட்/],["are",/\bares?\b|ஏர்/]])if(rx.test(u))return k;return""}
+function areaSqm(t){t=String(t||"").replace(/,/g,"").trim();if(!t)return null;const l=t.toLowerCase();let m=l.match(/(\d+(?:\.\d+)?)\s*(?:acres?|ac\.?|ஏக்கர்)\s*(?:and|&)?\s*(\d+(?:\.\d+)?)\s*(?:cents?|சென்ட்|செண்ட்)/);
+  if(m)return(+m[1]*100+ +m[2])*AREA_SQM.cent;m=l.match(/^\D*?(\d+)\s*[-–]\s*(\d+(?:\.\d+)?)/);if(m&&!/acre|cent|sq|ஏக்கர்|சென்ட்/.test(l))return +m[1]*10000+ +m[2]*100;
+  const k=unitKey(l);m=l.match(/\d+(?:\.\d+)?/);return k&&m?+m[0]*AREA_SQM[k]:null}
+function areaIn(t,unit){const k=unitKey(unit),q=areaSqm(t);if(!k||q==null)return"";const v=q/AREA_SQM[k];return String(+v.toFixed(k==="acre"||k==="hectare"?4:2))}
+const caseUnit=d=>(d.Unit||"").trim()||UNIT_LABEL[unitKey(d.Extent)]||"";
 function modtFill(c,d){const set=(k,v)=>{if(v!=null&&String(v).trim()!==""&&!String(d[k]||"").trim())d[k]=String(v)};
   /* the customer (borrower) need not be the title holder: title holder names come only from the title deed / Aadhaar;
      title holder 1's phone is the phone given in the case */
@@ -1411,6 +1419,15 @@ function openReview(c,gen){
     if(pt&&ex){pt.addEventListener("change",showLin);ex.addEventListener("change",autoAgri);autoAgri();showLin()}
     const lt=$("rv_List_of_documents_deposited");if(lt&&c.lodHtml){const dv=document.createElement("div");dv.className="sf-note full";dv.style.gridColumn="1/-1";dv.innerHTML="<b>Table from the Word draft — the robot pastes this, with its boxes, under the legal conditions (corrections above are applied):</b>"+c.lodHtml.replace(/<(?!\/?(table|tr|td|br)\b)[^>]*>/gi,"");lt.closest("label").after(dv)}
     const pr=$("rv_Property_remarks");if(pr){const b=document.createElement("button");b.type="button";b.className="btn";b.textContent="✎ Build remarks from the property fields";b.onclick=()=>{pr.value=modtRemarks()};pr.closest("label").after(b)}}
+  /* extents: every extent in the one unit of the case; show what the robot will type and the patta's own figure */
+  if(!dor&&$("rv_Extent")){const U=$("rv_Unit"),fl=[["rv_Extent","Mortgaged extent"],["rv_Total_survey_extent","Total survey extent"]];
+    const show=()=>{const dd={Unit:U?U.value:"",Extent:$("rv_Extent").value},u=caseUnit(dd);
+      fl.forEach(([id])=>{const e=$(id);if(!e)return;let m=e.parentElement.querySelector(".unitnote");if(!m){m=document.createElement("span");m.className="sub unitnote";e.after(m)}
+        const t=e.value.trim(),v=t&&u?areaIn(t,u):"",orig=id==="rv_Total_survey_extent"&&(c.draft||{})["Total survey extent (patta)"];
+        m.style.color=t&&!v&&u&&/[a-z\u0B80-\u0BFF-]/i.test(t)?"#b42318":"";
+        m.textContent=!t?"":!u?"⚠ Choose the Unit above - every extent is typed in that one unit":v?`→ robot types ${v} ${u}${unitKey(t)!==unitKey(u)?` (converted from ${t})`:""}${orig?` · patta shows ${orig}${/^\D*\d+\s*[-–]/.test(orig)?" (hectare - ares)":""}`:""}`:`→ no unit written: robot types ${t.match(/[\d.]+/)?.[0]||t} as ${u}`});
+      if(U&&!U.value&&u)U.title="Unit taken from the mortgaged extent: "+u};
+    [U,$("rv_Extent"),$("rv_Total_survey_extent")].forEach(e=>e&&e.addEventListener(e.tagName==="SELECT"?"change":"input",show));show()}
   wireRobotQs(c);
   /* Aadhaar numbers: 12 digits + Aadhaar check digit; one wrong digit fails the biometric, so a wrong one shows red */
   {const chk=e=>{const n=String(e.value||"").replace(/\D/g,"");const bad=n&&!verhoeff(n);e.style.borderColor=bad?"#b42318":"";e.style.background=bad?"#fde8e6":"";
@@ -2787,6 +2804,8 @@ async function readModtCase(c,force){const D=c.docs||{};if(!(D.mdraft||[]).lengt
     if(error||!data||!data.fields){let m=(data&&data.error)||(error&&error.message)||"no reply";try{if(error&&error.context){const b=await error.context.json();m=b.error||m}}catch(e){}throw new Error(m+" (try once more)")}
     const F=data.fields,doubts=String(F.Doubts||"").trim(),dq=(Array.isArray(F.doubts)?F.doubts:[]).filter(q=>q&&q.field&&q.field in F).slice(0,10).map(q=>({field:q.field,...wholeOpts(F[q.field],q.read,(q.options||[]).map(String),/address/i.test(q.field)?(x=>addrClean(x,F[q.field.replace(/ address( Tamil)?$/," district")],/Tamil/.test(q.field))):null),why:String(q.why||""),img:cropOf(cvs[(+q.img||0)-1],q.box,q.read,/address|boundar/i.test(q.field))}));delete F.Doubts;delete F.doubts;
     pg.step("Step 4/4 · Saving what Claude read…",90);if(String(c.phone||"").replace(/\D/g,"").length>=10)delete F["Mortgagor 1 phone"];
+    {const u=caseUnit({...(c.draft||{}),...Object.fromEntries(Object.entries(F).filter(([,v])=>String(v||"").trim()))}),t=String(F["Total survey extent"]||"").trim(),v=t&&u?areaIn(t,u):"";
+      if(v&&unitKey(t)!==unitKey(u)){F["Total survey extent (patta)"]=t;F["Total survey extent"]=`${v} ${u}`}}
     Object.keys(F).forEach(k=>{const m=/^Mortgagor (\d+) address$/.exec(k);if(m)cleanAddrPair(F,k,`Mortgagor ${m[1]} address Tamil`,`Mortgagor ${m[1]} district`)});
     const d={...(c.draft||{})};let n=0;Object.entries(F).forEach(([k,v])=>{v=Array.isArray(v)?v.join("\n"):String(v??"").trim();if(!v)return;if(force||!String(d[k]||"").trim()){if(d[k]!==v)n++;d[k]=v}});
     const ch={draft:d,tpAuto:{...(c.tpAuto||{}),...Object.fromEntries(Object.entries(F).map(([k,v])=>[k,String(v??"")]))},tpNotes:doubts};if(lodHtml)ch.lodHtml=lodHtml;

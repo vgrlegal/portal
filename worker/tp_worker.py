@@ -2318,6 +2318,50 @@ def surveys_of(d):
     return out
 
 
+# land area: one unit for the whole property (the unit chosen at the top of TNREGINET's survey screen)
+AREA_SQM = {"sqft": 0.09290304, "sqm": 1.0, "cent": 40.468564224, "acre": 4046.8564224, "hectare": 10000.0, "are": 100.0}
+UNIT_LABEL = {"sqft": "Sq.ft", "sqm": "Sq.m", "cent": "Cent", "acre": "Acre", "hectare": "Hectare", "are": "Are"}
+
+
+def unit_key(u):
+    u = (u or "").lower()
+    for k, rx in (("sqft", r"sq\.?\s*f|square\s*f|sft|ச\.?\s*அடி"), ("sqm", r"sq\.?\s*m|square\s*m|ச\.?\s*மீ"), ("hectare", r"hect|ஹெக்|\bha\b"),
+                  ("acre", r"acre|ஏக்கர்|\bac\b"), ("cent", r"cent|சென்ட்|செண்ட்"), ("are", r"\bares?\b|ஏர்")):
+        if re.search(rx, u):
+            return k
+    return ""
+
+
+def area_sqm(t):
+    """'0 - 2.23' (patta hectare-ares), '5.5 cents', '2 acres 30 cents', '0.0223 Hectare', '1200 sq.ft' -> square metres (None if no unit)."""
+    t = str(t or "").replace(",", "").strip()
+    if not t:
+        return None
+    lw = t.lower()
+    m = re.search(r"(\d+(?:\.\d+)?)\s*(?:acres?|ac\.?|ஏக்கர்)\s*(?:and|&)?\s*(\d+(?:\.\d+)?)\s*(?:cents?|சென்ட்|செண்ட்)", lw)
+    if m:
+        return (float(m.group(1)) * 100 + float(m.group(2))) * AREA_SQM["cent"]
+    m = re.match(r"^\D*?(\d+)\s*[-–]\s*(\d+(?:\.\d+)?)", lw)
+    if m and not re.search(r"acre|cent|sq|ஏக்கர்|சென்ட்", lw):
+        return float(m.group(1)) * 10000 + float(m.group(2)) * 100
+    k, m = unit_key(lw), re.search(r"\d+(?:\.\d+)?", lw)
+    return float(m.group(0)) * AREA_SQM[k] if (k and m) else None
+
+
+def area_in(t, unit):
+    """The area in the case's unit, as TNREGINET wants it typed ('' when it cannot be worked out)."""
+    k, s_ = unit_key(unit), area_sqm(t)
+    if not k or s_ is None:
+        return ""
+    v = round(s_ / AREA_SQM[k], 4 if k in ("acre", "hectare") else 2)
+    return ("%.4f" % v).rstrip("0").rstrip(".") if v else "0"
+
+
+def case_unit(d):
+    """The one unit of this property: Drafting's Unit, else the unit of the MODT extent."""
+    return g(d, "Unit") or UNIT_LABEL.get(unit_key(g(d, "Extent")), "")
+
+
 def num(x):
     m = re.search(r"\d+(?:\.\d+)?", str(x or "").replace(",", ""))
     return m.group(0) if m else ""
@@ -2430,7 +2474,7 @@ def modt_property(P, job, page, d, case, comments):
     sv = surveys_of(d)
     if sv and sv[0][0] and f"{sv[0][0]}/{sv[0][1]}".strip("/") not in row:
         note(f"survey {sv[0][0]}/{sv[0][1]} not seen in the property list ({row[:120]})")
-    ex = num(g(d, "Extent"))
+    ex = area_in(g(d, "Extent"), case_unit(d)) or num(g(d, "Extent"))
     if ex and ex.split(".")[0] not in row:
         note(f"extent {g(d, 'Extent')} not seen in the property list")
     if ptype.lower() not in row.lower():
@@ -2458,7 +2502,7 @@ def prop_details_tab(P, page, d, note):
 
 
 def survey_tab(P, job, page, d, ptype, note):
-    u = g(d, "Unit")
+    u = case_unit(d)
     r = label_select(page, r"Unit of Measurement", unit_re(u)) if u else "skip"
     if u and not str(r).startswith("ok"):
         note(f"unit '{u}' not set ({str(r)[:60]})")
@@ -2520,8 +2564,18 @@ def survey_tab(P, job, page, d, ptype, note):
             if miss:
                 note("old survey no. not added: " + ", ".join(miss))
         if "Agri" in ptype and g(d, "Total survey extent"):
-            page.evaluate(FILL_AFTER_JS, ["^Total Survey Extent", num(g(d, "Total survey extent")), ""])
-        e = num(ext) or (num(g(d, "Extent")) if i == 0 else "")
+            raw = g(d, "Total survey extent")
+            tv = area_in(raw, u) if u else ""
+            if not tv:
+                tv = num(raw)
+                note(f"total survey extent '{raw}': unit not clear - typed {tv} as it is; check it is in {u or 'the chosen unit'}")
+            elif unit_key(raw) != unit_key(u):
+                note(f"total survey extent {raw} typed as {tv} {u} (same unit as the mortgaged extent)")
+            page.evaluate(FILL_AFTER_JS, ["^Total Survey Extent", tv, ""])
+        src = ext or (g(d, "Extent") if i == 0 else "")
+        e = (area_in(src, u) if (u and unit_key(src)) else "") or num(src)
+        if e and u and unit_key(src) and unit_key(src) != unit_key(u):
+            note(f"mortgaged extent {src} typed as {e} {u}")
         if not e:
             note(f"mortgaged extent for {s}/{sd} not in Drafting - add it by hand")
             continue
