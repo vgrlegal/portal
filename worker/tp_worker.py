@@ -1356,7 +1356,7 @@ def nz(x):
     return re.sub(r"[^a-z0-9]", "", str(x).lower())
 
 
-def upload_docs(P, job, page, t, case, comments):
+def upload_docs(P, job, page, t, case, comments, plan=None):
     """Upload Documents screen: Upload Document type (docFor) → Document Name → Choose File → Add, one by one.
     Rows already there are kept if right, removed if wrong/duplicate; Save only when exactly the 5 right rows are present."""
     tp = job.d.get("tpNo")
@@ -1389,13 +1389,14 @@ def upload_docs(P, job, page, t, case, comments):
         except Exception as e:
             P.warn.append(f"Rep KYC+ID join failed ({e}); uploading the KYC only")
             rep_pdf = rep_k or rep_i
-    plan = [  # (type option, document name (as TNREGINET lists it), file, label, file tag)
-        ("Identification", g(t, "Rep name"), rep_pdf, "Bank rep KYC + ID", "REP_KYC"),
-        ("Identification", g(t, "Witness 1 name"), w1_f, "Witness 1 KYC", "WITNESS1"),
-        ("Identification", g(t, "Witness 2 name"), w2_f, "Witness 2 KYC", "WITNESS2"),
-        ("Reference", "Reference Original Document", get_file(case, "modt", folder), "MODT", "MODT"),
-        ("Reference", "Reference Bank Certificate", get_file(case, "noc", folder), "NOC", "NOC"),
-    ]
+    if plan is None:
+        plan = [  # (type option, document name (as TNREGINET lists it), file, label, file tag)
+            ("Identification", g(t, "Rep name"), rep_pdf, "Bank rep KYC + ID", "REP_KYC"),
+            ("Identification", g(t, "Witness 1 name"), w1_f, "Witness 1 KYC", "WITNESS1"),
+            ("Identification", g(t, "Witness 2 name"), w2_f, "Witness 2 KYC", "WITNESS2"),
+            ("Reference", "Reference Original Document", get_file(case, "modt", folder), "MODT", "MODT"),
+            ("Reference", "Reference Bank Certificate", get_file(case, "noc", folder), "NOC", "NOC"),
+        ]
     open_my_docs_row(P, job, page, tp)
     if not click_first(page, ["#upload_All_Documents:visible", "button:has-text('Upload Documents'):visible", "input[value='Upload Documents']:visible"]):
         job.step("Upload Documents button not found", page)
@@ -1406,8 +1407,13 @@ def upload_docs(P, job, page, t, case, comments):
 
     def right_file(row, tag, name):
         f = row["file"].upper()
-        old_style = {"REP_KYC": "REP_KYC", "WITNESS1": "W1_KYC", "WITNESS2": "W2_KYC", "MODT": "MODT", "NOC": "NOC"}[tag]
+        old_style = {"REP_KYC": "REP_KYC", "WITNESS1": "W1_KYC", "WITNESS2": "W2_KYC", "MODT": "MODT", "NOC": "NOC"}.get(tag, tag)
         return tag in f or old_style in f
+
+    def who_ok(who, typ, name):
+        if who.startswith("re:"):
+            return bool(re.search(who[3:], name or "", re.I))
+        return bool(nz(who)) and (nz(who) == nz(name) or (typ == "Identification" and nz(who)[:6] in nz(name)))
 
     # 1. clean up rows from earlier tries: keep one right row per document, remove wrong / duplicate rows
     for _ in range(12):
@@ -1415,7 +1421,8 @@ def upload_docs(P, job, page, t, case, comments):
         bad = None
         seen = set()
         for r in rows:
-            item = next((x for x in plan if x[1] and (nz(x[1]) == nz(r["name"]) or (x[0] == "Identification" and nz(x[1])[:6] and nz(x[1])[:6] in nz(r["name"])))), None)
+            item = next((x for x in plan if x[1] and who_ok(x[1], x[0], r["name"]) and right_file(r, x[4], x[1])), None) or \
+                next((x for x in plan if x[1] and who_ok(x[1], x[0], r["name"])), None)
             if not item or not right_file(r, item[4], item[1]) or item[3] in seen:
                 bad = r
                 break
@@ -1430,7 +1437,7 @@ def upload_docs(P, job, page, t, case, comments):
     done = []
     for typ, who, f, what, tag in plan:
         rows = page.evaluate(UP_ROWS_JS)
-        if any(nz(who) and (nz(who) == nz(r["name"]) or (typ == "Identification" and nz(who)[:6] in nz(r["name"]))) and right_file(r, tag, who) for r in rows):
+        if any(who_ok(who, typ, r["name"]) and right_file(r, tag, who) for r in rows):
             done.append(what)
             continue
         if not f:
@@ -1442,7 +1449,9 @@ def upload_docs(P, job, page, t, case, comments):
         ok = wait_for(P, "()=>[...document.querySelectorAll('select')].some(x=>x.offsetParent&&x.id!=='docFor'&&x.options.length>1)", 15)
         P.wait(1)
         pick = page.evaluate("""([who,typ])=>{const nz=x=>String(x).toLowerCase().replace(/[^a-z0-9]/g,'');const s=[...document.querySelectorAll('select')].find(x=>x.offsetParent&&x.id!=='docFor'&&x.options.length>1);
-            if(!s)return 'NOSEL';const w=nz(who);let o=[...s.options].find(o=>nz(o.text)===w)||[...s.options].find(o=>w&&nz(o.text)&&(nz(o.text).includes(w)||w.includes(nz(o.text))&&nz(o.text).length>3));
+            if(!s)return 'NOSEL';if(who.startsWith('re:')){const rx=new RegExp(who.slice(3),'i');const o2=[...s.options].find(o=>o.value&&rx.test(o.text.trim()));if(!o2)return 'NOOPT: '+[...s.options].map(o=>o.text.trim()).join('|');
+              if(window.jQuery)jQuery(s).val(o2.value).trigger('change').trigger('chosen:updated');else{s.value=o2.value;s.dispatchEvent(new Event('change',{bubbles:true}))}return 'ok '+o2.text}
+            const w=nz(who);let o=[...s.options].find(o=>nz(o.text)===w)||[...s.options].find(o=>w&&nz(o.text)&&(nz(o.text).includes(w)||w.includes(nz(o.text))&&nz(o.text).length>3));
             if(!o&&typ==='Identification'){const tk=String(who).toLowerCase().split(/[^a-z]+/).filter(x=>x.length>2);o=[...s.options].find(o=>tk.length&&tk.every(k=>o.text.toLowerCase().includes(k)))}
             if(!o)return 'NOOPT: '+[...s.options].map(o=>o.text.trim()).join('|');
             if(window.jQuery)jQuery(s).val(o.value).trigger('change').trigger('chosen:updated');else{s.value=o.value;s.dispatchEvent(new Event('change',{bubbles:true}))}return 'ok '+o.text}""", [who, typ])
@@ -1620,14 +1629,22 @@ def upload_only(page, job, case):
     job.upd(tpNo=tp)
     comments = []
     to_english(page)
-    done = upload_docs(P, job, page, t, case, comments)
+    modt = not re.search(r"receipt", case.get("type") or "", re.I)
+    plan = None
+    if modt:
+        folder = os.path.join(os.path.dirname(os.path.abspath(__file__)), "files", job.id[:8])
+        os.makedirs(folder, exist_ok=True)
+        plan = modt_plan(case, case.get("draft") or {}, folder, P, comments)
+    done = upload_docs(P, job, page, t, case, comments, plan=plan)
     err = save_print(P, job, page, job.d.get("case", ""), tp)
     if err:
         comments.append(err)
+    if modt:
+        save_fees(job, job.d.get("case", ""), tp, (case.get("fees") or {}).get("items") or {}, comments)
     miss = tp_ready(job, job.d.get("case", ""), tp, done, err)
     if miss:
         comments.append("Stays at TP Creation, missing: " + ", ".join(miss))
-    note = f"{tp}: uploaded {', '.join(done) or 'none'}" + ("" if err else "; TP print saved in the case (TP copy)") + (". Only biometric + payment pending. " if not err and len(done) == 5 else ". ")
+    note = f"{tp}: uploaded {', '.join(done) or 'none'}" + ("" if err else "; TP print saved in the case (TP copy)") + (". Only biometric + payment pending. " if not err and len(done) == (len(plan) if plan else 5) else ". ")
     if comments:
         note += "CHECK: " + " · ".join(comments)
     job.step("Upload run finished", page)
@@ -1930,7 +1947,7 @@ def modt_party(P, job, page, d, n):
 
 def run_modt(page, job, case):
     """MODT robot, part 1 (from the recording of 9 Nov): create document, link the title deed(s), title holders,
-    mortgagee company, skip representative, witnesses, presenter, save as draft. Property onward is still by hand."""
+    mortgagee company, skip representative, witnesses, presenter; then property, loan, legal conditions, Create Document, uploads, print, fees."""
     d = case.get("draft") or {}
     P = Portal(page, job)
     job.step("1 · Create document & link the title deed(s)")
@@ -2007,25 +2024,20 @@ def run_modt(page, job, case):
     P.fuzzy("cmb_presenter", g(d, f"Mortgagor {pn} name") or g(d, "Mortgagor 1 name"), 1)
     P.click("btnMainSaveAsDraft", 4)
     job.step("Parties done - draft saved", page)
-    # 7. Property: the same flow as Deed of Receipt (property comes from the linked title deed; verify + English fields)
-    sn = g(d, "New survey no") + ("/" + g(d, "Subdivision") if g(d, "Subdivision") else "")
-    tp = {"Survey No": sn, "Old survey no": g(d, "Old survey numbers"), "Extent": g(d, "Extent"),
-          "Property SRO": g(d, "Property SRO"), "Village": g(d, "Village")}
-    prop_note = ""
+    # 7. Property (MODT flow of 11 Nov 2026) → 8. loan … Create Document → uploads → print → fees
+    comments = []
     try:
-        comments, seen, _ = property_step(P, job, page, tp)
-        prop_note = f" Property checked ({', '.join(seen)})." + (" CHECK: " + " · ".join(comments) + "." if comments else "")
+        modt_property(P, job, page, d, case, comments)
     except Stop as e:
-        prop_note = f" Property NOT done: {e} Add the property by hand (Add property → copy from the linked document)."
+        P.click("btnMainSaveAsDraft", 4)
         job.step("Property not done", page)
-    if not prop_note.startswith(" Property NOT"):
-        # 8. Loan → title deposit → possession → legal conditions → reasons → supporting → preview → Create Document
-        return modt_second_half(P, job, page, d, case, comments)
-    note = ("MODT draft saved on TNREGINET: title deed linked, title holder(s), company, witnesses, presenter." + prop_note +
-            " Continue by hand from Loan details in My Documents (loan, legal conditions, Create Document and uploads are next for the robot).")
-    if P.warn:
-        note += " Warnings: " + "; ".join(P.warn[:8])
-    job.upd(status="done", message=note)
+        note = ("MODT draft saved on TNREGINET: title deed linked, title holder(s), company, witnesses, presenter. Property NOT done: " + str(e) +
+                " Continue by hand from Property in My Documents." + (" CHECK: " + " · ".join(comments) if comments else ""))
+        if P.warn:
+            note += " Warnings: " + "; ".join(P.warn[:8])
+        job.upd(status="done", message=note, comments=comments)
+        return
+    return modt_second_half(P, job, page, d, case, comments)
 
 
 def label_select(page, label_re, opt_re):
@@ -2056,17 +2068,599 @@ APPEND_LOD_JS = r"""(txt)=>{const html='<p>&nbsp;</p>'+txt.split(/\n/).map(l=>'<
   return ''}"""
 
 
+# ---------------- MODT property (rules of 11 Nov 2026, from the screenshots) ----------------
+# Every helper finds things by the words printed on the screen, so small layout changes do not break it.
+# Nothing here stops the robot for a mismatch: it is written into `comments` and shown on the case after the TP.
+
+VIS_JS = r"""const vis=e=>!!e&&e.getClientRects().length>0&&getComputedStyle(e).visibility!=='hidden';
+const own=e=>[...e.childNodes].filter(n=>n.nodeType===3).map(n=>n.textContent).join(' ').replace(/\s+/g,' ').trim();
+const labelOf=e=>{let l=e.labels&&e.labels[0]?e.labels[0].innerText:'';if(!l&&e.id){const x=document.querySelector('label[for="'+e.id+'"]');if(x)l=x.innerText}
+  if(!l){const p=e.closest('label');if(p)l=p.innerText}
+  if(!l){let s=e.nextSibling;while(s&&!l){l=(s.textContent||'').trim();s=s.nextSibling}}
+  if(!l){let s=e.previousSibling;while(s&&!l){l=(s.textContent||'').trim();s=s.previousSibling}}
+  if(!l&&e.parentElement)l=e.parentElement.innerText;return (l||'').replace(/\s+/g,' ').trim()};
+const textEl=re=>{const els=[...document.querySelectorAll('label,span,div,p,b,strong,h1,h2,h3,h4,h5,h6,td,th,legend')].filter(e=>vis(e)&&re.test(own(e)||''));
+  const w=e=>(own(e)||'').length+(/^T[HD]$/.test(e.tagName)?1000:0);els.sort((a,b)=>w(a)-w(b));return els[0]};
+const after=(el,sel)=>[...document.querySelectorAll(sel)].find(x=>vis(x)&&(el.compareDocumentPosition(x)&Node.DOCUMENT_POSITION_FOLLOWING));
+const fire=e=>['input','change','blur'].forEach(t=>e.dispatchEvent(new Event(t,{bubbles:true})));"""
+
+RADIO_JS = "(pat)=>{" + VIS_JS + r"""const re=new RegExp(pat,'i');
+  const r=[...document.querySelectorAll('input[type=radio]')].find(e=>(vis(e)||vis(e.parentElement))&&re.test(labelOf(e)));
+  if(!r)return '';if(!r.checked){r.click();if(!r.checked){r.checked=true;fire(r)}}return labelOf(r).slice(0,60)||'ok'}"""
+
+CHECK_JS = "([pat,on])=>{" + VIS_JS + r"""const re=new RegExp(pat,'i');
+  const c=[...document.querySelectorAll('input[type=checkbox]')].find(e=>(vis(e)||vis(e.parentElement))&&re.test(labelOf(e)));
+  if(!c)return '';if(c.checked!==on){c.click();if(c.checked!==on){c.checked=on;fire(c)}}return 'ok'}"""
+
+# fill the first visible box that comes after the printed words (labels like "Mortgaged Survey Extent*" sit above a "Square Feet" sub-label)
+FILL_AFTER_JS = "([pat,v,tag])=>{" + VIS_JS + r"""const t=textEl(new RegExp(pat,'i'));if(!t)return 'NOTEXT';
+  const e=after(t,tag||'input[type=text],input[type=number],input:not([type]),textarea');if(!e)return 'NOBOX';
+  e.focus();e.value=v;fire(e);return e.id||e.name||'ok'}"""
+
+SELECT_AFTER_JS = "([pat,op])=>{" + VIS_JS + r"""const t=textEl(new RegExp(pat,'i'));if(!t)return 'NOTEXT';
+  let s=after(t,'select');if(!s){s=[...document.querySelectorAll('select')].find(x=>t.compareDocumentPosition(x)&Node.DOCUMENT_POSITION_FOLLOWING&&vis(x.nextElementSibling||x.parentElement))}
+  if(!s)return 'NOSEL';const ro=new RegExp(op,'i');const o=[...s.options].find(o=>ro.test(o.text.trim()));
+  if(!o)return 'NOOPT '+[...s.options].map(o=>o.text.trim()).slice(0,25).join('|');
+  if(window.jQuery){jQuery(s).val(o.value).trigger('change').trigger('chosen:updated')}else{s.value=o.value;fire(s)}return 'ok '+o.text.trim()}"""
+
+OPTIONS_AFTER_JS = "(pat)=>{" + VIS_JS + r"""const t=textEl(new RegExp(pat,'i'));if(!t)return null;
+  let s=after(t,'select');if(!s)s=[...document.querySelectorAll('select')].find(x=>t.compareDocumentPosition(x)&Node.DOCUMENT_POSITION_FOLLOWING);
+  return s?[...s.options].map(o=>o.text.trim()):null}"""
+
+CLICK_AFTER_JS = "([pat,btn])=>{" + VIS_JS + r"""const t=textEl(new RegExp(pat,'i'));if(!t)return '';const re=new RegExp(btn,'i');
+  const b=[...document.querySelectorAll('button,input[type=button],input[type=submit],a.btn')].find(x=>vis(x)&&re.test((x.value||x.innerText||'').trim())&&(t.compareDocumentPosition(x)&Node.DOCUMENT_POSITION_FOLLOWING));
+  if(!b)return '';b.click();return (b.id||'')+':'+(b.value||b.innerText||'').trim()}"""
+
+# pick a row (radio) in the visible table whose header matches; prefer the row matching `want`, else the newest year
+TABLE_PICK_JS = "([head,want,newest])=>{" + VIS_JS + r"""const hr=new RegExp(head,'i');
+  const t=[...document.querySelectorAll('table')].find(x=>vis(x)&&x.rows.length>1&&hr.test(x.rows[0].innerText));if(!t)return null;
+  const rows=[...t.rows].slice(1).filter(r=>r.querySelector('input[type=radio],input[type=checkbox]'));if(!rows.length)return null;
+  let r=null;if(want){const w=new RegExp(want,'i');r=rows.find(x=>w.test(x.innerText))}
+  if(!r&&newest){r=rows.slice().sort((a,b)=>{const y=x=>Math.max(0,...(x.innerText.match(/\b(19|20)\d\d\b/g)||[]).map(Number));return y(b)-y(a)})[0]}
+  r=r||rows[0];const i=r.querySelector('input[type=radio],input[type=checkbox]');if(!i.checked)i.click();
+  return {row:r.innerText.replace(/\s+/g,' ').trim().slice(0,200),n:rows.length}}"""
+
+TABLE_TEXT_JS = "(head)=>{" + VIS_JS + r"""const hr=new RegExp(head,'i');
+  return [...document.querySelectorAll('table')].filter(x=>vis(x)&&x.rows.length>1&&hr.test(x.rows[0].innerText)).map(x=>x.innerText.replace(/\s+/g,' ')).join(' || ')}"""
+
+# delete every saved row of the visible tables (Building Details copied from the old deed)
+DEL_ICONS_JS = "()=>{" + VIS_JS + r"""const t=[...document.querySelectorAll('table')].filter(x=>vis(x)&&x.rows.length>1);
+  for(const x of t){for(const r of [...x.rows].slice(1)){const e=[...r.querySelectorAll('a,button,i,img,span')].find(e=>/delete|trash|remove|bin/i.test((e.className||'')+' '+(e.title||'')+' '+(e.getAttribute('onclick')||'')+' '+(e.getAttribute('src')||'')));
+    if(e&&vis(e)){(e.closest('a,button')||e).click();return r.innerText.replace(/\s+/g,' ').slice(0,100)}}}return ''}"""
+
+SUBTAB_JS = "()=>{" + VIS_JS + r"""const names=['Property Details','Survey Details','Boundary Details','Building Details','Linear Measurement','Property Remarks','Property Items'];
+  const a=[...document.querySelectorAll('a,li,button,span')].filter(e=>vis(e)&&names.includes((e.innerText||'').trim()));
+  const act=a.find(e=>/active|selected|current/i.test((e.className||'')+' '+((e.parentElement||{}).className||''))||e.getAttribute('aria-selected')==='true');
+  if(act)return act.innerText.trim();const h=[...document.querySelectorAll('h1,h2,h3,h4,h5,h6,b,strong,legend')].filter(vis).map(x=>x.innerText.trim());
+  const m={'Property Survey Details':'Survey Details','Property Remarks (if any)':'Property Remarks'};
+  for(const x of h){if(names.includes(x))return x;if(m[x])return m[x]}
+  if(/What is in the North/i.test(document.body.innerText))return 'Boundary Details';return ''}"""
+
+LIST_PAGE_JS = "()=>{" + VIS_JS + r"""return !!textEl(/^List of all added property$/i)&&![...document.querySelectorAll('a,li,button,span')].some(e=>vis(e)&&/^(Survey Details|Boundary Details|Building Details|Property Remarks|Property Items)$/.test((e.innerText||'').trim()))}"""
+
+PTYPES = ["Plot with Building", "Plot", "Flats", "Agricultural Land", "Agriculture Land with Building"]
+
+
+def ptype_of(d):
+    """Drafting's property type → TNREGINET's radio label (old cases said 'Vacant plot' etc.)."""
+    v = g(d, "Property type").lower()
+    if "agri" in v:
+        return "Agriculture Land with Building" if "build" in v else "Agricultural Land"
+    if "flat" in v:
+        return "Flats"
+    if "vacant" in v or (v.strip() == "plot"):
+        return "Plot"
+    return "Plot with Building" if v else ""
+
+
+def unit_re(u):
+    u = (u or "").lower()
+    return ("Square\\s*Met|Sq\\.?\\s*M" if re.search(r"sq\.?\s*m|met", u) else "Hect" if "hect" in u else "Acre" if "acre" in u
+            else "Cent" if "cent" in u else "Square\\s*Feet|Sq\\.?\\s*F")
+
+
+def surveys_of(d):
+    """[(survey, subdivision, extent)] - the first is the main new survey number; more than one = Linked Survey."""
+    out = []
+    sn, sub = g(d, "New survey no"), g(d, "Subdivision")
+    if sn:
+        if not sub and "/" in sn:
+            sn, sub = sn.split("/", 1)
+        out.append((sn.strip(), sub.strip(), g(d, "Extent")))
+    for tok in re.split(r"[,;\n]+", g(d, "Linked survey numbers")):
+        tok = tok.strip()
+        if not tok:
+            continue
+        ext = ""
+        if "=" in tok:
+            tok, ext = [x.strip() for x in tok.split("=", 1)]
+        s, _, sd = tok.partition("/")
+        if s and (s, sd) not in [(a, b) for a, b, _ in out]:
+            out.append((s.strip(), sd.strip(), ext))
+    return out
+
+
+def num(x):
+    m = re.search(r"\d+(?:\.\d+)?", str(x or "").replace(",", ""))
+    return m.group(0) if m else ""
+
+
+def child_next(P, page):
+    if page.evaluate("()=>{const b=document.getElementById('btnChildNext');return !!(b&&b.offsetParent)}"):
+        P.click("btnChildNext", 2)
+    else:
+        click_btn_text(P, r"^Next$")
+    wait_loader(page)
+    P.wait(2)
+    return P.popup_ok()
+
+
+def modt_property(P, job, page, d, case, comments):
+    """Property, the MODT way (11 Nov 2026): type → copy from the newest linked deed → previous property → Copy → OK →
+    Property Details (check, patta) → Survey → Boundary → Building (emptied) → Linear → Remarks → Items → list → Save and Continue."""
+    note = lambda s: comments.append("Property: " + s)
+    job.step("7 · Property details", page)
+    main_next(P, page, 5)
+    wait_for(P, "()=>/List of all added property|Property Type/i.test(document.body.innerText)", 25)
+    P.wait(2)
+    if page.evaluate(TABLE_TEXT_JS, "Mortgaged Survey Extent|Survey No"):
+        note("a property row was already in the list (an earlier try) - it was kept; check there is only one")
+    ptype = ptype_of(d)
+    if not ptype:
+        ptype = "Plot with Building"
+        note("property type empty in Drafting - Plot with Building used")
+    if not page.evaluate(RADIO_JS, "^" + re.escape(ptype) + "$"):
+        raise Stop(f"Property type '{ptype}' not found on TNREGINET. The draft is saved.")
+    P.wait(1.5)
+    job.step(f"7 · Property type: {ptype}", page)
+    page.evaluate(CHECK_JS, ["Copy Property From Linked Document", True])
+    P.wait(2.5)
+    deed_no = g(d, "Deed 1 Doc No")
+    pick = None
+    for _ in range(10):
+        pick = page.evaluate(TABLE_PICK_JS, ["Document No", "", True])
+        if pick:
+            break
+        P.wait(1.5)
+    if not pick:
+        raise Stop("No linked document showed under 'Copy Property From Linked Document'. The draft is saved; check the linked title deed.")
+    if pick["n"] > 1:
+        note(f"{pick['n']} linked deeds listed - the newest was used ({pick['row'][:80]}); check with the legal report")
+    job.step(f"7 · Linked deed: {pick['row'][:90]}", page)
+    P.wait(2.5)
+    vil = g(d, "Village")
+    prev = None
+    for _ in range(10):
+        prev = page.evaluate(TABLE_PICK_JS, ["Registration Village|Local Body|Property Type", re.escape(vil[:6]) if vil else "", False])
+        if prev:
+            break
+        P.wait(1.5)
+    if not prev:
+        raise Stop("'Previous Property Details' did not show for the linked deed. The draft is saved.")
+    if prev["n"] > 1:
+        note(f"{prev['n']} previous properties listed - '{prev['row'][:70]}' was copied; check")
+    P.wait(1.5)
+    if not click_btn_text(P, r"^Copy$"):
+        raise Stop("The Copy button did not appear after choosing the previous property. The draft is saved.")
+    wait_loader(page)
+    P.wait(2.5)
+    said = P.popup_ok()
+    job.step(f"7 · Copied from the linked deed {('(' + said[:50] + ')') if said else ''}", page)
+    wait_for(P, "()=>/Sub Registrar Office|Registration Village/i.test(document.body.innerText)", 25)
+    P.wait(2)
+    done, guard = [], 0
+    while guard < 12:
+        guard += 1
+        if page.evaluate(LIST_PAGE_JS):
+            break
+        tab = page.evaluate(SUBTAB_JS) or ""
+        if tab in done and tab != "Property Items":
+            msg = form_errors(P)
+            raise Stop(f"Property · {tab}: TNREGINET did not move on ({'; '.join(msg) or 'no message'}). The draft is saved.")
+        done.append(tab)
+        job.step(f"7 · Property · {tab or 'page'}", page)
+        try:
+            if tab == "Property Details":
+                prop_details_tab(P, page, d, note)
+            elif tab == "Survey Details":
+                survey_tab(P, job, page, d, ptype, note)
+            elif tab == "Boundary Details":
+                boundary_tab(P, job, page, d, note)
+            elif tab == "Building Details":
+                for _ in range(8):
+                    gone = page.evaluate(DEL_ICONS_JS)
+                    if not gone:
+                        break
+                    P.wait(1.5); P.popup_ok(); wait_loader(page); P.wait(1.5)
+                    note(f"building entry from the old deed removed ({gone[:60]})")
+            elif tab == "Linear Measurement":
+                linear_tab(P, page, d, note)
+            elif tab == "Property Remarks":
+                remarks_tab(P, job, page, d, note)
+        except Stop:
+            raise
+        except Exception as e:
+            note(f"{tab}: {str(e)[:120]}")
+        job.step(f"7 · Property · {tab} done", page)
+        said = child_next(P, page)
+        if said and re.search(r"please|mandatory|invalid|required|select", said, re.I):
+            note(f"{tab}: TNREGINET said '{said[:120]}'")
+        if tab == "Property Items":
+            break
+    wait_for(P, LIST_PAGE_JS, 20)
+    row = page.evaluate(TABLE_TEXT_JS, "Mortgaged Survey Extent|Survey No")
+    sv = surveys_of(d)
+    if sv and sv[0][0] and f"{sv[0][0]}/{sv[0][1]}".strip("/") not in row:
+        note(f"survey {sv[0][0]}/{sv[0][1]} not seen in the property list ({row[:120]})")
+    ex = num(g(d, "Extent"))
+    if ex and ex.split(".")[0] not in row:
+        note(f"extent {g(d, 'Extent')} not seen in the property list")
+    if ptype.lower() not in row.lower():
+        note(f"type '{ptype}' not seen in the property list")
+    job.step("7 · Property added: " + row[:120], page)
+    return row
+
+
+def prop_details_tab(P, page, d, note):
+    txt = page.evaluate(PAGE_TXT_JS).lower()
+    for key in ("Property SRO", "Village"):
+        v = g(d, key)
+        if v and re.sub(r"[^a-z]", "", v.lower())[:6] not in re.sub(r"[^a-z]", "", txt):
+            note(f"{key}: Drafting says '{v}', TNREGINET copied something else - check")
+    pt = g(d, "Patta No")
+    if pt:
+        r = page.evaluate(FILL_AFTER_JS, ["^Patta No\\.?$", pt, ""])
+        if str(r).startswith("NO"):
+            note(f"patta no. box not found ({r})")
+        else:
+            page.evaluate(CLICK_AFTER_JS, ["^Patta No\\.?$", "^Add$"])
+            P.wait(2); m = P.popup_ok()
+            if m and re.search(r"exist|invalid|not", m, re.I):
+                note(f"patta {pt}: TNREGINET said '{m[:80]}'")
+
+
+def survey_tab(P, job, page, d, ptype, note):
+    u = g(d, "Unit")
+    r = label_select(page, r"Unit of Measurement", unit_re(u)) if u else "skip"
+    if u and not str(r).startswith("ok"):
+        note(f"unit '{u}' not set ({str(r)[:60]})")
+    P.wait(1.5)
+    pre = page.evaluate(TABLE_TEXT_JS, "Survey No|Extent")
+    lt = g(d, "Land type") or ("Rural" if "Agri" in ptype else "")
+    if not lt:
+        lt = "Natham"
+        note("Urban/Natham/Rural empty in Drafting - Natham used; check")
+    if not page.evaluate(RADIO_JS, "^" + lt + "$"):
+        note(f"'{lt}' button not found")
+    P.wait(2.5); wait_loader(page)
+    if lt.lower() == "urban":
+        for k in ("Ward", "Block"):
+            v = g(d, k)
+            if v:
+                r = page.evaluate(SELECT_AFTER_JS, [f"^{k}\\b", f"^0*{re.escape(v)}\\b|\\b{re.escape(v)}$"])
+                if not str(r).startswith("ok"):
+                    note(f"{k} {v} not set ({str(r)[:80]})")
+                P.wait(2)
+    sv = surveys_of(d)
+    if not sv:
+        note("no new survey number in Drafting - survey left for you")
+        return
+    linked = len(sv) > 1
+    page.evaluate(RADIO_JS, "^Linked Survey$" if linked else "^Single Survey$")
+    P.wait(2)
+    old = [x.strip() for x in re.split(r"[,;\n]+", g(d, "Old survey numbers")) if x.strip()]
+    for i, (s, sd, ext) in enumerate(sv):
+        job.step(f"7 · Survey {s}/{sd}", page)
+        if page.evaluate("()=>[...document.querySelectorAll('label,span,div')].some(e=>e.offsetParent&&/^Sub Divi?si?on No/i.test((e.innerText||'').trim()))"):
+            r1 = page.evaluate(SELECT_AFTER_JS, ["^Survey No\\.?\\s*\\*?$", f"^0*{re.escape(s)}$"])
+            P.wait(2.5); wait_loader(page)
+            r2 = page.evaluate(SELECT_AFTER_JS, ["^Sub Divi?si?on No", f"^0*{re.escape(sd)}$"]) if sd else "ok"
+        else:
+            r1 = page.evaluate(SELECT_AFTER_JS, ["^Survey No\\.?/Sub Divi?si?on", f"^0*{re.escape(s)}\\s*/\\s*0*{re.escape(sd)}$" if sd else f"^0*{re.escape(s)}$"])
+            r2 = "ok"
+        if not str(r1).startswith("ok") or not str(r2).startswith("ok"):
+            note(f"survey {s}/{sd} not in TNREGINET's list ({str(r1)[:70]} {str(r2)[:70]})")
+        P.wait(2)
+        st = g(d, "Street name")
+        if st and i == 0:
+            opts = page.evaluate(OPTIONS_AFTER_JS, "^Street Name$") or []
+            hit = next((o for o in opts if nz(st)[:6] and nz(st)[:6] in nz(o)), None)
+            if hit:
+                page.evaluate(SELECT_AFTER_JS, ["^Street Name$", "^" + re.escape(hit) + "$"])
+        if i == 0:
+            for o in old:
+                page.evaluate(FILL_AFTER_JS, ["^Old Survey No\\.?$", o, ""])
+                page.evaluate(CLICK_AFTER_JS, ["^Old Survey No\\.?$", "^Add Old Survey Number$"])
+                P.wait(1.5); P.popup_ok()
+            have = page.evaluate(TABLE_TEXT_JS, "Old Survey No")
+            miss = [o for o in old if nz(o) not in nz(have)]
+            if miss:
+                note("old survey no. not added: " + ", ".join(miss))
+        if "Agri" in ptype and g(d, "Total survey extent"):
+            page.evaluate(FILL_AFTER_JS, ["^Total Survey Extent", num(g(d, "Total survey extent")), ""])
+        e = num(ext) or (num(g(d, "Extent")) if i == 0 else "")
+        if not e:
+            note(f"mortgaged extent for {s}/{sd} not in Drafting - add it by hand")
+            continue
+        page.evaluate(FILL_AFTER_JS, ["^Mortgaged Survey Extent", e, ""])
+        P.wait(1)
+        page.evaluate(CLICK_AFTER_JS, ["^Market Value of Mortgaged", "^Add$"])
+        P.wait(2.5); m = P.popup_ok()
+        tbl = page.evaluate(TABLE_TEXT_JS, "Mortgaged Survey Extent")
+        if f"{s}/{sd}".strip("/") not in tbl:
+            note(f"survey row {s}/{sd} not added ({(m or tbl)[:100]})")
+    pl = g(d, "Plot No")
+    if pl:
+        page.evaluate(FILL_AFTER_JS, ["^Plot Number$", pl, ""])
+        page.evaluate(CLICK_AFTER_JS, ["^Plot Number$", "^Add$"])
+        P.wait(1.5); P.popup_ok()
+    if pre:
+        n0 = num(pre.split("Sq")[0][-12:]) if "Sq" in pre else ""
+        if n0 and num(g(d, "Extent")) and n0 != num(g(d, "Extent")):
+            note(f"the linked deed's survey row says '{pre[-60:]}', the MODT extent is {g(d, 'Extent')} (MODT used)")
+
+
+def side_boxes(page):
+    return page.evaluate("()=>/What is in the North/i.test(document.body.innerText)")
+
+
+def boundary_tab(P, job, page, d, note):
+    lens = [num(g(d, f"{s} length")) for s in ("North", "South", "East", "West")]
+    bt = g(d, "Boundary type")
+    if all(lens):
+        calc = "Regular" if lens[0] == lens[1] and lens[2] == lens[3] else "Irregular"
+        if bt and bt != calc:
+            note(f"boundary type in Drafting '{bt}', measurements say {calc} - {calc} used")
+        bt = calc
+    if bt:
+        page.evaluate(RADIO_JS, "^" + bt + "$")
+        P.wait(1.5)
+    missing_ta = {}
+    for s in ("North", "South", "East", "West"):
+        en, ta = g(d, f"Boundary {s}"), g(d, f"Boundary {s} Tamil")
+        if en:
+            page.evaluate(FILL_AFTER_JS, [f"What is in the {s}\\? \\(In English\\)", en, ""])
+        else:
+            note(f"{s} boundary empty in Drafting")
+        if ta and TAMIL_RE.search(ta):
+            page.evaluate(FILL_AFTER_JS, [f"What is in the {s}\\? \\(In Tamil\\)", ta, ""])
+        elif en:
+            missing_ta[s] = en
+    if missing_ta:
+        tr = english_pass(P, job, "Boundaries in Tamil", kind="tamil", texts=missing_ta)
+        for s, v in tr.items():
+            page.evaluate(FILL_AFTER_JS, [f"What is in the {s}\\? \\(In Tamil\\)", v, ""])
+        left = [s for s in missing_ta if s not in tr]
+        if left:
+            note("Tamil boundary not filled: " + ", ".join(left))
+
+
+def linear_tab(P, page, d, note):
+    vals = {s: num(g(d, f"{s} length")) for s in ("North", "South", "East", "West")}
+    if not any(vals.values()):
+        note("no linear measurements in Drafting - left as copied")
+        return
+    page.evaluate("()=>{const b=[...document.querySelectorAll('button,input[type=button]')].find(x=>x.offsetParent&&/^Reset$/i.test((x.value||x.innerText||'').trim()));if(b)b.click()}")
+    P.wait(1.5); P.popup_ok()
+    for s, v in vals.items():
+        if v:
+            page.evaluate(FILL_AFTER_JS, [f"^{s} Measurement$", v, ""])
+    P.wait(1.5)
+    txt = page.evaluate("()=>document.body.innerText")
+    m1, m2 = re.search(r"Mortgaged Extent Area\s*:\s*([\d.]+)", txt), re.search(r"Computed Area\s*:\s*([\d.]+)", txt)
+    if m1 and m2:
+        a, b = float(m1.group(1)), float(m2.group(1))
+        if a and abs(a - b) > max(25, a * 0.05):
+            note(f"linear measurements give {b:g}, the mortgaged extent is {a:g} (entered as the documents say)")
+
+
+def remarks_text(d):
+    """English and Tamil remarks in the fixed pattern; Drafting's text wins when filled."""
+    en, ta = g(d, "Property remarks"), g(d, "Property remarks Tamil")
+    sv = surveys_of(d)
+    sn = ", ".join(f"{a}/{b}".strip("/") for a, b, _ in sv)
+    old = g(d, "Old survey numbers")
+    unit = g(d, "Unit") or "sq.ft"
+    bld = g(d, "Building type")
+    if not en:
+        en = (f"{g(d, 'Village')} Village, New Survey No. {sn}" + (f" (Old Survey No. {old})" if old else "") + f", an extent of {g(d, 'Extent')}"
+              + ("" if re.search(r"sq|cent|acre|hect", g(d, "Extent"), re.I) else f" {unit}") + (f", Plot No. {g(d, 'Plot No')}" if g(d, "Plot No") else "")
+              + (f", together with the {bld} and all the land therein." if bld and not re.search(r"^no", bld, re.I) else ", and all the land therein."))
+    return en, ta
+
+
+def remarks_tab(P, job, page, d, note):
+    en, ta = remarks_text(d)
+    page.evaluate(FILL_AFTER_JS, ["^Remarks$", en, "textarea"])
+    if not (ta and TAMIL_RE.search(ta)):
+        tr = english_pass(P, job, "Remarks in Tamil", kind="tamil", texts={"remarks": en})
+        ta = tr.get("remarks", "")
+    if ta:
+        page.evaluate(FILL_AFTER_JS, ["^Remarks \\(in Tamil\\)$", ta, "textarea"])
+    else:
+        note("Tamil remarks not filled")
+
+
+INSERT_HTML_JS = r"""(html)=>{
+  if(window.CKEDITOR&&CKEDITOR.instances){const k=Object.keys(CKEDITOR.instances).find(k=>{const e=CKEDITOR.instances[k];return e&&e.container&&e.container.$&&e.container.$.getClientRects().length});
+    if(k){const e=CKEDITOR.instances[k];e.setData(e.getData()+html);e.updateElement&&e.updateElement();return 'ckeditor '+k}}
+  if(window.tinymce&&tinymce.activeEditor){tinymce.activeEditor.setContent(tinymce.activeEditor.getContent()+html);tinymce.activeEditor.save&&tinymce.activeEditor.save();return 'tinymce'}
+  const ce=[...document.querySelectorAll('[contenteditable=true]')].find(e=>e.getClientRects().length);if(ce){ce.insertAdjacentHTML('beforeend',html);ce.dispatchEvent(new Event('input',{bubbles:true}));return 'editable'}
+  const ta=[...document.querySelectorAll('textarea')].filter(e=>e.getClientRects().length).pop();
+  if(ta){const d=document.createElement('div');d.innerHTML=html.replace(/<\/(p|tr|div)>/g,'\n').replace(/<\/t[dh]>/g,' | ');ta.value+=d.innerText;['input','change','blur'].forEach(t=>ta.dispatchEvent(new Event(t,{bubbles:true})));return 'textarea '+ta.id}
+  return ''}"""
+
+EDITOR_TEXT_JS = r"""()=>{if(window.CKEDITOR&&CKEDITOR.instances){const k=Object.keys(CKEDITOR.instances).find(k=>{const e=CKEDITOR.instances[k];return e&&e.container&&e.container.$&&e.container.$.getClientRects().length});
+  if(k){const d=document.createElement('div');d.innerHTML=CKEDITOR.instances[k].getData();return d.innerText}}
+  if(window.tinymce&&tinymce.activeEditor)return tinymce.activeEditor.getContent({format:'text'});
+  const ce=[...document.querySelectorAll('[contenteditable=true]')].find(e=>e.getClientRects().length);if(ce)return ce.innerText;
+  const ta=[...document.querySelectorAll('textarea')].filter(e=>e.getClientRects().length).pop();return ta?ta.value:''}"""
+
+# Document Valuation page: every line that names a fee and an amount
+FEES_JS = r"""()=>{const out={};const add=(k,v)=>{v=String(v).replace(/[^\d.]/g,'');if(v&&!(k in out))out[k]=Number(v)};
+  const re=/(stamp\s*duty|registration\s*fee|computer\s*fee|processing\s*fee|copy(ing)?\s*fee|user\s*charge|scanning\s*fee|cd\s*fee|other\s*fee|deficit|total)/i;
+  document.querySelectorAll('tr').forEach(r=>{if(!r.getClientRects().length)return;const c=[...r.cells].map(x=>x.innerText.trim());
+    for(let i=0;i<c.length;i++){const m=c[i].match(re);if(m){const v=c.slice(i+1).find(x=>/\d/.test(x));if(v)add(c[i].replace(/\s+/g,' ').slice(0,40),v)}}});
+  if(!Object.keys(out).length){document.body.innerText.split('\n').forEach(l=>{const m=l.match(/^(.*?(stamp\s*duty|registration\s*fee|computer\s*fee|fee|total)[^\d₹]*)[₹\s:]*([\d,]+(\.\d+)?)/i);if(m)add(m[1].trim().slice(0,40),m[3])})}
+  return out}"""
+
+
+def lod_html(case, d, comments):
+    """List of documents deposited, with its table (from the Word draft), corrections applied and checked."""
+    txt = g(d, "List of documents deposited")
+    read = g(case.get("tpAuto") or {}, "List of documents deposited")
+    # the Word table is used unless the office changed the list in Drafting after Claude read it
+    html = case.get("lodHtml") or "" if (not read or nz(read) == nz(txt)) else ""
+    if not html and txt:
+        rows = [l for l in txt.split("\n") if l.strip()]
+        if sum(1 for l in rows if "|" in l) >= 2:
+            cells = lambda l: "".join(f"<td style='border:1px solid #000;padding:2px 4px'>{x.strip()}</td>" for x in l.strip(" |").split("|"))
+            html = "<table style='border-collapse:collapse' border='1'>" + "".join(f"<tr>{cells(l)}</tr>" for l in rows if "|" in l) + "</table>"
+            pre = [l for l in rows if "|" not in l]
+            html = "".join(f"<p>{x}</p>" for x in pre[:2]) + html
+        else:
+            html = "".join(f"<p>{re.sub(r'[<>&]', ' ', l)}</p>" for l in rows)
+    fixed = []
+    for line in g(d, "LOD corrections").split("\n"):
+        m = re.match(r"\s*(.+?)\s*(?:->|→|=>)\s*(.+?)\s*(?:\((.*)\))?\s*$", line)
+        if m and m.group(1) in html:
+            html = html.replace(m.group(1), m.group(2))
+            fixed.append(f"{m.group(1)} → {m.group(2)}" + (f" ({m.group(3)})" if m.group(3) else ""))
+    if fixed:
+        comments.append("List of documents corrected: " + "; ".join(fixed))
+    plain = re.sub(r"<[^>]+>", " ", html)
+    for n in (1, 2, 3):
+        no, yr = num(g(d, f"Deed {n} Doc No")), g(d, f"Deed {n} Year")
+        if no and not re.search(rf"\b0*{no}\b", plain):
+            comments.append(f"List of documents: title deed {n} doc no. {no}/{yr} not found in it - check")
+        elif no and yr and not re.search(rf"\b0*{no}\s*(?:/|of|dated|dt\.?)?[^\n|]{{0,40}}{yr}", plain, re.I) and yr not in plain:
+            comments.append(f"List of documents: year {yr} of title deed {n} not found - check")
+    pt = g(d, "Patta No")
+    if pt and re.search(r"patta", plain, re.I) and not re.search(rf"\b{re.escape(pt)}\b", plain):
+        comments.append(f"List of documents: patta no. {pt} (revenue document) not in it - check")
+    return html
+
+
+def loan_check(d, case, comments):
+    a = {"MODT draft": num(g(d, "Loan amount")), "sanction letter": num(g(d, "Sanction loan amount")), "portal (new case)": num(case.get("loanAmount"))}
+    have = {k: v for k, v in a.items() if v}
+    if len({float(v) for v in have.values()}) > 1:
+        used = next(k for k in a if a[k])
+        comments.append("Loan amount differs: " + ", ".join(f"{k} {v}" for k, v in have.items()) + f" - the {used} amount was used")
+    return a["MODT draft"] or a["sanction letter"] or a["portal (new case)"]
+
+
+def modt_plan(case, d, folder, P, comments):
+    """MODT uploads: ID of every title holder and both witnesses, one property image, title deed colour copy, EC + patta + others."""
+    lists = kv_get("config", "lists") or {}
+
+    def fetch(f, name):
+        if not f or not f.get("url"):
+            return None
+        ext = (re.search(r"\.(pdf|jpe?g|png)$", f.get("name") or "", re.I) or [".pdf"])[0].lower()
+        try:
+            return download(f["url"], os.path.join(folder, name + ext))
+        except Exception as e:
+            P.warn.append(f"{name} download failed: {e}")
+            return None
+
+    docs = case.get("docs") or {}
+    plan = []
+    th = docs.get("th_kyc") or []
+    holders = int(re.sub(r"\D", "", g(d, "Title holders")) or "1")
+    for n in range(1, min(holders, 4) + 1):
+        nm = g(d, f"Mortgagor {n} name")
+        f = fetch(th[n - 1], f"HOLDER{n}_KYC") if len(th) >= n else None
+        if not f:
+            comments.append(f"Title holder {n} ({nm}) Aadhaar not uploaded in the case - not uploaded")
+        plan.append(("Identification", nm, f, f"Title holder {n} ID", f"HOLDER{n}"))
+    for n in (1, 2):
+        nm = g(d, f"Witness {n}") or case.get(f"w{n}") or ""
+        f = get_file(case, f"w{n}_kyc", folder)
+        if not f:
+            w = next((x for x in (lists.get("wit") or []) if nz(x.get("name")) == nz(nm)), None)
+            f = w and fetch((w.get("kyc") or [None])[0], f"WITNESS{n}_KYC")
+        plan.append(("Identification", nm, f, f"Witness {n} ID", f"WITNESS{n}"))
+    ph = (docs.get("photos") or [None])[0]
+    plan.append(("Property", "re:^(?!\\s*-+\\s*select)", fetch(ph, "PROPERTY_IMAGE"), "Property image", "PROPERTY_IMAGE"))
+    deeds = [fetch(x, f"TITLE_DEED_{i + 1}") for i, x in enumerate(docs.get("deed") or [])]
+    deeds = [x for x in deeds if x]
+    deed = None
+    if deeds:
+        try:
+            deed = deeds[0] if len(deeds) == 1 and deeds[0].endswith(".pdf") else to_pdf(deeds, os.path.join(folder, "TITLE_DEED.pdf"))
+        except Exception as e:
+            comments.append(f"title deed files could not be joined ({e}); first file used")
+            deed = deeds[0]
+    plan.append(("Reference", "re:original", deed, "Title deed (colour copy)", "TITLE_DEED"))
+    rest = [fetch(x, f"OTHER_{k}_{i + 1}") for k in ("ec", "revenue", "other") for i, x in enumerate(docs.get(k) or [])]
+    rest = [x for x in rest if x]
+    if not (docs.get("ec") or []):
+        comments.append("EC not in the case (mandatory for MODT)")
+    if not (docs.get("revenue") or []):
+        comments.append("Patta not in the case (mandatory for MODT)")
+    other = None
+    if rest:
+        try:
+            other = to_pdf(rest, os.path.join(folder, "EC_PATTA_OTHERS.pdf"))
+        except Exception as e:
+            comments.append(f"EC / patta files could not be joined ({e})")
+    plan.append(("Reference", "re:other", other, "EC + patta + others", "EC_PATTA_OTHERS"))
+    return plan
+
+
+def pdf_pages(path):
+    try:
+        ensure_pdf_tools()
+        from pypdf import PdfReader
+        return len(PdfReader(path).pages)
+    except Exception:
+        try:
+            return len(re.findall(rb"/Type\s*/Page[^s]", open(path, "rb").read()))
+        except Exception:
+            return 0
+
+
+def save_fees(job, case_id, tp, fees, comments):
+    """Fees to collect: TNREGINET's fees (read before Create) + ₹100 a page above 10 pages of the print (computer fee) + service charge."""
+    try:
+        c = kv_get("cases", case_id) or {}
+        folder = os.path.join(os.path.dirname(os.path.abspath(__file__)), "files", job.id[:8])
+        pdf = os.path.join(folder, tp.replace("/", "_") + ".pdf")
+        pages = pdf_pages(pdf) if os.path.exists(pdf) else 0
+        extra = max(0, pages - 10) * 100
+        lists = kv_get("config", "lists") or {}
+        prof = (lists.get("profiles") or {}).get(c.get("bank") or "") or {}
+        svc = (c.get("payment") or {}).get("service") or prof.get("service") or (lists.get("pay") or {}).get("service") or 0
+        items = {k: v for k, v in (fees or {}).items() if not re.search(r"total", k, re.I)}
+        comp_key = next((k for k in items if re.search(r"computer", k, re.I)), None)
+        gov = sum(float(v) for v in items.values())
+        f = {"items": items, "tnTotal": (fees or {}).get(next((k for k in (fees or {}) if re.search(r"total", k, re.I)), ""), None),
+             "pages": pages, "extraPages": max(0, pages - 10), "extraFee": extra, "computerKey": comp_key or "Computer fee",
+             "govTotal": gov + extra, "service": float(svc or 0), "total": gov + extra + float(svc or 0), "at": now(), "tp": tp}
+        pay = dict(c.get("payment") or {})
+        pay.update(regFee=f["govTotal"], service=f["service"], total=f["total"])
+        kv_merge("cases", case_id, {"fees": f, "payment": pay})
+        if not items:
+            comments.append("fees could not be read from TNREGINET's valuation page - enter them in Payment by hand")
+        if not pages:
+            comments.append("print page count not known - check the computer fee")
+        return f
+    except Exception as e:
+        comments.append(f"fees not worked out ({str(e)[:80]})")
+        return None
+
+
 def modt_second_half(P, job, page, d, case, comments):
-    """MODT robot part 2 (from the screenshots of 10 Nov): Mortgage & security (loan amount, purpose) → title deposit (skip) →
-    possession remarks (skip) → legal conditions (tick + Copy, then the list of documents) → reasons (save) →
-    supporting details (place of execution EN/TA; SRO selection only checked) → preview → Create Document. Stops before payment."""
-    # Mortgage and Security Details
+    """MODT robot part 2 (screens of 10-11 Nov): loan (checked 3 ways) → title deposit (skip) → possession (skip) →
+    legal conditions (tick all, Copy, 2 lines, list of documents WITH its table) → reasons (save) → supporting details →
+    preview → read fees → Create Document → uploads → print → fees with page count. Stops before payment."""
     job.step("9 · Mortgage and security details", page)
     main_next(P, page, 6)
     wait_for(P, "()=>/Loan Amount/i.test(document.body.innerText)", 20)
-    amt = re.sub(r"[^\d.]", "", g(d, "Loan amount", "Loan Amount") or str(case.get("loanAmount") or ""))
+    amt = loan_check(d, case, comments)
     if not amt:
-        raise Stop("Loan amount is empty in Drafting (12 · Loan). The draft is saved on TNREGINET.")
+        raise Stop("Loan amount is empty (MODT draft, sanction letter and the case). The draft is saved on TNREGINET.")
     if not label_fill(page, r"Loan Amount", amt):
         comments.append("Loan amount box not found")
     r = label_select(page, r"Purpose of Loan", r"does not have concession")
@@ -2075,33 +2669,30 @@ def modt_second_half(P, job, page, d, case, comments):
     P.wait(1)
     job.step(f"9 · Loan amount {amt}", page)
     modt_next(P, job, page, "Mortgage and security details")
-    # Details of Documents of Title Deposited: nothing to change
     job.step("10 · Documents of title deposited (no change)", page)
     modt_next(P, job, page, "Documents of title deposited")
-    # Possession of Property Remarks: optional
     job.step("11 · Possession remarks (no change)", page)
     modt_next(P, job, page, "Possession remarks")
-    # Legal Conditions: tick the standard conditions, Copy, then the list of documents deposited from the MODT draft
     job.step("12 · Legal conditions", page)
     wait_for(P, "()=>/Legal Condition/i.test(document.body.innerText)", 15)
-    n = page.evaluate("()=>{let n=0;[...document.querySelectorAll('input[type=checkbox]')].filter(e=>e.offsetParent&&!e.checked&&/legal|cond|chk/i.test((e.id||'')+(e.name||'')+(e.className||'')+(e.closest('div,label,td,p')||{}).innerText)).forEach(e=>{e.click();n++});return n}")
+    n = page.evaluate("()=>{let n=0;[...document.querySelectorAll('input[type=checkbox]')].filter(e=>e.getClientRects().length&&!e.checked).forEach(e=>{e.click();n++});return n}")
+    before = page.evaluate(EDITOR_TEXT_JS) or ""
     copied = click_btn_text(P, r"^copy legal condition")
-    P.wait(2); P.popup_ok()
-    if not copied:
-        comments.append("'Copy Legal Condition' button not found - check the legal conditions")
-    lod = g(d, "List of documents deposited")
-    if lod:
-        how = page.evaluate(APPEND_LOD_JS, lod)
+    P.wait(2.5); P.popup_ok()
+    after_txt = page.evaluate(EDITOR_TEXT_JS) or ""
+    if not copied or len(after_txt) <= len(before):
+        comments.append("legal conditions did not copy into the box - check")
+    html = lod_html(case, d, comments)
+    if html:
+        how = page.evaluate(INSERT_HTML_JS, "<p>&nbsp;</p><p>&nbsp;</p>" + html)
         if not how:
-            comments.append("List of documents deposited not added (editor not found) - add it by hand")
+            comments.append("List of documents not added (editor not found) - add it by hand")
     else:
         comments.append("List of documents deposited is empty in Drafting - add it by hand")
-    job.step(f"12 · Legal conditions ticked ({n}) and copied", page)
+    job.step(f"12 · Legal conditions ticked ({n}), copied, list of documents added", page)
     modt_next(P, job, page, "Legal conditions")
-    # Reasons for availing loan: just save
     job.step("13 · Reasons for availing loan (save)", page)
     modt_next(P, job, page, "Reasons for availing loan")
-    # Supporting details: place of execution only; SRO selection is checked, never changed
     job.step("14 · Supporting details · place of execution", page)
     wait_for(P, "()=>/Place of Execution/i.test(document.body.innerText)", 20)
     sro = g(d, "Execution SRO", "Property SRO")
@@ -2117,13 +2708,14 @@ def modt_second_half(P, job, page, d, case, comments):
     if shown and sro and nz(sro)[:6] not in nz(shown):
         comments.append(f"SRO selection on Supporting details shows '{shown}' (Drafting says '{sro}') - not changed, please check")
     modt_next(P, job, page, "Supporting details")
-    # Preview: look, then continue
     job.step("15 · Document preview", page)
     P.wait(3)
     if page.evaluate("()=>{const b=document.getElementById('btnMainNext');return !!(b&&b.offsetParent)}"):
         main_next(P, page, 5)
-    # Document valuation → Create Document (once; again only for the survey-number check, max 3)
     job.step("16 · Stamp duty and fees", page)
+    P.wait(2)
+    fees = page.evaluate(FEES_JS) or {}
+    job.upd(fees=fees)
     tp = tp_on_page(page)
     if not tp:
         if job.fresh().get("createClicked"):
@@ -2137,17 +2729,44 @@ def modt_second_half(P, job, page, d, case, comments):
                 raise Stop(f"Create Document was pressed but no TP number appeared ({said[:150]}). Check My Documents (do NOT press Create again).")
             comments.append(f"Create Document attempt {attempt}: survey number check - retried")
             survey_fix(P, job, page, edit=(attempt == 2))
-    kv_merge("cases", job.d.get("case", ""), {"tpNo": tp, "tpStop": None})
+    cid = job.d.get("case", "")
+    kv_merge("cases", cid, {"tpNo": tp, "tpStop": None})
+    job.upd(tpNo=tp)
+    job.d["tpNo"] = tp
     job.step(f"17 · TP created: {tp}", page)
-    note = f"MODT TP created: {tp}. Upload the documents (ID proofs, property image, title deed, EC, patta) and print from My Documents by hand for now. Do biometric + payment yourself. "
+    folder = os.path.join(os.path.dirname(os.path.abspath(__file__)), "files", job.id[:8])
+    os.makedirs(folder, exist_ok=True)
+    done, err = [], ""
+    try:
+        plan = modt_plan(case, d, folder, P, comments)
+        done = upload_docs(P, job, page, {}, case, comments, plan=plan)
+        err = save_print(P, job, page, cid, tp)
+    except Stop as e:
+        err = str(e)
+    if err:
+        comments.append(err)
+    f = save_fees(job, cid, tp, fees, comments)
+    miss = tp_ready(job, cid, tp, done, err)
+    if miss:
+        comments.append("Stays at TP Creation, missing: " + ", ".join(miss))
+    note = f"MODT TP created: {tp}. Uploaded: {', '.join(done) or 'none'}" + ("" if err else ". Print saved in the case")
+    if f:
+        note += f". To collect: ₹{f['total']:,.0f} (TNREGINET ₹{f['govTotal']:,.0f} incl. {f['extraPages']} extra page(s) × ₹100, service ₹{f['service']:,.0f})"
+    note += ". Do biometric + payment yourself. "
     if comments:
         note += "CHECK: " + " · ".join(comments) + ". "
     if P.warn:
         note += "Warnings: " + "; ".join(P.warn[:8])
+    try:
+        c = kv_get("cases", cid) or {}
+        if comments:
+            kv_merge("cases", cid, {"tpRemarks": comments, "log": (c.get("log") or [])[-79:] + [{"at": now(), "by": "TP robot", "text": f"{tp}: please check - " + " · ".join(comments)[:900]}]})
+    except Exception:
+        pass
     tm = job.timing()
     job.upd(status="done", tpNo=tp, message=note.strip(), comments=comments, timing=tm)
     try:
-        kv_merge("cases", job.d.get("case", ""), {"tpTiming": tm})
+        kv_merge("cases", cid, {"tpTiming": tm})
     except Exception:
         pass
     return tp
