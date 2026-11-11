@@ -1882,6 +1882,10 @@ def modt_problems(case):
     miss = [f"{s}{' (Tamil)' if t else ''}" for s in ("North", "South", "East", "West") for t in ("", " Tamil") if d.get(f"Boundary {s}{t}") in (None, "")]
     if miss:
         out.append("boundary empty in Drafting: " + ", ".join(miss) + " (take it from the title deed)")
+    docs, cw = case.get("docs") or {}, case.get("caseWit") or {}
+    for n in (1, 2):
+        if (docs.get(f"w{n}_kyc") or []) and not (cw.get(str(n)) or cw.get(n) or {}).get("name"):
+            out.append(f"witness {n} Aadhaar is uploaded in the case ({(docs[f'w{n}_kyc'][0].get('name') or '')}) but not read - press 'Read customer's witness Aadhaar' in Drafting")
     tot, ext = area_sqm(g(d, "Total survey extent")), area_sqm(g(d, "Extent"))
     ptype = ptype_of(d) or ""
     if "Agri" in ptype and tot and ext and ext > tot * 1.002:
@@ -2102,6 +2106,10 @@ def run_modt(page, job, case):
     d = case.get("draft") or {}
     P = Portal(page, job)
     dn, stg = (case.get("tpDraft") or "").strip(), case.get("tpDraftStage") or "parties"
+    job.modt_stage = "start"
+    if dn and stg == "start":
+        log("saved draft", dn, "stopped before the parties were saved - a new document is made")
+        dn = ""
     if dn and not case.get("tpNo"):
         if stg not in ("parties", "property"):
             raise Stop(f"Saved draft {dn} is already past the property stage ({stg}). Finish it by hand in Draft Listing, or clear the draft number in TP Generate to start fresh.")
@@ -2115,6 +2123,7 @@ def run_modt(page, job, case):
         if miss:
             comments.append("loaded draft: title holder(s) not seen in the party table - " + ", ".join(miss) + " (check)")
         job.step("2-6 · Parties already saved in the draft (not added again) - going to Property", page)
+        job.modt_stage = "parties"
         return modt_after_parties(P, job, page, d, case, comments)
     job.step("1 · Create document & link the title deed(s)")
     open_presenceless(page, job)
@@ -2133,6 +2142,7 @@ def run_modt(page, job, case):
     linked_check(page, d, deeds, comments)
     job.step("1 · Linked documents checked", page)
     P.click("createDocProceed", 6)
+    keep_draft(page, job, "start")
     # 2. Mortgagors (title holders)
     wait_for(P, "()=>{const e=document.getElementById('partyType');return !!(e&&e.offsetParent)}", 20)
     holders = int(re.sub(r"\D", "", g(d, "Title holders")) or "1")
@@ -2204,6 +2214,7 @@ def run_modt(page, job, case):
     P.fuzzy("cmb_presenter", g(d, f"Mortgagor {pn} name") or g(d, "Mortgagor 1 name"), 1)
     P.click("btnMainSaveAsDraft", 4)
     job.step("Parties done - draft saved", page)
+    job.modt_stage = "parties"
     keep_draft(page, job, "parties")
     return modt_after_parties(P, job, page, d, case, comments)
 
@@ -3481,6 +3492,7 @@ def handle(pw, jid, data):
                 run_modt(page, job, case)
             except Exception as e:
                 job.step("Stopped here", page)
+                keep_draft(page, job, getattr(job, "modt_stage", "start"))
                 record_stop(job, data.get("case", ""), e)
                 raise
             return
@@ -3705,6 +3717,11 @@ def run_chain(batch, login, first_id, first_data):
 
 
 SRC = "https://raw.githubusercontent.com/vgrlegal/portal/main/worker/tp_worker.py"
+try:
+    import hashlib
+    CODE_VER = hashlib.sha1(open(os.path.abspath(__file__), "rb").read()).hexdigest()[:10]
+except Exception:
+    CODE_VER = "?"
 
 
 def self_update():
@@ -3785,7 +3802,7 @@ def beat():
         if time.time() - v.get("t", 0) > 3 * 3600:
             BUSY.pop(k, None)
     busy = [{x: v.get(x, "") for x in ("job", "case", "kind", "login", "status", "step", "since")} for v in list(BUSY.values())]
-    kv_set("tp_jobs", "_worker", {"at": now(), "host": HOST, "probe": PROBE["res"], "busy": busy})
+    kv_set("tp_jobs", "_worker", {"at": now(), "host": HOST, "probe": PROBE["res"], "busy": busy, "ver": CODE_VER})
 
 
 def beat_loop():
