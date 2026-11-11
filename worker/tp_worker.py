@@ -2132,6 +2132,8 @@ def run_modt(page, job, case):
     if dn and stg == "start":
         log("saved draft", dn, "stopped before the parties were saved - a new document is made")
         dn = ""
+    if dn and not case.get("tpDraftResume"):
+        dn = ""  # 11 Nov 2026: resume from Draft Listing is switched off for now - every run makes a new document (old drafts are deleted by hand)
     if dn and not case.get("tpNo"):
         if stg not in ("parties", "property"):
             raise Stop(f"Saved draft {dn} is already past the property stage ({stg}). Finish it by hand in Draft Listing, or clear the draft number in TP Generate to start fresh.")
