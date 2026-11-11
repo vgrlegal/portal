@@ -1230,7 +1230,7 @@ function paintInfo(){
       <label>Customer phone<input id="f_phone" value="${esc(c?c.phone:"")}" inputmode="tel" placeholder="10-digit mobile"></label>
       <label>Loan amount (₹)<input id="f_loanAmount" type="number" min="0" value="${esc(c?c.loanAmount:"")}"></label>
       <label>Request date &amp; time<input type="datetime-local" id="f_requestedAt" required value="${localDT(c?c.requestedAt:new Date())}"></label>
-      <label>Bank representative<select id="f_rep">${repOptions(c?c.bank:"",c?c.rep:"")}</select></label>
+      <label class="repsel">Bank representative<select id="f_rep">${repOptions(c?c.bank:"",c?c.rep:"")}</select></label>
       <label class="wsel">Witness 1<select id="f_w1"><option value="">— none —</option>${(cfg.wit||[]).map(w=>`<option${(c?c.w1:"")===w.name?" selected":""}>${esc(w.name)}</option>`).join("")}</select></label>
       <label class="wsel">Witness 2<select id="f_w2"><option value="">— none —</option>${(cfg.wit||[]).map(w=>`<option${(c?c.w2:"")===w.name?" selected":""}>${esc(w.name)}</option>`).join("")}</select></label>
       <label>Assigned staff<select id="f_assignee"><option value="">Unassigned</option>${staffNames.map(n=>`<option${(c?c.assignee:me)===n?" selected":""}>${esc(n)}</option>`).join("")}</select></label>
@@ -1252,7 +1252,7 @@ function paintInfo(){
   if(edit&&c)applyMasters(false);
   renderDocs(type);
   if($("f_series"))$("f_series").onchange=()=>{const v=withSeries(c?c.id:$("dId").textContent,$("f_series").value);$("f_appno").value=v;if(!c)$("dId").textContent=v};
-  const syncW=()=>{const t=$("f_type")?$("f_type").value:type;document.querySelectorAll(".wsel").forEach(l=>l.hidden=flowOf(t)==="legal")};syncW();
+  const syncW=()=>{const t=$("f_type")?$("f_type").value:type;document.querySelectorAll(".wsel").forEach(l=>l.hidden=flowOf(t)==="legal");document.querySelectorAll(".repsel").forEach(l=>l.hidden=!isRD(t))};syncW();
   if($("f_type"))$("f_type").onchange=()=>{syncW();renderDocs($("f_type").value)};
   if($("f_bank"))$("f_bank").addEventListener("change",()=>{const b=fv("f_bank"),reps=repsOf(b);$("f_rep").innerHTML=repOptions(b,reps.length?reps[0].name:"");if(reps.length)$("f_rep").value=reps[0].name;
     [1,2].forEach(n=>{const d=witDefault(b,n);if(d)$("f_w"+n).value=d});applyMasters(true);renderDocs($("f_type")?$("f_type").value:type)});
