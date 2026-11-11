@@ -2650,6 +2650,31 @@ UNIT_NOW_JS = """()=>{const s=[...document.querySelectorAll('select')].find(e=>{
 LAND_CLASS = {"punjai": r"punj|புன்|dry", "nanjai": r"nanj|நன்|wet", "manavari": r"manav|மானா", "natham": r"natham|நத்த"}
 
 
+# extent boxes after a label: one box (Sq.ft, Cent…) or two (Acres + Cents, Hectare + Ares) when that unit is chosen
+EXTENT_BOXES_JS = "([pat,vals])=>{" + VIS_JS + r"""const t=textEl(new RegExp(pat,'i'));if(!t)return 'NOTEXT';
+  const ins=[...document.querySelectorAll('input[type=text],input:not([type]),input[type=number]')].filter(e=>vis(e)&&!e.readOnly&&(t.compareDocumentPosition(e)&Node.DOCUMENT_POSITION_FOLLOWING));
+  if(!vals)return ins.slice(0,2).map(e=>{let l='';let p=e.parentElement;for(let i=0;i<3&&p&&!l;i++,p=p.parentElement){const x=[...p.querySelectorAll('label,span,div,p')].find(z=>z!==t&&vis(z)&&/^(acres?|cents?|hectares?|ares?|square\s*(feet|met(er|re)s?))$/i.test((z.innerText||'').trim()));if(x)l=x.innerText.trim()}return l});
+  const take=ins.slice(0,vals.length);take.forEach((e,i)=>{e.focus();e.value=vals[i];fire(e)});return take.map(e=>e.id||e.name||'ok').join('|')}"""
+
+
+def fill_extent(page, pat, v, u, note):
+    """Type an extent already in unit u; for Acre (Acres + Cents boxes) or Hectare (Hectare + Ares) split it into the two boxes."""
+    subs = [x.lower() for x in (page.evaluate(EXTENT_BOXES_JS, [pat, None]) or []) if isinstance(x, str)]
+    k = unit_key(u)
+    two = len(subs) == 2 and subs[0] and subs[1] and ((k == "acre" and subs[0].startswith("acre") and subs[1].startswith("cent")) or
+                                                     (k == "hectare" and subs[0].startswith("hect") and subs[1].startswith("are")))
+    if two:
+        f = float(v or 0)
+        big = int(f + 1e-9)
+        small = round((f - big) * 100, 2)
+        vals = [str(big), ("%.2f" % small).rstrip("0").rstrip(".") or "0"]
+        page.evaluate(EXTENT_BOXES_JS, [pat, vals])
+        note(f"{pat.strip('^')}: {v} {u} typed as {vals[0]} {subs[0].title()} + {vals[1]} {subs[1].title()}")
+        return vals
+    page.evaluate(FILL_AFTER_JS, [pat, v, ""])
+    return [v]
+
+
 def survey_shot(page, job, i, when):
     """Screenshot of TNREGINET's survey screen, kept with the case (docs/survey/<job>/...)."""
     try:
@@ -2805,7 +2830,7 @@ def survey_tab(P, job, page, d, ptype, note):
                 note(f"total survey extent '{raw}': unit not clear - typed {tv} as it is; check it is in {u or 'the chosen unit'}")
             elif unit_key(raw) != unit_key(u):
                 note(f"total survey extent {raw} typed as {tv} {u} (same unit as the mortgaged extent)")
-            page.evaluate(FILL_AFTER_JS, ["^Total Survey Extent", tv, ""])
+            fill_extent(page, "^Total Survey Extent", tv, u, note)
         src = ext or (g(d, "Extent") if i == 0 else "")
         src = src if unit_key(src) or not cu else f"{num(src)} {cu}"
         e = (area_in(src, u) if u else "") or num(src)
@@ -2814,7 +2839,7 @@ def survey_tab(P, job, page, d, ptype, note):
         if not e:
             note(f"mortgaged extent for {s}/{sd} not in Drafting - add it by hand")
             continue
-        page.evaluate(FILL_AFTER_JS, ["^Mortgaged Survey Extent", e, ""])
+        e_typed = fill_extent(page, "^Mortgaged Survey Extent", e, u, note)
         P.wait(1)
         before = survey_shot(page, job, i, "before")
         page.evaluate(CLICK_AFTER_JS, ["^Market Value of Mortgaged", "^Add$"])
@@ -2822,7 +2847,7 @@ def survey_tab(P, job, page, d, ptype, note):
         tbl = page.evaluate(TABLE_TEXT_JS, "Mortgaged Survey Extent")
         after = survey_shot(page, job, i, "after")
         sv_ok = f"{s}/{sd}".strip("/") in tbl or (not sd and s in tbl)
-        ex_ok = bool(e) and (e in tbl or e.split(".")[0] in tbl)
+        ex_ok = bool(e) and any(x and (x in tbl) for x in [e, e.split(".")[0], *(e_typed[1:] if len(e_typed) > 1 else [])])
         if not sv_ok or not ex_ok or (m and re.search(r"invalid|not|exceed|error|greater|must", m, re.I)):
             why = ("TNREGINET said: " + m[:140]) if m else (f"survey {s}/{sd} not in the table" if not sv_ok else f"extent {e} {u} not in the table")
             if survey_ok(job):
