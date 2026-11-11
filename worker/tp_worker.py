@@ -1504,14 +1504,20 @@ def upload_docs(P, job, page, t, case, comments, plan=None):
             job.upd(uploadDiag=page.evaluate(UPLOAD_DIAG_JS))
     rows = page.evaluate(UP_ROWS_JS)
     job.step(f"13 · {len(done)} of {len(plan)} documents in the list", page)
-    job.upPlan = len(plan)
-    if len(done) == len(plan) and len(rows) == len(plan):
+    # 12 Nov 2026: in MODT the Property image is optional on TNREGINET - if it did not go in, the other documents are
+    # still saved and the case moves on (it is not counted as missing)
+    opt = {x[3] for x in plan if x[3] == "Property image" and len(x) > 4 and x[4] == "PROPERTY_IMAGE"}
+    need = [x[3] for x in plan if x[3] not in opt or x[3] in done]
+    job.upPlan = len(need)
+    for o in opt - set(done):
+        comments.append(f"{o} not uploaded (optional for MODT - the rest was saved; add it by hand if you want)")
+    if all(w in done for w in need) and len(rows) == len(need):
         page.evaluate("()=>{const b=document.getElementById('submitUploadApp');if(b)b.click()}")
         wait_loader(page); P.wait(3); m = P.popup_ok()
         job.upSaved = not re.search(r"error|fail|invalid|not saved|please", m or "", re.I)
         job.step(f"13 · Upload saved {m[:60]}", page)
     else:
-        comments.append(f"Uploads NOT saved: {len(rows)} rows in the list, {len(done)} right. Check the list and press Save by hand.")
+        comments.append(f"Uploads NOT saved: {len(rows)} rows in the list, {len(done)} right of {len(need)}. Check the list and press Save by hand.")
     return done
 
 
@@ -1655,7 +1661,7 @@ def upload_only(page, job, case):
     miss = tp_ready(job, job.d.get("case", ""), tp, done, err)
     if miss:
         comments.append("Stays at TP Creation, missing: " + ", ".join(miss))
-    note = f"{tp}: uploaded {', '.join(done) or 'none'}" + ("" if err else "; TP print saved in the case (TP copy)") + (". Only biometric + payment pending. " if not err and len(done) == (len(plan) if plan else 5) else ". ")
+    note = f"{tp}: uploaded {', '.join(done) or 'none'}" + ("" if err else "; TP print saved in the case (TP copy)") + (". Only biometric + payment pending. " if not err and not miss else ". ")
     if comments:
         note += "CHECK: " + " · ".join(comments)
     job.step("Upload run finished", page)
@@ -3839,7 +3845,11 @@ def probe():
         out.append(f"ip {ip.get('ip')} {ip.get('country')} {ip.get('org','')[:40]}")
     except Exception:
         pass
-    PROBE.update(at=time.time(), res=" | ".join(out), ok=any(x.startswith("tnreginet") and ": 200" in x for x in out))
+    good = any(x.startswith("tnreginet") and ": 200" in x for x in out)
+    # 12 Nov 2026: one slow answer from TNREGINET (common at night) used to mark this computer 'blocked' for 5 minutes -
+    # no heartbeat, so the portal said 'TP computer offline' while the Mac was on. Now it takes 3 failed checks in a row.
+    PROBE["fails"] = 0 if good else PROBE.get("fails", 0) + 1
+    PROBE.update(at=time.time(), res=" | ".join(out), ok=good or PROBE["fails"] < 3)
     log("probe", PROBE["res"])
 
 
@@ -3884,15 +3894,14 @@ def beat():
         if time.time() - v.get("t", 0) > 3 * 3600:
             BUSY.pop(k, None)
     busy = [{x: v.get(x, "") for x in ("job", "case", "kind", "login", "status", "step", "since")} for v in list(BUSY.values())]
-    kv_set("tp_jobs", "_worker", {"at": now(), "host": HOST, "probe": PROBE["res"], "busy": busy, "ver": CODE_VER})
+    kv_set("tp_jobs", "_worker", {"at": now(), "host": HOST, "probe": PROBE["res"], "busy": busy, "ver": CODE_VER, "tnOk": bool(PROBE.get("ok"))})
 
 
 def beat_loop():
     """Heartbeat on its own thread every 30 s, so the portal shows Ready / Busy even while a TP or a captcha wait is running."""
     while True:
         try:
-            if PROBE.get("ok"):
-                beat()
+            beat()  # always - the portal shows 'TNREGINET not reachable' from tnOk instead of 'offline'
         except Exception as e:
             log("heartbeat failed", e)
         time.sleep(30)
@@ -3914,7 +3923,7 @@ def main():
                         daily_backup()
                     except Exception as e:
                         log("backup failed", e)
-                if time.time() - PROBE["at"] > (1800 if PROBE["ok"] else 300):
+                if time.time() - PROBE["at"] > (1800 if PROBE["ok"] and not PROBE.get("fails") else 60):
                     probe()
                 if not PROBE["ok"]:
                     # this computer cannot open TNREGINET: stay out of the way (another computer may take the jobs)
