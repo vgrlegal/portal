@@ -718,7 +718,7 @@ const MODT_FIELDS=[
   ["13 · Legal conditions",[["Legal conditions","note","The robot ticks all of TNREGINET's conditions, presses Copy, leaves two lines and pastes the list of documents below WITH its table from the Word draft."],["List of documents deposited","ta"],["LOD corrections","ta"]]],
   ["14 · Supporting details",[["Execution SRO","sro"],"SRO Tamil"]]];
 function modtFill(c,d){const set=(k,v)=>{if(v!=null&&String(v).trim()!==""&&!String(d[k]||"").trim())d[k]=String(v)};
-  set("Mortgagor 1 name",d.Name||c.applicant);set("Mortgagor 1 phone",d.Phone||c.phone);set("Mortgagor 1 Aadhaar",d.Aadhaar);set("Mortgagor 1 address",d.Address);set("Mortgagor 1 pincode",d.Pincode);set("Mortgagor 1 relative name",d["Relative name"]);
+  /* the customer (borrower) need not be the title holder: title holder details come only from the title deed / Aadhaar */set("Mortgagor 1 Aadhaar",d.Aadhaar);set("Mortgagor 1 address",d.Address);set("Mortgagor 1 pincode",d.Pincode);set("Mortgagor 1 relative name",d["Relative name"]);
   set("Loan amount",c.loanAmount);set("Title holders","1");set("Presenter","Title holder 1");set("Property SRO",d.SRO||c.sro);set("Execution SRO",d["Property SRO"]||c.sro);
   ["North","South","East","West"].forEach(x=>set("Boundary "+x,d["Boundary "+x]));set("Extent",d.Extent);set("New survey no",d["Survey number"]);
   const p=profOf(c.bank)||{},co=p.company||{};set("Govt Body Name",co.full_name||d["Company name"]||c.bank);set("Company state",co.state);set("Company address",co.addr_en||d["Branch address"]);set("Company address Tamil",co.addr_ta);set("Company pincode",co.pincode);
@@ -1378,7 +1378,6 @@ function openReview(c,gen){
       if(dor){const ta=/Tamil/.test(f),txt=!/Age|age|Aadhaar|pincode|Pincode|mobile|Doc No|Loan|date|Extent|Survey/.test(f);return`<label class="${t==="w"?"full":""}">${esc(f)}${req}${txt?` <span class="lg ${ta?"ta":"en"}">${ta?"தமிழ்":"EN"}</span>`:""}<input id="${id}" value="${esc(data[f]||"")}"${ta?' lang="ta"':""}></label>`}
       if(f==="Bank Sheet")return`<label>${f} *<select id="${id}"><option value="">— select —</option>${[...new Set([...BANK_SHEETS,data[f]].filter(Boolean))].map(x=>`<option${x===data[f]?" selected":""}>${esc(x)}</option>`).join("")}</select></label>`;
       {const ta=!dor&&/Tamil/.test(f);return`<label class="${t==="w"||/address|boundary|govt/i.test(f)?"full":""}">${esc(f)}${dor&&DOR_NEED.includes(f)?" *":""}${ta?' <span class="lg ta">தமிழ்</span>':""}<input id="${id}" value="${esc(data[f]||"")}"${ta?' lang="ta"':""}></label>`}}).join("")+`</div>`;
-    if(dor&&/^3 /.test(sec)&&data.Mortgagor&&!sameName(c.applicant,data.Mortgagor))h+=`<p class="banner">⚠ Name check: the MODT says “${esc(data.Mortgagor)}” but the case name is “${esc(c.applicant)}”. Check which is right.</p>`;
     if(dor&&/^2 /.test(sec)&&!profOf(c.bank))h+=`<p class="banner">No client profile for “${esc(c.bank)}” yet. Set it up in Clients &amp; Staff so the company, representative and witnesses fill in automatically.</p>`;
     h+=`</div>`});
   const docs=docsFor(c.type).filter(d=>(c.docs||{})[d.k]&&c.docs[d.k].length);
