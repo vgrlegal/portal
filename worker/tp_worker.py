@@ -2238,10 +2238,15 @@ DEL_ICONS_JS = "()=>{" + VIS_JS + r"""const t=[...document.querySelectorAll('tab
 
 SUBTAB_JS = "()=>{" + VIS_JS + r"""const names=['Property Details','Survey Details','Boundary Details','Building Details','Linear Measurement','Property Remarks','Property Items'];
   const a=[...document.querySelectorAll('a,li,button,span')].filter(e=>vis(e)&&names.includes((e.innerText||'').trim()));
-  const act=a.find(e=>/active|selected|current/i.test((e.className||'')+' '+((e.parentElement||{}).className||''))||e.getAttribute('aria-selected')==='true');
-  if(act)return act.innerText.trim();const h=[...document.querySelectorAll('h1,h2,h3,h4,h5,h6,b,strong,legend')].filter(vis).map(x=>x.innerText.trim());
-  const m={'Property Survey Details':'Survey Details','Property Remarks (if any)':'Property Remarks'};
-  for(const x of h){if(names.includes(x))return x;if(m[x])return m[x]}
+  const isAct=e=>/active|selected|current/i.test((e.className||'')+' '+((e.parentElement||{}).className||''))||e.getAttribute('aria-selected')==='true';
+  /* the green main-step chip "Property Details" at the top is also 'active': any other active tab name wins, then the section heading */
+  const acts=a.filter(isAct),other=acts.find(e=>e.innerText.trim()!=='Property Details');if(other)return other.innerText.trim();
+  const h=[...document.querySelectorAll('h1,h2,h3,h4,h5,h6,b,strong,legend')].filter(vis).map(x=>x.innerText.trim());
+  const m={'Property Survey Details':'Survey Details','Property Remarks (if any)':'Property Remarks','Property Boundary Details':'Boundary Details','Linear Measurement Details':'Linear Measurement'};
+  for(const x of h){if(m[x])return m[x];if(names.includes(x)&&x!=='Property Details')return x}
+  if(/What is in the North/i.test(document.body.innerText))return 'Boundary Details';
+  if(acts.length)return acts[0].innerText.trim();
+  for(const x of h){if(names.includes(x))return x}
   if(/What is in the North/i.test(document.body.innerText))return 'Boundary Details';return ''}"""
 
 LIST_PAGE_JS = "()=>{" + VIS_JS + r"""return !!textEl(/^List of all added property$/i)&&![...document.querySelectorAll('a,li,button,span')].some(e=>vis(e)&&/^(Survey Details|Boundary Details|Building Details|Property Remarks|Property Items)$/.test((e.innerText||'').trim()))}"""
@@ -2515,6 +2520,37 @@ def prop_details_tab(P, page, d, note):
                 note(f"patta {pt}: TNREGINET said '{m[:80]}'")
 
 
+def norm_sv(x):
+    """'140/2A2', '140 - 2a2', '0140/2A2' -> '1402a2' (to match TNREGINET's survey list)."""
+    return re.sub(r"[^0-9a-z]", "", re.sub(r"(?<![0-9])0+(?=[0-9])", "", str(x or "").lower()))
+
+
+def wait_options(P, page, pat, secs=30):
+    """The real options of a dropdown (TNREGINET loads them late); [] after `secs`."""
+    end, opts = time.time() + secs, []
+    while time.time() < end:
+        opts = [o for o in (page.evaluate(OPTIONS_AFTER_JS, pat) or []) if o and not re.match(r"^\W*select\W*$", o, re.I)]
+        if opts:
+            return opts
+        P.wait(2)
+    return opts
+
+
+def pick_option(page, pat, opts, wants, starts=""):
+    hit = next((o for o in opts if norm_sv(o) in wants and (not starts or re.match(r"^\D*0*" + re.escape(starts) + r"(\D|$)", o))), None) \
+        or next((o for o in opts if norm_sv(o) in wants), None)
+    if hit:
+        page.evaluate(SELECT_AFTER_JS, [pat, "^" + re.escape(hit) + "$"])
+    return hit
+
+
+UNIT_NOW_JS = """()=>{const s=[...document.querySelectorAll('select')].find(e=>{if(!e.getClientRects().length)return false;let l=e.labels&&e.labels[0]?e.labels[0].innerText:'';
+  if(!l){let p=e.parentElement;for(let i=0;i<3&&p&&!l;i++){const x=p.querySelector('label');if(x)l=x.innerText;p=p.parentElement}}return /Unit of Measurement/i.test(l)});
+  if(!s)return null;const o=s.options[s.selectedIndex];return [o?o.text.trim():'',!!s.disabled]}"""
+
+LAND_CLASS = {"punjai": r"punj|புன்|dry", "nanjai": r"nanj|நன்|wet", "manavari": r"manav|மானா", "natham": r"natham|நத்த"}
+
+
 def survey_shot(page, job, i, when):
     """Screenshot of TNREGINET's survey screen, kept with the case (docs/survey/<job>/...)."""
     try:
@@ -2540,24 +2576,30 @@ def survey_ok(job):
         return False
 
 
-def survey_question(job, q, shot):
+def survey_question(job, q, shot, options=None, field=None):
     """Stop and ask the office on the case (Drafting → Robot questions), with the screenshot."""
     cid = job.d.get("caseId") or job.d.get("case") or ""
     if not cid:
         return
     try:
         c = kv_get("cases", cid) or {}
-        qs = (c.get("robotQs") or []) + [{"id": str(uuid.uuid4()), "q": q[:400], "options": ["Looks right - go on", "Wrong - I will correct Drafting"],
-                                           "hint": "From the robot, on TNREGINET's survey screen", "src": "TNREGINET survey screen", "shot": shot, "kind": "survey", "at": now()}]
+        qs = (c.get("robotQs") or []) + [{"id": str(uuid.uuid4()), "q": q[:400], "options": (options or ["Looks right - go on", "Wrong - I will correct Drafting"])[:30],
+                                           "hint": "From the robot, on TNREGINET's survey screen", "src": "TNREGINET survey screen", "shot": shot,
+                                           "kind": "survey" if not field else "survey-pick", **({"field": field} if field else {}), "at": now()}]
         kv_merge("cases", cid, {"robotQs": qs})
     except Exception as e:
         log("survey question failed", e)
 
 
 def survey_tab(P, job, page, d, ptype, note):
-    u = case_unit(d)
+    cu = u = case_unit(d)
     r = label_select(page, r"Unit of Measurement", unit_re(u)) if u else "skip"
-    if u and not str(r).startswith("ok"):
+    P.wait(1)
+    now_u = page.evaluate(UNIT_NOW_JS) or None
+    if now_u and now_u[0] and unit_key(now_u[0]) and unit_key(now_u[0]) != unit_key(u):
+        note(f"TNREGINET's unit is '{now_u[0]}'{' (locked)' if now_u[1] else ''} - our unit is {u or '-'}; every extent typed in {now_u[0]}")
+        u = UNIT_LABEL.get(unit_key(now_u[0]), now_u[0])
+    elif u and not str(r).startswith("ok"):
         note(f"unit '{u}' not set ({str(r)[:60]})")
     P.wait(1.5)
     pre = page.evaluate(TABLE_TEXT_JS, "Survey No|Extent")
@@ -2586,15 +2628,37 @@ def survey_tab(P, job, page, d, ptype, note):
     old = [x.strip() for x in re.split(r"[,;\n]+", g(d, "Old survey numbers")) if x.strip()]
     for i, (s, sd, ext) in enumerate(sv):
         job.step(f"7 · Survey {s}/{sd}", page)
+        told = g(d, "TNREGINET survey option")
         if page.evaluate("()=>[...document.querySelectorAll('label,span,div')].some(e=>e.offsetParent&&/^Sub Divi?si?on No/i.test((e.innerText||'').trim()))"):
-            r1 = page.evaluate(SELECT_AFTER_JS, ["^Survey No\\.?\\s*\\*?$", f"^0*{re.escape(s)}$"])
-            P.wait(2.5); wait_loader(page)
-            r2 = page.evaluate(SELECT_AFTER_JS, ["^Sub Divi?si?on No", f"^0*{re.escape(sd)}$"]) if sd else "ok"
+            pats = [("^Survey No\\.?\\s*\\*?$", {norm_sv(s), norm_sv(told)}, ""), ("^Sub Divi?si?on No", {norm_sv(sd), norm_sv(told)}, "")] if sd else \
+                   [("^Survey No\\.?\\s*\\*?$", {norm_sv(s), norm_sv(told)}, "")]
         else:
-            r1 = page.evaluate(SELECT_AFTER_JS, ["^Survey No\\.?/Sub Divi?si?on", f"^0*{re.escape(s)}\\s*/\\s*0*{re.escape(sd)}$" if sd else f"^0*{re.escape(s)}$"])
-            r2 = "ok"
-        if not str(r1).startswith("ok") or not str(r2).startswith("ok"):
-            note(f"survey {s}/{sd} not in TNREGINET's list ({str(r1)[:70]} {str(r2)[:70]})")
+            pats = [("^Survey No\\.?/Sub Divi?si?on", {norm_sv(f"{s}/{sd}" if sd else s), norm_sv(told)}, s)]
+        for pat, wants, st0 in pats:
+            wants.discard("")
+            opts = wait_options(P, page, pat, 30)
+            hit = pick_option(page, pat, opts, wants, st0) if opts else None
+            if not hit:
+                shot = survey_shot(page, job, i, "nolist" if not opts else "nomatch")
+                why = (f"the survey list stayed empty for 30 seconds" if not opts else
+                       f"{s}/{sd} is not in TNREGINET's list ({len(opts)} options: {', '.join(opts[:12])}{'…' if len(opts) > 12 else ''})")
+                survey_question(job, f"Survey screen: {why}. Pick the right one from TNREGINET's list (or type it), then start the TP again.", shot,
+                                options=opts, field="TNREGINET survey option")
+                raise Stop(f"Survey {s}/{sd}: {why}. A robot question with the screenshot is on the case; the draft is saved.")
+            P.wait(2.5); wait_loader(page)
+        # Land Type (mandatory on TNREGINET): from Drafting's Land classification, else the only option, else ask
+        lopts = wait_options(P, page, "^Land Type", 15)
+        if lopts:
+            want = g(d, "Land classification")
+            rx = LAND_CLASS.get(nz(want), re.escape(want)) if want else ""
+            hit = next((o for o in lopts if rx and re.search(rx, o, re.I)), None) or (lopts[0] if len(lopts) == 1 else None)
+            if hit:
+                page.evaluate(SELECT_AFTER_JS, ["^Land Type", "^" + re.escape(hit) + "$"])
+            else:
+                shot = survey_shot(page, job, i, "landtype")
+                survey_question(job, f"Survey screen: Land Type is mandatory - which one is this land (patta: punjai / nanjai …)? TNREGINET offers: {', '.join(lopts[:15])}",
+                                shot, options=lopts, field="Land classification")
+                raise Stop("Land Type: not in Drafting. A robot question with TNREGINET's choices is on the case; the draft is saved.")
         P.wait(2)
         st = g(d, "Street name")
         if st and i == 0:
@@ -2618,6 +2682,7 @@ def survey_tab(P, job, page, d, ptype, note):
                 note("old survey no. not added: " + ", ".join(miss))
         if "Agri" in ptype and g(d, "Total survey extent"):
             raw = g(d, "Total survey extent")
+            raw = raw if unit_key(raw) or re.search(r"\d\s*[-–]\s*\d", raw) else (f"{num(raw)} {cu}" if cu else raw)
             tv = area_in(raw, u) if u else ""
             if not tv:
                 tv = num(raw)
@@ -2626,7 +2691,8 @@ def survey_tab(P, job, page, d, ptype, note):
                 note(f"total survey extent {raw} typed as {tv} {u} (same unit as the mortgaged extent)")
             page.evaluate(FILL_AFTER_JS, ["^Total Survey Extent", tv, ""])
         src = ext or (g(d, "Extent") if i == 0 else "")
-        e = (area_in(src, u) if (u and unit_key(src)) else "") or num(src)
+        src = src if unit_key(src) or not cu else f"{num(src)} {cu}"
+        e = (area_in(src, u) if u else "") or num(src)
         if e and u and unit_key(src) and unit_key(src) != unit_key(u):
             note(f"mortgaged extent {src} typed as {e} {u}")
         if not e:
