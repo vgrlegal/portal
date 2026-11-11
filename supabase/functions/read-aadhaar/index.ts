@@ -317,6 +317,7 @@ Deno.serve(async (req) => {
     const { images, kind = "aadhaar", hints = [], texts } = body;
     let PROMPT = PROMPTS[kind];
     if (!PROMPT) return json({ error: "Unknown kind" }, 400);
+    if (kind === "modt_case") PROMPT += `\n\nKEEP THE REPLY SHORT: leave out every key whose value would be "" (empty), and do not repeat the same text in two keys. Start the reply with { and end with } – no words before or after.`;
     if (["modt", "modt_case", "aadhaar"].includes(kind)) PROMPT += `\n\nALSO add the key "doubts": a list (empty [] if none) of every value you are NOT fully sure of: unclear or faded print, a spelling that differs between documents or between the English and Tamil, a digit you could not read clearly, two possible answers. Each item: {"field":"the JSON key above it belongs to (for a co-mortgagor write co_mortgagors.N.key, N from 0)","read":"the value you gave","options":["the other likely value(s)"],"why":"very short reason","img":number of the image (or [Page N]) it is printed on, 1 = first,"box":[left,top,right,bottom] as fractions 0 to 1 of that image's width and height, tightly around the exact words}. Only real doubts; do not list values you are sure of.`;
     if (Array.isArray(hints) && hints.length) {
       const h = hints.slice(0, 40).map((x: unknown) => String(x).slice(0, 200)).join("\n");
@@ -351,15 +352,24 @@ Deno.serve(async (req) => {
     const r = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: { "x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json" },
-      body: JSON.stringify({ model, max_tokens: kind === "modt_case" ? 7000 : 3000, messages: [{ role: "user", content }] }),
+      body: JSON.stringify({ model, max_tokens: kind === "modt_case" ? 16000 : 3000, messages: [{ role: "user", content }] }),
     });
     const out = await r.json();
     if (!r.ok) return json({ error: out?.error?.message ?? "Claude error" }, 502);
     try { await logUsage(sb, kind, Array.isArray(images) ? images.length : 0, out?.usage, model); } catch (_) { /* usage log never blocks reading */ }
     const text = (out.content ?? []).map((c: { text?: string }) => c.text ?? "").join("");
     const m = text.match(/\{[\s\S]*\}/);
-    if (!m) return json({ error: "No JSON in reply" }, 502);
-    return json({ fields: JSON.parse(m[0]) });
+    if (m) { try { return json({ fields: JSON.parse(m[0]) }); } catch (_) { /* cut short: mend below */ } }
+    // the reply was cut off (too long): keep every complete "key": value pair and close the object
+    const start = text.indexOf("{");
+    if (start >= 0) {
+      let body = text.slice(start);
+      for (let cut = body.length; cut > 1; cut = body.lastIndexOf(",", cut - 1)) {
+        if (cut < 0) break;
+        try { const f = JSON.parse(body.slice(0, cut) + "}"); f.Doubts = (f.Doubts ? f.Doubts + " | " : "") + "Claude's reply was cut short – some fields may be empty, fill them by hand."; return json({ fields: f, cut: true }); } catch (_) { /* try a shorter piece */ }
+      }
+    }
+    return json({ error: out?.stop_reason === "max_tokens" ? "Claude's reply was too long and got cut off" : "No JSON in reply" }, 502);
   } catch (e) {
     return json({ error: String((e as Error).message ?? e) }, 500);
   }
