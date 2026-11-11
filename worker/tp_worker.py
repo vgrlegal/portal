@@ -1879,7 +1879,7 @@ def aadhaar_ok(v):
 def modt_problems(case):
     """MODT checks before login: all four boundaries (English and Tamil), and the MODT extent not more than the patta's total."""
     d, out = case.get("draft") or {}, []
-    miss = [f"{s}{' (Tamil)' if t else ''}" for s in ("North", "South", "East", "West") for t in ("", " Tamil") if not g(d, f"Boundary {s}{t}")]
+    miss = [f"{s}{' (Tamil)' if t else ''}" for s in ("North", "South", "East", "West") for t in ("", " Tamil") if d.get(f"Boundary {s}{t}") in (None, "")]
     if miss:
         out.append("boundary empty in Drafting: " + ", ".join(miss) + " (take it from the title deed)")
     tot, ext = area_sqm(g(d, "Total survey extent")), area_sqm(g(d, "Extent"))
@@ -2663,6 +2663,27 @@ def side_boxes(page):
     return page.evaluate("()=>/What is in the North/i.test(document.body.innerText)")
 
 
+def no_side(d, s):
+    """A boundary box holding only a space = no boundary on that side (triangular land)."""
+    v = d.get(f"Boundary {s}")
+    return v not in (None, "") and not str(v).strip()
+
+
+def is_triangle(d):
+    sides = ("North", "South", "East", "West")
+    return sum(no_side(d, s) for s in sides) == 1 and sum(bool(g(d, f"Boundary {s}")) for s in sides) == 3
+
+
+def tri_remarks(en, ta):
+    """Triangular land: 'triangular shaped land measuring 5.5 Cents' / 'முக்கோண வடிவமுள்ள 5.5 சென்ட் நிலம்'."""
+    if en and not re.search(r"triangular", en, re.I):
+        en = (re.sub(r"an extent of ", "triangular shaped land measuring ", en, count=1, flags=re.I) if re.search(r"an extent of ", en, re.I)
+              else re.sub(r"(\d+(?:\.\d+)?\s*(?:cents?|acres?|sq\.?\s*f(?:ee)?t|sq\.?\s*m|hectares?))", r"triangular shaped land measuring \1", en, count=1, flags=re.I))
+    if ta and "முக்கோண" not in ta:
+        ta = re.sub(r"(\d+(?:\.\d+)?\s*(?:சென்ட்|செண்ட்|ஏக்கர்|சதுர\s*அடி|சதுர\s*மீட்டர்|ஹெக்டேர்))(\s*நிலம்)?", r"முக்கோண வடிவமுள்ள \1 நிலம்", ta, count=1)
+    return en, ta
+
+
 def boundary_tab(P, job, page, d, note):
     lens = [num(g(d, f"{s} length")) for s in ("North", "South", "East", "West")]
     bt = g(d, "Boundary type")
@@ -2676,6 +2697,12 @@ def boundary_tab(P, job, page, d, note):
         P.wait(1.5)
     missing_ta = {}
     for s in ("North", "South", "East", "West"):
+        if no_side(d, s):
+            # no boundary on this side (triangular land): a single space in both boxes - TNREGINET then accepts the page
+            page.evaluate(FILL_AFTER_JS, [f"What is in the {s}\\? \\(In English\\)", " ", ""])
+            page.evaluate(FILL_AFTER_JS, [f"What is in the {s}\\? \\(In Tamil\\)", " ", ""])
+            note(f"{s}: no boundary on this side - a space typed")
+            continue
         en, ta = g(d, f"Boundary {s}"), g(d, f"Boundary {s} Tamil")
         if en:
             page.evaluate(FILL_AFTER_JS, [f"What is in the {s}\\? \\(In English\\)", en, ""])
@@ -2725,6 +2752,8 @@ def remarks_text(d):
         en = (f"{g(d, 'Village')} Village, New Survey No. {sn}" + (f" (Old Survey No. {old})" if old else "") + f", an extent of {g(d, 'Extent')}"
               + ("" if re.search(r"sq|cent|acre|hect", g(d, "Extent"), re.I) else f" {unit}") + (f", Plot No. {g(d, 'Plot No')}" if g(d, "Plot No") else "")
               + (f", together with the {bld} and all the land therein." if bld and not re.search(r"^no", bld, re.I) else ", and all the land therein."))
+    if is_triangle(d):
+        en, ta = tri_remarks(en, ta)
     return en, ta
 
 

@@ -724,6 +724,14 @@ function areaSqm(t){t=String(t||"").replace(/,/g,"").trim();if(!t)return null;co
   if(m)return(+m[1]*100+ +m[2])*AREA_SQM.cent;m=l.match(/^\D*?(\d+)\s*[-–]\s*(\d+(?:\.\d+)?)/);if(m&&!/acre|cent|sq|ஏக்கர்|சென்ட்/.test(l))return +m[1]*10000+ +m[2]*100;
   const k=unitKey(l);m=l.match(/\d+(?:\.\d+)?/);return k&&m?+m[0]*AREA_SQM[k]:null}
 function areaIn(t,unit){const k=unitKey(unit),q=areaSqm(t);if(!k||q==null)return"";const v=q/AREA_SQM[k];return String(+v.toFixed(k==="acre"||k==="hectare"?4:2))}
+/* a boundary box with only a space = "no boundary on this side" (triangular land); empty = not filled */
+const BSIDES=["North","South","East","West"],noSide=v=>v!=null&&v!==""&&!String(v).trim();
+const isTriangle=d=>BSIDES.filter(x=>noSide(d["Boundary "+x])).length===1&&BSIDES.filter(x=>String(d["Boundary "+x]||"").trim()).length===3;
+/* triangular land: "triangular shaped land measuring 5.5 Cents" / "முக்கோண வடிவமுள்ள 5.5 சென்ட் நிலம்" */
+function triRemarks(en,ta){en=String(en||"");ta=String(ta||"");
+  if(en&&!/triangular/i.test(en))en=/an extent of /i.test(en)?en.replace(/an extent of /i,"triangular shaped land measuring "):en.replace(/(\d+(?:\.\d+)?\s*(?:cents?|acres?|sq\.?\s*f(?:ee)?t|sq\.?\s*m|hectares?))/i,"triangular shaped land measuring $1");
+  if(ta&&!/முக்கோண/.test(ta))ta=ta.replace(/(\d+(?:\.\d+)?\s*(?:சென்ட்|செண்ட்|ஏக்கர்|சதுர\s*அடி|சதுர\s*மீட்டர்|ஹெக்டேர்))(\s*நிலம்)?/,(m,a)=>`முக்கோண வடிவமுள்ள ${a} நிலம்`);
+  return[en,ta]}
 const legalParas=t=>String(t||"").trim().split(/\n\s*\n/).map(x=>x.replace(/^\s*(?:[-–•]|\d+[.)])\s*/,"").replace(/\s+/g," ").trim()).filter(Boolean);
 const caseUnit=d=>(d.Unit||"").trim()||UNIT_LABEL[unitKey(d.Extent)]||"";
 function modtFill(c,d){const set=(k,v)=>{if(v!=null&&String(v).trim()!==""&&!String(d[k]||"").trim())d[k]=String(v)};
@@ -1424,9 +1432,11 @@ function openReview(c,gen){
     const pr=$("rv_Property_remarks");if(pr){const b=document.createElement("button");b.type="button";b.className="btn";b.textContent="✎ Build remarks from the property fields";b.onclick=()=>{pr.value=modtRemarks()};pr.closest("label").after(b)}}
   /* boundaries: all four, English and Tamil; an empty one shows red and the robot will not start */
   if(!dor&&$("rv_Boundary_North")){const ids=["North","South","East","West"].flatMap(x=>[`rv_Boundary_${x}`,`rv_Boundary_${x}_Tamil`]).map(id=>$(id)).filter(Boolean);
-    const mark=e=>{const bad=!e.value.trim();e.style.borderColor=bad?"#b42318":"";e.style.background=bad?"#fde8e6":"";return bad};ids.forEach(e=>e.addEventListener("input",()=>mark(e)));
+    const mark=e=>{const bad=e.value==="";e.style.borderColor=bad?"#b42318":"";e.style.background=bad?"#fde8e6":"";return bad};ids.forEach(e=>e.addEventListener("input",()=>mark(e)));
     const empty=ids.filter(mark).map(e=>e.id.replace("rv_Boundary_","").replace("_"," "));
-    if(empty.length)$("rvBody").insertAdjacentHTML("afterbegin",`<p class="banner" style="background:#fde8e6;color:#8a1c1c">⚠ Boundary empty: ${esc(empty.join(", "))}. Take it from the title deed (shown red below). The TP robot will not start until all four boundaries are filled in English and Tamil.</p>`)}
+    if(empty.length)$("rvBody").insertAdjacentHTML("afterbegin",`<p class="banner" style="background:#fde8e6;color:#8a1c1c">⚠ Boundary empty: ${esc(empty.join(", "))}. Take it from the title deed (shown red below). If the land has no boundary on that side (triangular), put a single space in the box. The TP robot will not start until all four boundaries are filled in English and Tamil.</p>`);
+    const tri=()=>{const dd={};BSIDES.forEach(x=>{const e=$("rv_Boundary_"+x);if(e)dd["Boundary "+x]=e.value});const en=$("rv_Property_remarks"),ta=$("rv_Property_remarks_Tamil");if(!isTriangle(dd)||!en)return;const[a,b]=triRemarks(en.value,ta?ta.value:"");en.value=a;if(ta)ta.value=b};
+    ids.forEach(e=>e.addEventListener("input",tri));tri()}
   /* extents: every extent in the one unit of the case; show what the robot will type and the patta's own figure */
   if(!dor&&$("rv_Extent")){const U=$("rv_Unit"),fl=[["rv_Extent","Mortgaged extent"],["rv_Total_survey_extent","Total survey extent"]];
     const show=()=>{const dd={Unit:U?U.value:"",Extent:$("rv_Extent").value},u=caseUnit(dd);
@@ -1642,7 +1652,7 @@ function closeDocPane(){$("rvDocPane").hidden=true;$("rvDocPane").classList.remo
 function closeReview(){closeDocPane();$("review").classList.remove("wide");$("review").hidden=true;$("rvscrim").hidden=true;rv={c:null,gen:false}}
 $("rvscrim").onclick=closeReview;
 function readReview(){const c=rv.c,dor=isRD(c.type),sections=dor?DOR_PAGES:MODT_FIELDS,out={...(dor?c.tp:c.draft)||{}};
-  sections.forEach(([,fields])=>fields.forEach(ff=>{const f=Array.isArray(ff)?ff[0]:ff,el=$("rv_"+f.replace(/\W+/g,"_"));if(el)out[f]=el.value.trim()}));
+  sections.forEach(([,fields])=>fields.forEach(ff=>{const f=Array.isArray(ff)?ff[0]:ff,el=$("rv_"+f.replace(/\W+/g,"_"));if(el)out[f]=/^Boundary (North|South|East|West)( Tamil)?$/.test(f)&&el.value!==""&&!el.value.trim()?" ":el.value.trim()}));
   if(dor)[1,2].forEach(n=>{const el=$("rv_Witness_"+n);if(!el)return;const w=(cfg.wit||[]).find(x=>x.name===el.value);delete out["Witness "+n];
     WPF(n).forEach(([k])=>delete out[k]);if(w){const set=(k,v)=>{if(v!=null&&String(v).trim()!=="")out[k]=String(v)};set(`Witness ${n} salutation`,w.sal);set(`Witness ${n} name`,w.name);set(`Witness ${n} relation`,w.rel_type);set(`Witness ${n} relative name`,w.rel_name);set(`Witness ${n} age`,ageOf(w.dob));set(`Witness ${n} gender`,w.gender);set(`Witness ${n} Aadhaar`,digits(w.aadhaar));set(`Witness ${n} district`,w.district);set(`Witness ${n} address`,w.addr);set(`Witness ${n} pincode`,w.pincode)}});
   return out}
@@ -2823,7 +2833,7 @@ async function readModtCase(c,force){const D=c.docs||{};if(!(D.mdraft||[]).lengt
     const ch={draft:d,tpAuto:{...(c.tpAuto||{}),...Object.fromEntries(Object.entries(F).map(([k,v])=>[k,String(v??"")]))},tpNotes:doubts};if(lodHtml)ch.lodHtml=lodHtml;
     if(dq.length)ch.robotQs=await doubtQs(c,dq,"draft","MODT documents");
     {const u=caseUnit(d),a=areaSqm(d.Extent),b=areaSqm(d["Total survey extent"]);if(a&&b&&a>b*1.002&&/agri/i.test(d["Property type"]||""))ch.robotQs=[...(ch.robotQs||c.robotQs||[]),{id:crypto.randomUUID(),q:`Mortgaged extent (MODT) ${d.Extent} is MORE than the patta total ${areaIn(d["Total survey extent"],u)} ${u}. Which is right?`,options:[`MODT is right: ${d.Extent}`,"Patta is right - I will correct the MODT extent"],hint:"The mortgaged extent cannot be more than the whole survey extent in the patta",src:"Extent check",at:nowISO()}]}
-    {const miss=["North","South","East","West"].filter(x=>!String(d["Boundary "+x]||"").trim()||!String(d[`Boundary ${x} Tamil`]||"").trim());if(miss.length)ch.robotQs=[...(ch.robotQs||c.robotQs||[]),...miss.map(x=>({id:crypto.randomUUID(),q:`Boundary ${x} is not in the MODT draft or the title deed reading. Type it (English) from the title deed.`,options:[],field:"Boundary "+x,hint:"All four boundaries are needed in English and Tamil",src:"Boundary check",at:nowISO()}))]}
+    {const miss=["North","South","East","West"].filter(x=>String(d["Boundary "+x]??"")===""||String(d[`Boundary ${x} Tamil`]??"")==="");if(miss.length)ch.robotQs=[...(ch.robotQs||c.robotQs||[]),...miss.map(x=>({id:crypto.randomUUID(),q:`Boundary ${x} is not in the MODT draft or the title deed reading. Type it (English) from the title deed.`,options:[],field:"Boundary "+x,hint:"All four boundaries are needed in English and Tamil",src:"Boundary check",at:nowISO()}))]}
     if(/urban|rural|natham/i.test(doubts)&&!(ch.robotQs||c.robotQs||[]).some(q=>q.field==="Land type"&&!q.answer))ch.robotQs=[...(ch.robotQs||c.robotQs||[]),{id:crypto.randomUUID(),q:"Is this property Urban, Rural or Natham?",options:["Urban","Rural","Natham"],field:"Land type",hint:doubts.slice(0,300)}];
     await patch(c,ch,`MODT documents read by Claude (${n} fields filled)`);
     let fresh=cases.find(x=>x._doc===c._doc)||{...c,...ch};if(rv.c&&rv.c._doc===c._doc)openReview(fresh,rv.gen);
