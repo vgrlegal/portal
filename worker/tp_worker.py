@@ -1876,6 +1876,20 @@ def aadhaar_ok(v):
     return c == 0
 
 
+def modt_problems(case):
+    """MODT checks before login: all four boundaries (English and Tamil), and the MODT extent not more than the patta's total."""
+    d, out = case.get("draft") or {}, []
+    miss = [f"{s}{' (Tamil)' if t else ''}" for s in ("North", "South", "East", "West") for t in ("", " Tamil") if not g(d, f"Boundary {s}{t}")]
+    if miss:
+        out.append("boundary empty in Drafting: " + ", ".join(miss) + " (take it from the title deed)")
+    tot, ext = area_sqm(g(d, "Total survey extent")), area_sqm(g(d, "Extent"))
+    ptype = ptype_of(d) or ""
+    if "Agri" in ptype and tot and ext and ext > tot * 1.002:
+        u = case_unit(d)
+        out.append(f"mortgaged extent {g(d, 'Extent')} is MORE than the patta total {area_in(g(d, 'Total survey extent'), u)} {u} - check the MODT / patta")
+    return out
+
+
 def aadhaar_problems(case, kind):
     """Every Aadhaar the robot will type for this case: [] when all are right."""
     out, people = [], []
@@ -2501,6 +2515,45 @@ def prop_details_tab(P, page, d, note):
                 note(f"patta {pt}: TNREGINET said '{m[:80]}'")
 
 
+def survey_shot(page, job, i, when):
+    """Screenshot of TNREGINET's survey screen, kept with the case (docs/survey/<job>/...)."""
+    try:
+        path = f"survey/{job.id}/{i + 1}_{when}.jpg"
+        HTTP.post(f"{SB}/storage/v1/object/docs/{path}", headers={**AUTH, "Content-Type": "image/jpeg", "x-upsert": "true"},
+                  data=page.screenshot(type="jpeg", quality=60, full_page=True), timeout=60)
+        cid = job.d.get("caseId") or job.d.get("case") or ""
+        if cid:
+            c = kv_get("cases", cid) or {}
+            kv_merge("cases", cid, {"surveyShots": ((c.get("surveyShots") or []) + [{"at": now(), "job": job.id, "n": i + 1, "when": when, "url": "sb:" + path}])[-12:]})
+        return "sb:" + path
+    except Exception as e:
+        log("survey shot failed", e)
+        return ""
+
+
+def survey_ok(job):
+    cid = job.d.get("caseId") or job.d.get("case") or ""
+    try:
+        c = kv_get("cases", cid) or {}
+        return any(q.get("kind") == "survey" and str(q.get("answer") or "").startswith("Looks right") for q in (c.get("robotQs") or []))
+    except Exception:
+        return False
+
+
+def survey_question(job, q, shot):
+    """Stop and ask the office on the case (Drafting → Robot questions), with the screenshot."""
+    cid = job.d.get("caseId") or job.d.get("case") or ""
+    if not cid:
+        return
+    try:
+        c = kv_get("cases", cid) or {}
+        qs = (c.get("robotQs") or []) + [{"id": str(uuid.uuid4()), "q": q[:400], "options": ["Looks right - go on", "Wrong - I will correct Drafting"],
+                                           "hint": "From the robot, on TNREGINET's survey screen", "src": "TNREGINET survey screen", "shot": shot, "kind": "survey", "at": now()}]
+        kv_merge("cases", cid, {"robotQs": qs})
+    except Exception as e:
+        log("survey question failed", e)
+
+
 def survey_tab(P, job, page, d, ptype, note):
     u = case_unit(d)
     r = label_select(page, r"Unit of Measurement", unit_re(u)) if u else "skip"
@@ -2581,11 +2634,20 @@ def survey_tab(P, job, page, d, ptype, note):
             continue
         page.evaluate(FILL_AFTER_JS, ["^Mortgaged Survey Extent", e, ""])
         P.wait(1)
+        before = survey_shot(page, job, i, "before")
         page.evaluate(CLICK_AFTER_JS, ["^Market Value of Mortgaged", "^Add$"])
         P.wait(2.5); m = P.popup_ok()
         tbl = page.evaluate(TABLE_TEXT_JS, "Mortgaged Survey Extent")
-        if f"{s}/{sd}".strip("/") not in tbl:
-            note(f"survey row {s}/{sd} not added ({(m or tbl)[:100]})")
+        after = survey_shot(page, job, i, "after")
+        sv_ok = f"{s}/{sd}".strip("/") in tbl or (not sd and s in tbl)
+        ex_ok = bool(e) and (e in tbl or e.split(".")[0] in tbl)
+        if not sv_ok or not ex_ok or (m and re.search(r"invalid|not|exceed|error|greater|must", m, re.I)):
+            why = ("TNREGINET said: " + m[:140]) if m else (f"survey {s}/{sd} not in the table" if not sv_ok else f"extent {e} {u} not in the table")
+            if survey_ok(job):
+                note(f"survey screen: {why} - you answered 'Looks right - go on' earlier, so the robot went on (screenshot kept on the case)")
+                continue
+            survey_question(job, f"Survey screen: {why}. We typed survey {s}/{sd}, extent {e} {u}. Table now: {tbl[:160] or '(empty)'}", after or before)
+            raise Stop(f"Survey screen did not match ({why}). Screenshots and a question are on the case; the draft is saved - answer the robot question, then start again.")
     pl = g(d, "Plot No")
     if pl:
         page.evaluate(FILL_AFTER_JS, ["^Plot Number$", pl, ""])
@@ -2686,6 +2748,34 @@ INSERT_HTML_JS = r"""(html)=>{
   const ta=[...document.querySelectorAll('textarea')].filter(e=>e.getClientRects().length).pop();
   if(ta){const d=document.createElement('div');d.innerHTML=html.replace(/<\/(p|tr|div)>/g,'\n').replace(/<\/t[dh]>/g,' | ');ta.value+=d.innerText;['input','change','blur'].forEach(t=>ta.dispatchEvent(new Event(t,{bubbles:true})));return 'textarea '+ta.id}
   return ''}"""
+
+SET_HTML_JS = r"""(html)=>{
+  if(window.CKEDITOR&&CKEDITOR.instances){const k=Object.keys(CKEDITOR.instances).find(k=>{const e=CKEDITOR.instances[k];return e&&e.container&&e.container.$&&e.container.$.getClientRects().length});
+    if(k){const e=CKEDITOR.instances[k];e.setData(html);e.updateElement&&e.updateElement();return 'ckeditor '+k}}
+  if(window.tinymce&&tinymce.activeEditor){tinymce.activeEditor.setContent(html);tinymce.activeEditor.save&&tinymce.activeEditor.save();return 'tinymce'}
+  const ce=[...document.querySelectorAll('[contenteditable=true]')].find(e=>e.getClientRects().length);if(ce){ce.innerHTML=html;ce.dispatchEvent(new Event('input',{bubbles:true}));return 'editable'}
+  const ta=[...document.querySelectorAll('textarea')].filter(e=>e.getClientRects().length).pop();
+  if(ta){const d=document.createElement('div');d.innerHTML=html.replace(/<\/p>/g,'\n');ta.value=d.innerText.trim();['input','change','blur'].forEach(t=>ta.dispatchEvent(new Event(t,{bubbles:true})));return 'textarea '+ta.id}
+  return ''}"""
+
+
+def legal_html(text):
+    """Company legal conditions as the Word copy: one paragraph per block, justified, a blank line between, no numbers."""
+    import html as _h
+    paras = [re.sub(r"\s+", " ", re.sub(r"^\s*(?:[-–•]|\d+[.)])\s*", "", x)).strip() for x in re.split(r"\n\s*\n", (text or "").strip())]
+    paras = [x for x in paras if x]
+    return "<p>&nbsp;</p>".join(f'<p style="text-align:justify">{_h.escape(x)}</p>' for x in paras)
+
+
+def company_legal(case):
+    try:
+        lists = kv_get("config", "lists") or {}
+        co = (((lists.get("profiles") or {}).get(case.get("bank") or "") or {}).get("company") or {})
+        return legal_html(co.get("modt_legal") or "")
+    except Exception as e:
+        log("company legal conditions:", e)
+        return ""
+
 
 EDITOR_TEXT_JS = r"""()=>{if(window.CKEDITOR&&CKEDITOR.instances){const k=Object.keys(CKEDITOR.instances).find(k=>{const e=CKEDITOR.instances[k];return e&&e.container&&e.container.$&&e.container.$.getClientRects().length});
   if(k){const d=document.createElement('div');d.innerHTML=CKEDITOR.instances[k].getData();return d.innerText}}
@@ -2885,12 +2975,20 @@ def modt_second_half(P, job, page, d, case, comments):
     job.step("12 · Legal conditions", page)
     wait_for(P, "()=>/Legal Condition/i.test(document.body.innerText)", 15)
     n = page.evaluate("()=>{let n=0;[...document.querySelectorAll('input[type=checkbox]')].filter(e=>e.getClientRects().length&&!e.checked).forEach(e=>{e.click();n++});return n}")
-    before = page.evaluate(EDITOR_TEXT_JS) or ""
-    copied = click_btn_text(P, r"^copy legal condition")
-    P.wait(2.5); P.popup_ok()
-    after_txt = page.evaluate(EDITOR_TEXT_JS) or ""
-    if not copied or len(after_txt) <= len(before):
-        comments.append("legal conditions did not copy into the box - check")
+    own = company_legal(case)
+    if own:
+        # the company's own conditions (Settings → company → MODT legal conditions) replace TNREGINET's copied text
+        how = page.evaluate(SET_HTML_JS, own)
+        if not how:
+            comments.append("company legal conditions not put in (editor not found) - paste them by hand")
+        P.wait(1)
+    else:
+        before = page.evaluate(EDITOR_TEXT_JS) or ""
+        copied = click_btn_text(P, r"^copy legal condition")
+        P.wait(2.5); P.popup_ok()
+        after_txt = page.evaluate(EDITOR_TEXT_JS) or ""
+        if not copied or len(after_txt) <= len(before):
+            comments.append("legal conditions did not copy into the box - check")
     html = lod_html(case, d, comments)
     if html:
         how = page.evaluate(INSERT_HTML_JS, "<p>&nbsp;</p><p>&nbsp;</p>" + html)
@@ -3127,6 +3225,13 @@ def handle(pw, jid, data):
             msg = ("Aadhaar number not right - TP not started (a wrong digit fails the biometric): " + "; ".join(bad) +
                    ". Correct it in Drafting / KYC Master and start again.")
             job.last = "Aadhaar check"
+            record_stop(job, data.get("case", ""), msg)
+            raise Stop(msg)
+    if data.get("kind") == "modt" and not case.get("modtOk"):
+        bad = modt_problems(case)
+        if bad:
+            msg = "MODT not started: " + "; ".join(bad) + ". Correct it in Drafting and start again."
+            job.last = "MODT check"
             record_stop(job, data.get("case", ""), msg)
             raise Stop(msg)
     acc = login_of(data.get("login", "")) if data.get("kind") != "ec" else {"username": ""}

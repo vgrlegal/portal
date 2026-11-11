@@ -724,6 +724,7 @@ function areaSqm(t){t=String(t||"").replace(/,/g,"").trim();if(!t)return null;co
   if(m)return(+m[1]*100+ +m[2])*AREA_SQM.cent;m=l.match(/^\D*?(\d+)\s*[-–]\s*(\d+(?:\.\d+)?)/);if(m&&!/acre|cent|sq|ஏக்கர்|சென்ட்/.test(l))return +m[1]*10000+ +m[2]*100;
   const k=unitKey(l);m=l.match(/\d+(?:\.\d+)?/);return k&&m?+m[0]*AREA_SQM[k]:null}
 function areaIn(t,unit){const k=unitKey(unit),q=areaSqm(t);if(!k||q==null)return"";const v=q/AREA_SQM[k];return String(+v.toFixed(k==="acre"||k==="hectare"?4:2))}
+const legalParas=t=>String(t||"").trim().split(/\n\s*\n/).map(x=>x.replace(/^\s*(?:[-–•]|\d+[.)])\s*/,"").replace(/\s+/g," ").trim()).filter(Boolean);
 const caseUnit=d=>(d.Unit||"").trim()||UNIT_LABEL[unitKey(d.Extent)]||"";
 function modtFill(c,d){const set=(k,v)=>{if(v!=null&&String(v).trim()!==""&&!String(d[k]||"").trim())d[k]=String(v)};
   /* the customer (borrower) need not be the title holder: title holder names come only from the title deed / Aadhaar;
@@ -1417,8 +1418,15 @@ function openReview(c,gen){
     const showLin=()=>{if(linSec)linSec.hidden=agri()};
     const autoAgri=()=>{if(/\b(cents?|acres?|ac\.?|hectares?|ஏக்கர்|சென்ட்)\b/i.test(ex.value)&&!agri()){pt.value=/building/i.test(pt.value)?"Agriculture Land with Building":"Agricultural Land";showLin()}};
     if(pt&&ex){pt.addEventListener("change",showLin);ex.addEventListener("change",autoAgri);autoAgri();showLin()}
+    {const own=legalParas(((profOf(c.bank)||{}).company||{}).modt_legal),lt0=$("rv_List_of_documents_deposited");if(own.length&&lt0){const dv=document.createElement("div");dv.className="full";dv.style.cssText="grid-column:1/-1;border:1px solid #ccc;border-radius:8px;padding:12px 16px;background:#fff;color:#111";
+      dv.innerHTML=`<div class="sf-note" style="margin-bottom:6px"><b>${esc(c.bank)}'s own legal conditions</b> (Settings → company). The robot puts exactly this in TNREGINET's box, then 2 blank lines and the list of documents below:</div>`+own.map(x=>`<p style="text-align:justify;margin:0 0 1em;line-height:1.5">${esc(x)}</p>`).join("")+`<p class="sf-note" style="margin:0">⏎ ⏎ (2 blank lines) — then the list of documents table</p>`;lt0.closest("label").before(dv)}}
     const lt=$("rv_List_of_documents_deposited");if(lt&&c.lodHtml){const dv=document.createElement("div");dv.className="sf-note full";dv.style.gridColumn="1/-1";dv.innerHTML="<b>Table from the Word draft — the robot pastes this, with its boxes, under the legal conditions (corrections above are applied):</b>"+c.lodHtml.replace(/<(?!\/?(table|tr|td|br)\b)[^>]*>/gi,"");lt.closest("label").after(dv)}
     const pr=$("rv_Property_remarks");if(pr){const b=document.createElement("button");b.type="button";b.className="btn";b.textContent="✎ Build remarks from the property fields";b.onclick=()=>{pr.value=modtRemarks()};pr.closest("label").after(b)}}
+  /* boundaries: all four, English and Tamil; an empty one shows red and the robot will not start */
+  if(!dor&&$("rv_Boundary_North")){const ids=["North","South","East","West"].flatMap(x=>[`rv_Boundary_${x}`,`rv_Boundary_${x}_Tamil`]).map(id=>$(id)).filter(Boolean);
+    const mark=e=>{const bad=!e.value.trim();e.style.borderColor=bad?"#b42318":"";e.style.background=bad?"#fde8e6":"";return bad};ids.forEach(e=>e.addEventListener("input",()=>mark(e)));
+    const empty=ids.filter(mark).map(e=>e.id.replace("rv_Boundary_","").replace("_"," "));
+    if(empty.length)$("rvBody").insertAdjacentHTML("afterbegin",`<p class="banner" style="background:#fde8e6;color:#8a1c1c">⚠ Boundary empty: ${esc(empty.join(", "))}. Take it from the title deed (shown red below). The TP robot will not start until all four boundaries are filled in English and Tamil.</p>`)}
   /* extents: every extent in the one unit of the case; show what the robot will type and the patta's own figure */
   if(!dor&&$("rv_Extent")){const U=$("rv_Unit"),fl=[["rv_Extent","Mortgaged extent"],["rv_Total_survey_extent","Total survey extent"]];
     const show=()=>{const dd={Unit:U?U.value:"",Extent:$("rv_Extent").value},u=caseUnit(dd);
@@ -1426,7 +1434,9 @@ function openReview(c,gen){
         const t=e.value.trim(),v=t&&u?areaIn(t,u):"",orig=id==="rv_Total_survey_extent"&&(c.draft||{})["Total survey extent (patta)"];
         m.style.color=t&&!v&&u&&/[a-z\u0B80-\u0BFF-]/i.test(t)?"#b42318":"";
         m.textContent=!t?"":!u?"⚠ Choose the Unit above - every extent is typed in that one unit":v?`→ robot types ${v} ${u}${unitKey(t)!==unitKey(u)?` (converted from ${t})`:""}${orig?` · patta shows ${orig}${/^\D*\d+\s*[-–]/.test(orig)?" (hectare - ares)":""}`:""}`:`→ no unit written: robot types ${t.match(/[\d.]+/)?.[0]||t} as ${u}`});
-      if(U&&!U.value&&u)U.title="Unit taken from the mortgaged extent: "+u};
+      if(U&&!U.value&&u)U.title="Unit taken from the mortgaged extent: "+u;
+      const te=$("rv_Total_survey_extent"),a=areaSqm($("rv_Extent").value),b=te?areaSqm(te.value):null,m=$("rv_Extent").parentElement.querySelector(".unitnote");
+      if(m&&a&&b&&a>b*1.002){m.style.color="#b42318";m.textContent+=` ⚠ MORE than the patta total (${areaIn(te.value,u)} ${u}) — check the MODT and patta; the robot will not start`}};
     [U,$("rv_Extent"),$("rv_Total_survey_extent")].forEach(e=>e&&e.addEventListener(e.tagName==="SELECT"?"change":"input",show));show()}
   wireRobotQs(c);
   /* Aadhaar numbers: 12 digits + Aadhaar check digit; one wrong digit fails the biometric, so a wrong one shows red */
@@ -1444,7 +1454,8 @@ function openReview(c,gen){
 /* ---- robot questions + learning list ----
    case.robotQs = [{id,q,options:[...],field,hint,answer,why,by,at,ruleSaved}]  (added by document reading / the TP robot when unsure)
    cfg.rules    = [{id,text,from,by,at}]  (Admin-approved rules; sent to Claude on every reading) */
-function robotQsHtml(c){const qs=(c.robotQs||[]).filter(q=>!q.answer);if(!qs.length)return"";
+function robotQsHtml(c){const qs=(c.robotQs||[]).filter(q=>!q.answer).map(q=>{if(!/extent/i.test(q.field||""))return q;const u=caseUnit(c.draft||{});if(!u)return q;
+    const conv=[q.read,...(q.options||[])].map(o=>{const v=areaIn(o,u);return v?`${v} ${u}`:""}).filter(Boolean);return{...q,options:[...new Set([...conv,...(q.options||[])])]}});if(!qs.length)return"";
   return`<div class="rvsec" id="rqBox" style="border:1px solid var(--warn,#c80);border-radius:10px;padding:10px"><div class="sect">❓ Robot questions (${qs.length})</div>`+qs.map(q=>`<div class="rq" data-q="${esc(q.id)}" style="margin:8px 0">
     <b>${q.kind==="doubt"?"🔔 ":""}${esc(q.q)}</b>${q.hint?`<div class="sf-note">${esc(q.hint)}${q.src?` · ${esc(q.src)}`:""}</div>`:""}
     ${q.shot?`<a class="dshotA" target="_blank" rel="noopener"><img class="dshot" data-shot="${esc(q.shot)}" alt="The spot in the document" style="max-width:100%;max-height:260px;border:1px solid #ccc;border-radius:6px;margin:6px 0;cursor:zoom-in;display:block"></a>`:""}
@@ -2374,7 +2385,7 @@ drawPreview();
 const SAL=["Mr","Mrs","Ms","Dr"],REL=["Son of","Wife of","Daughter of","Husband of","Father of","Care of"],GEN=["Male","Female"];
 const PERSON_F=[["sal","Salutation","s",SAL],["name","Name"],["name_ta","Name in Tamil"],["rel_type","Relationship type","s",REL],["rel_name","Relationship name"],["rel_ta","Relationship name in Tamil"],["dob","Date of birth / Age"],["gender","Gender","s",GEN],["id_no","Aadhaar number"],["designation","Designation"],["state","State"],["district","District"],["addr","Address","w"],["addr_ta","Address in Tamil","w"],["pincode","Pincode"],["mobile","Mobile"]];
 const WIT_F=[["sal","Salutation","s",SAL],["name","Name"],["rel_type","Relationship type","s",REL],["rel_name","Relationship name"],["dob","Date of birth / Age"],["gender","Gender","s",GEN],["aadhaar","Aadhaar number"],["district","District"],["addr","Address","w"],["pincode","Pincode"],["mobile","Mobile"]];
-const CO_F=[["full_name","Company full name (as in TNREGINET)","w"],["state","State"],["district","District"],["addr_en","Address in English","w"],["addr_ta","Address in Tamil","w"],["pincode","Pincode"]];
+const CO_F=[["full_name","Company full name (as in TNREGINET)","w"],["state","State"],["district","District"],["addr_en","Address in English","w"],["addr_ta","Address in Tamil","w"],["pincode","Pincode"],["modt_legal","MODT legal conditions — the company's own wording. The robot puts these in TNREGINET's legal conditions box (instead of TNREGINET's copied text), then 2 blank lines and the case's list of documents. One paragraph per block, a blank line between; no numbers.","ta"]];
 const profOf=b=>((cfg.profiles||{})[b])||null;
 const repsOf=b=>(profOf(b)&&profOf(b).reps)||[];
 function relNorm(v){v=String(v||"").trim();const m=v.toLowerCase().replace(/[^a-z]/g,"");if(!m)return"";return m.startsWith("w")?"Wife of":m.startsWith("d")?"Daughter of":m.startsWith("h")?"Husband of":m.startsWith("f")?"Father of":m.startsWith("c")?"Care of":"Son of"}
@@ -2417,6 +2428,7 @@ $("witAadhaar").onchange=async e=>{const fs=[...e.target.files];e.target.value="
 let pe=null;
 function fld(prefix,[k,l,t,o],v){const id=prefix+k;v=v==null?"":String(v);
   if(t==="s")return`<label>${esc(l)}<select id="${id}"><option value=""></option>${[...new Set([...o,v].filter(Boolean))].map(x=>`<option${x===v?" selected":""}>${esc(x)}</option>`).join("")}</select></label>`;
+  if(t==="ta")return`<label class="full">${esc(l)}<textarea id="${id}" rows="12" style="text-align:justify;line-height:1.5">${esc(v)}</textarea></label>`;
   return`<label class="${t==="w"?"full":""}">${esc(l)}<input id="${id}" value="${esc(v)}"${/Tamil/.test(l)?' lang="ta"':""}></label>`}
 function readF(prefix,F,base){const o={...base};F.forEach(([k])=>{const el=$(prefix+k);if(el)o[k]=el.value.trim()});return o}
 async function makeKyc(files,name){const isPdf=f=>f.type==="application/pdf"||/\.pdf$/i.test(f.name);
@@ -2810,6 +2822,8 @@ async function readModtCase(c,force){const D=c.docs||{};if(!(D.mdraft||[]).lengt
     const d={...(c.draft||{})};let n=0;Object.entries(F).forEach(([k,v])=>{v=Array.isArray(v)?v.join("\n"):String(v??"").trim();if(!v)return;if(force||!String(d[k]||"").trim()){if(d[k]!==v)n++;d[k]=v}});
     const ch={draft:d,tpAuto:{...(c.tpAuto||{}),...Object.fromEntries(Object.entries(F).map(([k,v])=>[k,String(v??"")]))},tpNotes:doubts};if(lodHtml)ch.lodHtml=lodHtml;
     if(dq.length)ch.robotQs=await doubtQs(c,dq,"draft","MODT documents");
+    {const u=caseUnit(d),a=areaSqm(d.Extent),b=areaSqm(d["Total survey extent"]);if(a&&b&&a>b*1.002&&/agri/i.test(d["Property type"]||""))ch.robotQs=[...(ch.robotQs||c.robotQs||[]),{id:crypto.randomUUID(),q:`Mortgaged extent (MODT) ${d.Extent} is MORE than the patta total ${areaIn(d["Total survey extent"],u)} ${u}. Which is right?`,options:[`MODT is right: ${d.Extent}`,"Patta is right - I will correct the MODT extent"],hint:"The mortgaged extent cannot be more than the whole survey extent in the patta",src:"Extent check",at:nowISO()}]}
+    {const miss=["North","South","East","West"].filter(x=>!String(d["Boundary "+x]||"").trim()||!String(d[`Boundary ${x} Tamil`]||"").trim());if(miss.length)ch.robotQs=[...(ch.robotQs||c.robotQs||[]),...miss.map(x=>({id:crypto.randomUUID(),q:`Boundary ${x} is not in the MODT draft or the title deed reading. Type it (English) from the title deed.`,options:[],field:"Boundary "+x,hint:"All four boundaries are needed in English and Tamil",src:"Boundary check",at:nowISO()}))]}
     if(/urban|rural|natham/i.test(doubts)&&!(ch.robotQs||c.robotQs||[]).some(q=>q.field==="Land type"&&!q.answer))ch.robotQs=[...(ch.robotQs||c.robotQs||[]),{id:crypto.randomUUID(),q:"Is this property Urban, Rural or Natham?",options:["Urban","Rural","Natham"],field:"Land type",hint:doubts.slice(0,300)}];
     await patch(c,ch,`MODT documents read by Claude (${n} fields filled)`);
     let fresh=cases.find(x=>x._doc===c._doc)||{...c,...ch};if(rv.c&&rv.c._doc===c._doc)openReview(fresh,rv.gen);
