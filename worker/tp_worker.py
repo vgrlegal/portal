@@ -2729,23 +2729,28 @@ def survey_tab(P, job, page, d, ptype, note):
     for i, (s, sd, ext) in enumerate(sv):
         job.step(f"7 · Survey {s}/{sd}", page)
         told = g(d, "TNREGINET survey option")
-        if page.evaluate("()=>[...document.querySelectorAll('label,span,div')].some(e=>e.offsetParent&&/^Sub Divi?si?on No/i.test((e.innerText||'').trim()))"):
-            pats = [("^Survey No\\.?\\s*\\*?$", {norm_sv(s), norm_sv(told)}, ""), ("^Sub Divi?si?on No", {norm_sv(sd), norm_sv(told)}, "")] if sd else \
-                   [("^Survey No\\.?\\s*\\*?$", {norm_sv(s), norm_sv(told)}, "")]
-        else:
-            pats = [("^Survey No\\.?/Sub Divi?si?on", {norm_sv(f"{s}/{sd}" if sd else s), norm_sv(told)}, s)]
-        for pat, wants, st0 in pats:
-            wants.discard("")
-            opts = wait_options(P, page, pat, 30)
-            hit = pick_option(page, pat, opts, wants, st0) if opts else None
-            if not hit:
-                shot = survey_shot(page, job, i, "nolist" if not opts else "nomatch")
-                why = (f"the survey list stayed empty for 30 seconds" if not opts else
-                       f"{s}/{sd} is not in TNREGINET's list ({len(opts)} options: {', '.join(opts[:12])}{'…' if len(opts) > 12 else ''})")
-                survey_question(job, f"Survey screen: {why}. Pick the right one from TNREGINET's list (or type it), then start the TP again.", shot,
-                                options=opts, field="TNREGINET survey option")
-                raise Stop(f"Survey {s}/{sd}: {why}. A robot question with the screenshot is on the case; the draft is saved.")
-            P.wait(2.5); wait_loader(page)
+        # TNREGINET shows either one "Survey No./Sub Division" list (140/2A2) or a "Survey No." list (42) and then a "Sub Division No." list (28)
+        sep = page.evaluate("()=>[...document.querySelectorAll('label,span,div')].some(e=>e.getClientRects().length&&/^Survey No\\.?\\s*\\*?$/i.test((e.innerText||'').trim()))")
+        pat = "^Survey No\\.?\\s*\\*?$" if sep else "^Survey No\\.?/Sub Divi?si?on"
+        opts = wait_options(P, page, pat, 30)
+        hit = pick_option(page, pat, opts, {x for x in (norm_sv(f"{s}/{sd}" if sd else s), norm_sv(told)) if x}, s) if opts else None
+        stage, sub_opts = "survey", []
+        if not hit and opts and sd:  # survey number alone, then its sub-division
+            hit = pick_option(page, pat, opts, {norm_sv(s)}, s)
+            if hit:
+                P.wait(2.5); wait_loader(page)
+                stage = "sub-division"
+                sub_opts = wait_options(P, page, "^Sub Divi?si?on", 20)
+                hit = pick_option(page, "^Sub Divi?si?on", sub_opts, {x for x in (norm_sv(sd), norm_sv(told.split("/")[-1]) if told else "") if x}) if sub_opts else None
+        if not hit:
+            lst = sub_opts if stage == "sub-division" else opts
+            shot = survey_shot(page, job, i, "nolist" if not lst else "nomatch")
+            why = (f"the {stage} list stayed empty" if not lst else
+                   f"{s}/{sd}: {'sub-division ' + sd if stage == 'sub-division' else 'survey'} not in TNREGINET's {stage} list ({len(lst)} options: {', '.join(lst[:15])}{'…' if len(lst) > 15 else ''})")
+            survey_question(job, f"Survey screen: {why}. Pick the right one from TNREGINET's list (or type it), then start the TP again.", shot,
+                            options=lst, field="TNREGINET survey option")
+            raise Stop(f"Survey {s}/{sd}: {why}. A robot question with the screenshot is on the case; the draft is saved.")
+        P.wait(2.5); wait_loader(page)
         # Land Type (mandatory on TNREGINET): from Drafting's Land classification, else the only option, else ask
         lopts = wait_options(P, page, "^Land Type", 15)
         if lopts:
