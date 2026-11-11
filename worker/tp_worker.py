@@ -2251,7 +2251,7 @@ def schedule_bio(force=False):
     """07:00 India time, once a day: one check job per login that has TPs waiting for biometric."""
     ist = datetime.datetime.utcnow() + datetime.timedelta(hours=5, minutes=30)
     day = ist.strftime("%Y%m%d")
-    if not force and (ist.hour < 7 or BIO.get("day") == day):
+    if not force and (not BIO_AUTO or ist.hour < 7 or BIO.get("day") == day):
         return
     BIO["day"] = day
     rows = kv_list("cases", stage="Photo/Biometric")
@@ -2274,6 +2274,7 @@ def schedule_bio(force=False):
 
 
 BIO = {"day": ""}
+BIO_AUTO = False  # daily automatic check is on hold (time to be decided); "Check now" on the dashboard still works
 
 
 def handle(pw, jid, data):
