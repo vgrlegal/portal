@@ -1965,16 +1965,17 @@ def clean_addr(a, district="", ta=False):
     if not a:
         return a
     a = re.sub(r"^\s*[SWDC]\s*/\s*O\.?\s*-?\s*[^,]*,\s*", "", a, flags=re.I)
-    p = [re.sub(r"[\s\-–.]+$", "", re.sub(r"(pin(\s*code)?\s*-?\s*)?\b\d{6}\b", "", x, flags=re.I)).strip() for x in re.split(r"\s*,\s*", a)]
+    p = [re.sub(r"^P\.?\s*O\b\.?\s*[-–]?\s*(\S.*)$", r"\1 (PO)", x, flags=re.I) for x in re.split(r"\s*,\s*", a)]
+    p = [re.sub(r"[\s\-–.]+$", "", re.sub(r"(pin(\s*code)?\s*-?\s*)?\b\d{6}\b", "", x, flags=re.I)).strip() for x in p]
     p = [x for x in p if x]
     while len(p) > 1 and _STATE.match(p[-1]):
         p.pop()
     if len(p) > 1:
         dn = re.sub(r"\s*(dist(rict)?\.?)\s*$", "", (district or "").lower()).strip()
         last = p[-1].lower()
-        bare = re.sub(r"\s*(dist(rict)?\.?|மாவட்டம்)\s*$", "", last).strip()
+        bare = re.sub(r"^(dist(rict)?\.?|மாவட்டம்)\s*[-–]?\s*", "", re.sub(r"\s*(dist(rict)?\.?|மாவட்டம்)\s*$", "", last)).strip()
         tnames = TA_DIST.get(dn, "").split("|") if TA_DIST.get(dn) else ([] if dn else "|".join(TA_DIST.values()).split("|"))
-        if (dn and bare == dn) or re.search(r"\bdist(rict)?\.?$|மாவட்டம்$", last) or (ta and len(p) > 2 and bare in tnames):
+        if (dn and bare == dn) or re.search(r"\bdist(rict)?\.?$|மாவட்டம்$|^dist(rict)?\b", last) or (ta and len(p) > 2 and bare in tnames):
             p.pop()
     return re.sub(r"\s+", " ", ", ".join(p)).strip(" ,-")
 
