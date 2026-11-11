@@ -2076,8 +2076,30 @@ def open_draft(P, job, page, dn):
     num = (re.search(r"/(\d{5,})/", dn) or re.search(r"(\d{5,})", dn))
     num = num.group(1) if num else dn
     job.step(f"0 · Opening the saved draft {dn}", page)
-    hit = click_text(page, r"^\s*draft\s*listing\s*$") or click_text(page, r"draft\s*list")
+    info = page.evaluate("""()=>{const a=[...document.querySelectorAll('a')].find(e=>/^\\s*draft\\s*listing\\s*$/i.test(e.textContent||''));
+      return a?{href:a.href||'',target:a.target||'',onclick:(a.getAttribute('onclick')||'').slice(0,120)}:null}""") or {}
+    job.step(f"0 · Draft Listing link: {str(info)[:160]}", page)
+    hit = ""
+    href = info.get("href") or ""
+    if href.startswith("http") and not re.search(r"#\s*$|javascript:", href, re.I):
+        page.goto(href, wait_until="domcontentloaded", timeout=90000)
+        hit = "opened " + href.split("?")[0][-60:]
+    else:
+        n0 = len(page.context.pages)
+        hit = click_text(page, r"^\s*draft\s*listing\s*$") or click_text(page, r"draft\s*list")
+        P.wait(3)
+        if len(page.context.pages) > n0:  # it opened in a new tab: take its address into this tab
+            newp = page.context.pages[-1]
+            try:
+                newp.wait_for_load_state("domcontentloaded", timeout=30000)
+                u = newp.url
+                newp.close()
+                page.goto(u, wait_until="domcontentloaded", timeout=90000)
+                hit += " (new tab -> " + u.split("?")[0][-60:] + ")"
+            except Exception as e:
+                log("draft listing tab:", e)
     wait_loader(page); P.wait(3)
+    job.step(f"0 · Draft Listing ({hit or 'link not found'})", page)
     row = page.evaluate(OPEN_DRAFT_JS, num)
     if not row:  # a search box on the listing
         page.evaluate("""(n)=>{const i=[...document.querySelectorAll('input[type=text],input:not([type])')].find(e=>e.getClientRects().length&&/draft/i.test((e.id||'')+(e.name||'')+(e.placeholder||'')));if(i){i.value=n;i.dispatchEvent(new Event('input',{bubbles:true}));i.dispatchEvent(new Event('change',{bubbles:true}))}}""", num)
