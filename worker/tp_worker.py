@@ -2040,11 +2040,82 @@ def modt_party(P, job, page, d, n):
         raise Stop(f"Title holder {n}: TNREGINET said '{msg[:160]}'")
 
 
+DRAFT_NO_JS = r"""()=>{const m=document.body.innerText.match(/Draft\s*Number\s*:?\s*(Draft\/[^\n]*?\/\d{5,}\/\d{4})/i);return m?m[1].replace(/\s+/g,' ').trim():''}"""
+STAGES = ["parties", "property", "loan", "legal", "created"]
+
+
+def keep_draft(page, job, stage):
+    """TNREGINET shows 'Draft Number: Draft/Deposit Of Title Deeds/354418042/2026' on every stage: keep it on the case with how far we got."""
+    try:
+        dn = page.evaluate(DRAFT_NO_JS)
+        cid = job.d.get("case") or job.d.get("caseId") or ""
+        if dn:
+            job.upd(draftNo=dn)
+            if cid:
+                kv_merge("cases", cid, {"tpDraft": dn, "tpDraftStage": stage, "tpDraftAt": now()})
+        return dn
+    except Exception as e:
+        log("draft number:", e)
+        return ""
+
+
+OPEN_DRAFT_JS = r"""(num)=>{const vis=e=>!!e&&e.getClientRects().length>0;
+  const cells=[...document.querySelectorAll('a,td,span,label,div')].filter(e=>vis(e)&&(e.innerText||'').includes(num)&&(e.innerText||'').length<200);
+  cells.sort((a,b)=>(a.innerText||'').length-(b.innerText||'').length);const c=cells[0];if(!c)return '';
+  const row=c.closest('tr')||c.parentElement;const pick=(row&&row.querySelector('input[type=radio],input[type=checkbox]'));
+  if(pick){pick.click();pick.dispatchEvent(new Event('change',{bubbles:true}))}else{(c.closest('a')||c.querySelector('a')||c).click()}
+  return (row||c).innerText.replace(/\s+/g,' ').slice(0,160)}"""
+
+
+def open_draft(P, job, page, dn):
+    """Draft Listing (top of the Create Document page) → the draft number → Load. Stops with a question when it is not found."""
+    num = (re.search(r"/(\d{5,})/", dn) or re.search(r"(\d{5,})", dn))
+    num = num.group(1) if num else dn
+    job.step(f"0 · Opening the saved draft {dn}", page)
+    hit = click_text(page, r"^\s*draft\s*listing\s*$") or click_text(page, r"draft\s*list")
+    wait_loader(page); P.wait(3)
+    row = page.evaluate(OPEN_DRAFT_JS, num)
+    if not row:  # a search box on the listing
+        page.evaluate("""(n)=>{const i=[...document.querySelectorAll('input[type=text],input:not([type])')].find(e=>e.getClientRects().length&&/draft/i.test((e.id||'')+(e.name||'')+(e.placeholder||'')));if(i){i.value=n;i.dispatchEvent(new Event('input',{bubbles:true}));i.dispatchEvent(new Event('change',{bubbles:true}))}}""", num)
+        click_btn_text(P, r"^search$"); wait_loader(page); P.wait(3)
+        row = page.evaluate(OPEN_DRAFT_JS, num)
+    if not row:
+        shot = survey_shot(page, job, 0, "draftlist")
+        survey_question(job, f"Draft Listing: draft {dn} not found (clicked: {hit or 'no Draft Listing link'}). Open TNREGINET's Draft Listing and check the number, or clear it in TP Generate to start a fresh document.", shot)
+        raise Stop(f"Saved draft {dn} not found in Draft Listing. A robot question with the screenshot is on the case.")
+    P.wait(1.5)
+    click_btn_text(P, r"^\s*load\s*$") or click_text(page, r"^\s*load\s*$")
+    wait_loader(page); P.wait(3); P.popup_ok()
+    wait_for(P, "()=>{const e=document.getElementById('partyType');return !!(e&&e.offsetParent)||/Draft\\s*Number/i.test(document.body.innerText)}", 30)
+    got = page.evaluate(DRAFT_NO_JS)
+    if num not in (got or ""):
+        shot = survey_shot(page, job, 0, "draftload")
+        survey_question(job, f"Draft {dn}: pressed Load but the page shows '{got or 'no draft number'}'. Check the screen.", shot)
+        raise Stop(f"Draft {dn} did not open after Load. A robot question with the screenshot is on the case.")
+    job.step(f"0 · Draft {got} loaded", page)
+    return got
+
+
 def run_modt(page, job, case):
     """MODT robot, part 1 (from the recording of 9 Nov): create document, link the title deed(s), title holders,
     mortgagee company, skip representative, witnesses, presenter; then property, loan, legal conditions, Create Document, uploads, print, fees."""
     d = case.get("draft") or {}
     P = Portal(page, job)
+    dn, stg = (case.get("tpDraft") or "").strip(), case.get("tpDraftStage") or "parties"
+    if dn and not case.get("tpNo"):
+        if stg not in ("parties", "property"):
+            raise Stop(f"Saved draft {dn} is already past the property stage ({stg}). Finish it by hand in Draft Listing, or clear the draft number in TP Generate to start fresh.")
+        open_presenceless(page, job)
+        open_draft(P, job, page, dn)
+        comments = []
+        holders = int(re.sub(r"\D", "", g(d, "Title holders")) or "1")
+        P.wait(2)
+        tbl = page.evaluate(TABLE_TEXT_JS, "Name") or ""
+        miss = [g(d, f"Mortgagor {n} name") for n in range(1, min(holders, 4) + 1) if g(d, f"Mortgagor {n} name") and nz(g(d, f"Mortgagor {n} name"))[:6] not in nz(tbl)]
+        if miss:
+            comments.append("loaded draft: title holder(s) not seen in the party table - " + ", ".join(miss) + " (check)")
+        job.step("2-6 · Parties already saved in the draft (not added again) - going to Property", page)
+        return modt_after_parties(P, job, page, d, case, comments)
     job.step("1 · Create document & link the title deed(s)")
     open_presenceless(page, job)
     if not page.locator("#deedType").count():
@@ -2133,6 +2204,11 @@ def run_modt(page, job, case):
     P.fuzzy("cmb_presenter", g(d, f"Mortgagor {pn} name") or g(d, "Mortgagor 1 name"), 1)
     P.click("btnMainSaveAsDraft", 4)
     job.step("Parties done - draft saved", page)
+    keep_draft(page, job, "parties")
+    return modt_after_parties(P, job, page, d, case, comments)
+
+
+def modt_after_parties(P, job, page, d, case, comments):
     # 7. Property (MODT flow of 11 Nov 2026) → 8. loan … Create Document → uploads → print → fees
     try:
         modt_property(P, job, page, d, case, comments)
@@ -2143,8 +2219,10 @@ def run_modt(page, job, case):
                 " Continue by hand from Property in My Documents." + (" CHECK: " + " · ".join(comments) if comments else ""))
         if P.warn:
             note += " Warnings: " + "; ".join(P.warn[:8])
+        keep_draft(page, job, "parties")
         job.upd(status="done", message=note, comments=comments)
         return
+    keep_draft(page, job, "property")
     return modt_second_half(P, job, page, d, case, comments)
 
 
@@ -2232,6 +2310,11 @@ TABLE_TEXT_JS = "(head)=>{" + VIS_JS + r"""const hr=new RegExp(head,'i');
   return [...document.querySelectorAll('table')].filter(x=>vis(x)&&x.rows.length>1&&hr.test(x.rows[0].innerText)).map(x=>x.innerText.replace(/\s+/g,' ')).join(' || ')}"""
 
 # delete every saved row of the visible tables (Building Details copied from the old deed)
+# delete the saved rows of the visible table(s) whose header matches (old survey / property rows copied from the linked deed)
+DEL_TABLE_ROW_JS = "(head)=>{" + VIS_JS + r"""const hr=new RegExp(head,'i');const t=[...document.querySelectorAll('table')].filter(x=>vis(x)&&x.rows.length>1&&hr.test(x.rows[0].innerText));
+  for(const x of t){for(const r of [...x.rows].slice(1)){const e=[...r.querySelectorAll('a,button,i,img,span,input')].find(e=>/delete|trash|remove|bin/i.test((e.className||'')+' '+(e.title||'')+' '+(e.value||'')+' '+(e.getAttribute('onclick')||'')+' '+(e.getAttribute('src')||'')));
+    if(e&&vis(e)){const txt=r.innerText.replace(/\s+/g,' ').slice(0,100);(e.closest('a,button')||e).click();return txt}}}return ''}"""
+
 DEL_ICONS_JS = "()=>{" + VIS_JS + r"""const t=[...document.querySelectorAll('table')].filter(x=>vis(x)&&x.rows.length>1);
   for(const x of t){for(const r of [...x.rows].slice(1)){const e=[...r.querySelectorAll('a,button,i,img,span')].find(e=>/delete|trash|remove|bin/i.test((e.className||'')+' '+(e.title||'')+' '+(e.getAttribute('onclick')||'')+' '+(e.getAttribute('src')||'')));
     if(e&&vis(e)){(e.closest('a,button')||e).click();return r.innerText.replace(/\s+/g,' ').slice(0,100)}}}return ''}"""
@@ -2405,7 +2488,12 @@ def modt_property(P, job, page, d, case, comments):
     wait_for(P, "()=>/List of all added property|Property Type/i.test(document.body.innerText)", 25)
     P.wait(2)
     if page.evaluate(TABLE_TEXT_JS, "Mortgaged Survey Extent|Survey No"):
-        note("a property row was already in the list (an earlier try) - it was kept; check there is only one")
+        for _ in range(4):
+            gone = page.evaluate(DEL_TABLE_ROW_JS, "Mortgaged Survey Extent|Survey No|Property Type")
+            if not gone:
+                break
+            P.wait(1.5); P.popup_ok(); wait_loader(page); P.wait(1.5)
+            note(f"old property row from an earlier try deleted, added fresh ({gone[:70]})")
     ptype = ptype_of(d)
     if not ptype:
         ptype = "Plot with Building"
@@ -2557,7 +2645,7 @@ def survey_shot(page, job, i, when):
         path = f"survey/{job.id}/{i + 1}_{when}.jpg"
         HTTP.post(f"{SB}/storage/v1/object/docs/{path}", headers={**AUTH, "Content-Type": "image/jpeg", "x-upsert": "true"},
                   data=page.screenshot(type="jpeg", quality=60, full_page=True), timeout=60)
-        cid = job.d.get("caseId") or job.d.get("case") or ""
+        cid = job.d.get("case") or job.d.get("caseId") or ""
         if cid:
             c = kv_get("cases", cid) or {}
             kv_merge("cases", cid, {"surveyShots": ((c.get("surveyShots") or []) + [{"at": now(), "job": job.id, "n": i + 1, "when": when, "url": "sb:" + path}])[-12:]})
@@ -2568,7 +2656,7 @@ def survey_shot(page, job, i, when):
 
 
 def survey_ok(job):
-    cid = job.d.get("caseId") or job.d.get("case") or ""
+    cid = job.d.get("case") or job.d.get("caseId") or ""
     try:
         c = kv_get("cases", cid) or {}
         return any(q.get("kind") == "survey" and str(q.get("answer") or "").startswith("Looks right") for q in (c.get("robotQs") or []))
@@ -2578,7 +2666,7 @@ def survey_ok(job):
 
 def survey_question(job, q, shot, options=None, field=None):
     """Stop and ask the office on the case (Drafting → Robot questions), with the screenshot."""
-    cid = job.d.get("caseId") or job.d.get("case") or ""
+    cid = job.d.get("case") or job.d.get("caseId") or ""
     if not cid:
         return
     try:
@@ -2592,6 +2680,12 @@ def survey_question(job, q, shot, options=None, field=None):
 
 
 def survey_tab(P, job, page, d, ptype, note):
+    for _ in range(6):  # old survey / old survey number rows copied from the linked deed: delete, then add as per the current patta
+        gone = page.evaluate(DEL_TABLE_ROW_JS, "Mortgaged Survey Extent|Survey No")
+        if not gone:
+            break
+        P.wait(1.5); P.popup_ok(); wait_loader(page); P.wait(1.5)
+        note(f"old survey row from the linked deed deleted ({gone[:70]})")
     cu = u = case_unit(d)
     r = label_select(page, r"Unit of Measurement", unit_re(u)) if u else "skip"
     P.wait(1)
@@ -2610,6 +2704,12 @@ def survey_tab(P, job, page, d, ptype, note):
     if not page.evaluate(RADIO_JS, "^" + lt + "$"):
         note(f"'{lt}' button not found")
     P.wait(2.5); wait_loader(page)
+    chosen = page.evaluate("""(want)=>{const r=[...document.querySelectorAll('input[type=radio]')].filter(e=>e.getClientRects().length&&e.checked);
+      const lab=e=>((e.labels&&e.labels[0]&&e.labels[0].innerText)||(e.nextSibling&&e.nextSibling.textContent)||(e.parentElement&&e.parentElement.innerText)||e.value||'').trim();
+      return r.map(lab).find(t=>/^(urban|natham|rural)$/i.test(t))||''}""", lt)
+    if chosen.lower() != lt.lower():
+        page.evaluate(RADIO_JS, "^" + lt + "$"); P.wait(2.5); wait_loader(page)
+        note(f"Urban/Natham/Rural: TNREGINET showed '{chosen or 'none'}', set to {lt} from Drafting")
     if lt.lower() == "urban":
         for k in ("Ward", "Block"):
             v = g(d, k)
@@ -3384,7 +3484,7 @@ def handle(pw, jid, data):
             raise
         kv_merge("cases", data["case"], {"tpStop": None})
         if tp and tp.startswith("TP/"):
-            kv_merge("cases", data["case"], {"tpNo": tp})
+            kv_merge("cases", data["case"], {"tpNo": tp, "tpDraft": None, "tpDraftStage": None})
         # keep the browser open a while so a follow-up step can continue (future); then close
     finally:
         try:
@@ -3551,7 +3651,7 @@ def run_chain(batch, login, first_id, first_data):
                             raise Stop("Create Document was already pressed for this case earlier but no TP number was saved. Check My Documents on TNREGINET first.")
                         tp = run_dor(page, job, case)
                         if tp and tp.startswith("TP/"):
-                            kv_merge("cases", data["case"], {"tpNo": tp, "tpStop": None})
+                            kv_merge("cases", data["case"], {"tpNo": tp, "tpStop": None, "tpDraft": None, "tpDraftStage": None})
                     except Stop as e:
                         try:
                             job.step("Stopped here", page)
