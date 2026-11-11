@@ -2870,6 +2870,22 @@ def side_boxes(page):
     return page.evaluate("()=>/What is in the North/i.test(document.body.innerText)")
 
 
+# MODT boundary screen: labels are cut short ("What is in the North(Stre .."); after each side's Street dropdown come the English then the Tamil box
+SIDE_BOXES_JS = "([side,vals])=>{" + VIS_JS + r"""const heads=[...document.querySelectorAll('label,span,div,p,td')].filter(e=>vis(e)&&new RegExp('^What is in the\\s*'+side,'i').test(own(e)||(e.innerText||'').trim())&&(e.innerText||'').length<80);
+  if(!heads.length)return 'NOTEXT';heads.sort((a,b)=>(a.compareDocumentPosition(b)&Node.DOCUMENT_POSITION_FOLLOWING)?-1:1);const h=heads[0];
+  const ins=[...document.querySelectorAll('input[type=text],input:not([type]),textarea')].filter(e=>vis(e)&&!e.readOnly&&(h.compareDocumentPosition(e)&Node.DOCUMENT_POSITION_FOLLOWING));
+  const out=[];vals.forEach((v,i)=>{const e=ins[i];if(!e||v==null)return;e.focus();e.value=v;fire(e);out.push(e.id||e.name||'box'+i)});return out.join('|')}"""
+
+
+def fill_side(page, s, en, ta):
+    """English (and Tamil) box of one boundary side: the full label first (Deed of Receipt screens), else the box order under the cut-short label."""
+    r1 = page.evaluate(FILL_AFTER_JS, [f"What is in the {s}\\? \\(In English\\)", en, ""]) if en is not None else "skip"
+    r2 = page.evaluate(FILL_AFTER_JS, [f"What is in the {s}\\? \\(In Tamil\\)", ta, ""]) if ta is not None else "skip"
+    if r1 in ("NOTEXT", "NOBOX") or r2 in ("NOTEXT", "NOBOX"):
+        return page.evaluate(SIDE_BOXES_JS, [s, [en, ta]])
+    return f"{r1}|{r2}"
+
+
 def no_side(d, s):
     """A boundary box holding only a space = no boundary on that side (triangular land)."""
     v = d.get(f"Boundary {s}")
@@ -2900,29 +2916,31 @@ def boundary_tab(P, job, page, d, note):
             note(f"boundary type in Drafting '{bt}', measurements say {calc} - {calc} used")
         bt = calc
     if bt:
-        page.evaluate(RADIO_JS, "^" + bt + "$")
+        page.evaluate(RADIO_JS, "^" + bt + "( Boundary)?$")
         P.wait(1.5)
     missing_ta = {}
     for s in ("North", "South", "East", "West"):
         if no_side(d, s):
             # no boundary on this side (triangular land): a single space in both boxes - TNREGINET then accepts the page
-            page.evaluate(FILL_AFTER_JS, [f"What is in the {s}\\? \\(In English\\)", " ", ""])
-            page.evaluate(FILL_AFTER_JS, [f"What is in the {s}\\? \\(In Tamil\\)", " ", ""])
+            fill_side(page, s, " ", " ")
             note(f"{s}: no boundary on this side - a space typed")
             continue
         en, ta = g(d, f"Boundary {s}"), g(d, f"Boundary {s} Tamil")
-        if en:
-            page.evaluate(FILL_AFTER_JS, [f"What is in the {s}\\? \\(In English\\)", en, ""])
-        else:
+        has_ta = bool(ta and TAMIL_RE.search(ta))
+        if en or has_ta:
+            r = fill_side(page, s, en or None, ta if has_ta else None)
+            if r == "NOTEXT":
+                note(f"{s} boundary box not found on TNREGINET")
+        if not en:
             note(f"{s} boundary empty in Drafting")
-        if ta and TAMIL_RE.search(ta):
-            page.evaluate(FILL_AFTER_JS, [f"What is in the {s}\\? \\(In Tamil\\)", ta, ""])
+        if has_ta:
+            pass
         elif en:
             missing_ta[s] = en
     if missing_ta:
         tr = english_pass(P, job, "Boundaries in Tamil", kind="tamil", texts=missing_ta)
         for s, v in tr.items():
-            page.evaluate(FILL_AFTER_JS, [f"What is in the {s}\\? \\(In Tamil\\)", v, ""])
+            fill_side(page, s, None, v)
         left = [s for s in missing_ta if s not in tr]
         if left:
             note("Tamil boundary not filled: " + ", ".join(left))
