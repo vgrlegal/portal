@@ -3289,15 +3289,20 @@ def modt_second_half(P, job, page, d, case, comments):
     job.step("13 · Reasons for availing loan (save)", page)
     modt_next(P, job, page, "Reasons for availing loan")
     job.step("14 · Supporting details · place of execution", page)
-    wait_for(P, "()=>/Place of Execution/i.test(document.body.innerText)", 20)
+    wait_for(P, "()=>/Place of Execution|Execution\\s*Place/i.test(document.body.innerText)", 20)
     sro = g(d, "Execution SRO", "Property SRO")
     sro_ta = g(d, "SRO Tamil")
     if not sro_ta and sro:
         sro_ta = english_pass(P, job, "SRO Tamil", kind="tamil", texts={"sro": sro}).get("sro", "")
-    if not label_fill(page, r"Place of\s*Execution(?!.*Tam)", sro):
-        comments.append("Place of execution (English) box not found")
-    if sro_ta and not label_fill(page, r"Place of Execution in Tam", sro_ta):
-        comments.append("Place of execution (Tamil) box not found")
+    # MODT calls it "Execution Place" (Deed of Receipt: "Place of Execution"); labels may be cut short
+    en_ok = label_fill(page, r"(Place of\s*Execution|Execution\s*Place)(?!.*(Tam|தமிழ்))", sro)
+    ta_ok = (not sro_ta) or label_fill(page, r"(Place of\s*Execution|Execution\s*Place).*(Tam|தமிழ்)", sro_ta)
+    if not en_ok or not ta_ok:  # by position: English box, then Tamil box, under the label
+        r = page.evaluate(EXTENT_BOXES_JS, ["^(Place of\\s*Execution|Execution\\s*Place)", [sro, sro_ta] if sro_ta else [sro]])
+        if r == "NOTEXT":
+            comments.append("Execution place boxes not found - fill by hand")
+        else:
+            comments.append(f"Execution place filled by box order ({sro} / {sro_ta or '-'}) - check")
     shown = page.evaluate("""()=>{const s=[...document.querySelectorAll('select')].find(e=>{if(!e.offsetParent)return false;let p=e.parentElement,l='';for(let i=0;i<3&&p&&!l;i++){const x=p.querySelector('label');if(x)l=x.innerText;p=p.parentElement}return /Sub Registrar Office/i.test(l)});
         return s?((s.selectedOptions[0]||{}).text||''):''}""")
     if shown and sro and nz(sro)[:6] not in nz(shown):
