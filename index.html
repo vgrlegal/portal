@@ -1754,8 +1754,12 @@ function cpWaste(U){/* wasted = the same case + file read again within 6 h, a re
   const cut=u=>u.cut!==undefined?!!u.cut:(+u.outTok||0)>=(LIM[u.kind]||3000)-5;
   return u=>{const c=caseOfRef(u.ref);return rep.has(u)?"read again":cut(u)?"reply cut off":c&&(c.notCase||c.mergedInto)?"case removed / merged":""}}
 function cpArea(u){const c=caseOfRef(u.ref);if(c)return areaOfCase(c);return u.kind==="modt_case"?"modt":["modt","classify","english","tamil"].includes(u.kind)?"dor":"other"}
-async function renderClaudePlan(){const box=$("claudeBox");if(!box||!isMD)return;
-  const off=cfg.claudeOff||{},pays=(cfg.claudePay||[]).slice().sort((a,b)=>String(b.date).localeCompare(String(a.date)));
+/* Claude payments are money: kept in usage/_claude_pay (Admin only - staff can read config, not this) */
+let CPAY=null;
+async function loadPay(){try{const s=await db.doc("usage/_claude_pay").get();CPAY=(s.exists&&(s.data()||{}).list)||[]}catch(e){CPAY=CPAY||[]}}
+async function savePay(list){try{await db.doc("usage/_claude_pay").set({list,savedAt:nowISO(),by:me||""});CPAY=list}catch(e){fail(e)}}
+async function renderClaudePlan(){const box=$("claudeBox");if(!box||!isMD)return;if(CPAY===null)await loadPay();
+  const off=cfg.claudeOff||{},pays=(CPAY||[]).slice().sort((a,b)=>String(b.date).localeCompare(String(a.date)));
   const ist=t=>new Date(new Date(t).getTime()+19800000).toISOString().slice(0,10),today=ist(Date.now());
   const from=CP.range==="today"?today:CP.range==="7d"?ist(Date.now()-6*86400000):today.slice(0,8)+"01";
   const rs=v=>"₹"+(v*USD_INR).toLocaleString("en-IN",{maximumFractionDigits:v*USD_INR<10?1:0});
@@ -1767,9 +1771,9 @@ async function renderClaudePlan(){const box=$("claudeBox");if(!box||!isMD)return
    <div class="card" style="margin-top:14px"><h2>Storage clean-up</h2><p class="sf-note">Last clean-up: ${cfg.cleanAt?esc(new Date(cfg.cleanAt).toLocaleString("en-IN")):"never"}. Every ${CLEAN_DAYS} days the Dashboard reminds you. Removes only the TP Desk's old working data (finished jobs, saved screens, screen notes, survey screenshots, recordings) - never cases or documents, and nothing of an open case.</p><button type="button" class="btn" id="cpClean">🧹 Clean up now</button></div>
    <div class="card" style="margin-top:14px"><h2>Use and waste</h2><div style="display:flex;gap:6px;margin-bottom:8px">${[["today","Today"],["7d","Last 7 days"],["month","This month"]].map(([k,l])=>`<button type="button" class="btn ${CP.range===k?"primary":""}" data-cprange="${k}">${l}</button>`).join("")}</div><div id="cpUse"><p class="sf-note">Loading…</p></div></div>`;
   box.querySelectorAll("[data-cpsw]").forEach(b=>b.onclick=async()=>{const k=b.dataset.cpsw,now={...(cfg.claudeOff||{}),[k]:!(cfg.claudeOff||{})[k]};b.disabled=true;await saveCfg({...cfg,claudeOff:now});toast(`Claude for ${k==="modt"?"MODT":"Deed of Receipt"} is ${now[k]?"OFF":"ON"}`);renderClaudePlan()});
-  box.querySelectorAll("[data-cpdel]").forEach(b=>b.onclick=()=>ask("Delete this payment entry?",`<p class="sf-note">Only the entry in this list is removed.</p>`,async()=>{await saveCfg({...cfg,claudePay:(cfg.claudePay||[]).filter(p=>p.id!==b.dataset.cpdel)});renderClaudePlan()},"Delete"));
+  box.querySelectorAll("[data-cpdel]").forEach(b=>b.onclick=()=>ask("Delete this payment entry?",`<p class="sf-note">Only the entry in this list is removed.</p>`,async()=>{await savePay((CPAY||[]).filter(p=>p.id!==b.dataset.cpdel));renderClaudePlan()},"Delete"));
   $("cpAdd").onclick=async()=>{const date=$("cpDate").value,amt=+$("cpAmt").value;if(!date||!(amt>0)){toast("Enter the date and the amount");return}
-    await saveCfg({...cfg,claudePay:[...(cfg.claudePay||[]),{id:uuid(),date,amt,note:$("cpNote").value.trim(),by:me||"",at:nowISO()}]});toast("Payment added");renderClaudePlan()};
+    await savePay([...(CPAY||[]),{id:uuid(),date,amt,note:$("cpNote").value.trim(),by:me||"",at:nowISO()}]);toast("Payment added");renderClaudePlan()};
   box.querySelectorAll("[data-cprange]").forEach(b=>b.onclick=()=>{CP.range=b.dataset.cprange;renderClaudePlan()});$("cpClean").onclick=cleanUp;
   let U=[];try{const fromUtc=new Date(new Date(from+"T00:00:00+05:30").getTime()).toISOString();const{data}=await window.__sb.from("kv").select("data").eq("collection","usage").gte("data->>at",fromUtc).limit(5000);U=(data||[]).map(r=>r.data)}catch(e){$("cpUse").innerHTML=`<p class="banner">Could not load the use: ${esc(e.message||e)}</p>`;return}
   const usd=u=>+u.usd||aiUsd(u),why=cpWaste(U),D={},C={},A={modt:"MODT",dor:"Deed of Receipt",legal:"Legal report",other:"Other (KYC Master, no case)"};let tot=0,waste=0;
@@ -1779,7 +1783,7 @@ async function renderClaudePlan(){const box=$("claudeBox");if(!box||!isMD)return
   /* 13 Nov 2026: old readings do not record their case - show about how many cases were made that day instead (marked ~) */
   const MADE={};cases.forEach(c=>{if(!c.createdAt||c.notCase||c.mergedInto)return;const k=ist(c.createdAt),a=areaOfCase(c);if(a!=="modt"&&a!=="dor")return;(MADE[k]||(MADE[k]={modt:0,dor:0}))[a]++});
   const cpN=(day,v,a)=>v[a].size?String(v[a].size):v.nc&&(MADE[day]||{})[a]?`<span title="About: cases made that day (these readings did not record their case)" style="color:var(--muted)">~${MADE[day][a]}</span>`:"0";
-  const paidM=(cfg.claudePay||[]).filter(p=>String(p.date).slice(0,7)===today.slice(0,7)).reduce((t,p)=>t+(+p.amt||0),0);
+  const paidM=(CPAY||[]).filter(p=>String(p.date).slice(0,7)===today.slice(0,7)).reduce((t,p)=>t+(+p.amt||0),0);
   const kv=(l,v)=>`<div class="kv"><span>${l}</span><b>${v}</b></div>`;
   $("cpUse").innerHTML=`<div class="kvs">${kv("Spent",rs(tot)+` · ${U.length} readings`)}${kv("Wasted",`<span style="color:${waste?"#b42318":""}">${rs(waste)}</span> (read again, reply cut off, removed case)`)}${kv("Paid this month",paidM?"₹"+paidM.toLocaleString("en-IN"):"-")}</div>
     <h3 style="margin:12px 0 4px">Each day</h3><div style="overflow-x:auto"><table class="mini"><tr><th>Day</th><th class="c">MODT cases</th><th class="c">MODT cost</th><th class="c">Receipt cases</th><th class="c">Receipt cost</th><th class="c">Other</th><th class="c">Readings</th><th class="c">Wasted</th></tr>
@@ -2524,6 +2528,10 @@ $("clientSave").onclick=()=>{const L=readClients();const bad=L.find(c=>!c.email|
   saveCfg({...cfg,clients:L})};
 $("paySave").onclick=()=>saveCfg({...cfg,pay:{account:$("pay_account").value.trim(),upi:fv("pay_upi"),link:fv("pay_link"),service:fv("pay_service")}});
 let CFG_OK=false;
+/* 13 Nov 2026: settings saved and read as a WHOLE - before, only the old fields were written, so the Claude plan
+   switches (claudeOff), payments (claudePay), clean-up date (cleanAt) and Show money were lost and came back ON. */
+const cfgFrom=d=>({...(d||{}),banks:d.banks||[],staff:(d.staff||[]).map(staffObj),types:(d.types&&d.types.length)?d.types:DEFAULT_TYPES.slice(),pay:d.pay||{},profiles:d.profiles||{},wit:d.wit||[],clients:d.clients||[],rules:d.rules||[],domains:d.domains||{}});
+const cfgDoc=n=>{const o={...n,banks:n.banks,staff:(n.staff||[]).map(staffObj),types:n.types,pay:n.pay||{},profiles:n.profiles||{},wit:n.wit||[],clients:n.clients||[],rules:n.rules||[],domains:n.domains||{}};delete o.claudePay;Object.keys(o).forEach(k=>o[k]===undefined&&delete o[k]);return o};
 async function saveCfg(n){if(!db){toast("Sign in to save");return}if(!CFG_OK){toast("Settings are still loading. Try again in a moment.");return}
   if(!isMD&&!isAdmin){if(!isPartner()){toast("Only the Admin can change settings");return}
     const{error}=await window.__sb.rpc("partner_save_people",{wit:n.wit||[],profiles:n.profiles||{}});if(error){toast("Not saved: "+error.message);return}
@@ -2531,7 +2539,7 @@ async function saveCfg(n){if(!db){toast("Sign in to save");return}if(!CFG_OK){to
   const old=cfg;if((old.staff||[]).length+(old.banks||[]).length+(old.wit||[]).length&&!((n.staff||[]).length+(n.banks||[]).length)){toast("Not saved: this would empty the staff and company lists.");return}
   try{if((old.banks||[]).length)await db.doc("config/lists_prev_"+new Date().toISOString().slice(0,10)).set({...old,staff:(old.staff||[]).map(staffObj),savedAt:nowISO()})}catch(e){}
   cfg=n;fillStatic();render();
-  try{await db.doc("config/lists").set({banks:n.banks,staff:n.staff.map(staffObj),types:n.types,pay:n.pay||{},profiles:n.profiles||{},wit:n.wit||[],clients:n.clients||[],rules:n.rules||[],domains:n.domains||{}});toast("Saved")}catch(err){fail(err)}}
+  try{await db.doc("config/lists").set(cfgDoc(n));toast("Saved")}catch(err){fail(err)}}
 function fillStatic(){
 
   const names=[...(isMD?[MD_NAME]:[]),...cfg.staff.map(s=>staffObj(s).name).filter(n=>!(isMD&&n===MD_NAME))],mv=me;
@@ -3531,7 +3539,7 @@ setInterval(()=>{if(!$("v-list").hidden||!$("v-dash").hidden)render()},60000);
     if(isMD){$("mdBadge").hidden=false;if(!me||me===MD_OLD){me=MD_NAME;lsSet("vgr.me",me)}}}
   const timer=setTimeout(()=>{if(!cases.length)$("empty").innerHTML="<h2>Can't reach the case list yet</h2>Check your internet connection. It will load on its own once connected."},10000);
   db.doc("config/lists").onSnapshot(s=>{const d=s.exists?s.data():{};
-    CFG_OK=true;cfg={banks:d.banks||[],staff:(d.staff||[]).map(staffObj),types:(d.types&&d.types.length)?d.types:DEFAULT_TYPES.slice(),pay:d.pay||{},profiles:d.profiles||{},wit:d.wit||[],clients:d.clients||[],rules:d.rules||[],domains:d.domains||{}};
+    CFG_OK=true;cfg=cfgFrom(d);
     myStaff=!isMD&&SELF_EMAIL?cfg.staff.find(x=>x.email&&x.email.toLowerCase()===SELF_EMAIL)||null:null;if(myStaff)me=myStaff.name;
     applyBrand();if(!["dash","__all","__set","__reg","__tools","__sro","__ppl","__team","__rep","__claude"].includes(tab)&&!cfg.types.includes(tab))tab="dash";fillStatic();render()},()=>{});
   db.doc("tp_jobs/_worker").onSnapshot(s=>{const w=s.exists?(s.data()||{}):{};W.at=w.at||null;W.busy=w.busy||[];W.tn=w.tnOk;if(!$("tpbar").hidden)renderHelperChip()},()=>{});

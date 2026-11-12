@@ -175,5 +175,13 @@ check("TP jobs carry the organisation (partner laptops take only their own)",(ht
  const vis=html.replace(/<meta name="robots"[^>]*>/,"").replace(/\b(?:TP )?\[Rr\]obot\\b/,"").replace(/add\("robot",/,"");
  check("no visible 'robot' word in the portal",(vis.match(/\b[Rr]obot\b|\bROBOT\b/g)||[]).length,0);
  check("old saved text shows TP Desk",eval(html.match(/const esc=(s=>[^\n]*?\}\[c\]\)\))/)[1])("TP robot · daily check / Robot question answered / the robot stopped"),"TP Desk · daily check / TP Desk question answered / the TP Desk stopped");}
+{/* 13 Nov 2026: Claude plan switch went back ON - settings must be saved and read whole */
+ const staffObj=x=>x,DEFAULT_TYPES=["MODT"];const g=k=>eval(html.match(new RegExp("const "+k+"=[^\\n]*"))[0].replace("const "+k+"=","(").replace(/;\s*$/,"")+")");
+ const cfgFrom=g("cfgFrom"),cfgDoc=g("cfgDoc");
+ const d=cfgDoc({banks:[1],staff:[],types:["MODT"],claudeOff:{modt:true},cleanAt:"2026-11-13",showMoney:true,claudePay:[{amt:5}],x:undefined});
+ check("save keeps the Claude switches, clean-up date, Show money",[d.claudeOff,d.cleanAt,d.showMoney],[{modt:true},"2026-11-13",true]);
+ check("payments never go into settings (staff can read settings)",("claudePay" in d)||("x" in d),false);
+ check("read keeps the Claude switches",cfgFrom({claudeOff:{dor:true}}).claudeOff,{dor:true});
+ check("Claude payments kept Admin-only (usage/_claude_pay)",/db\.doc\("usage\/_claude_pay"\)\.set/.test(html)&&!/cfg\.claudePay/.test(html),true);}
 check("Clean-up never touches cases or documents",/async function cleanPlan\(/.test(html)&&!/from\("kv"\)\.delete\(\)\.eq\("collection","cases"\)/.test(html),true);
 
