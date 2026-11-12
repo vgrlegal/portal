@@ -202,7 +202,12 @@ class Job:
             return False
         self._cc = time.time()
         try:
-            return kv_status("tp_jobs", self.id) in ("cancel", "cancelled")
+            # 12 Nov 2026: the same small read also says whether the Admin is watching (live screen in the portal)
+            r = HTTP.get(f"{SB}/rest/v1/kv", headers=H, params={"collection": "eq.tp_jobs", "id": f"eq.{self.id}", "select": "st:data->>status,w:data->>watch"}, timeout=20)
+            r.raise_for_status()
+            row = (r.json() or [{}])[0] or {}
+            self.watching = str(row.get("w") or "").lower() == "true"
+            return row.get("st") in ("cancel", "cancelled")
         except Exception as e:
             log(self.id[:8], "status poll failed:", e)
             return False
@@ -274,6 +279,13 @@ class Portal:
         time.sleep(s)
         if self.job.cancelled():
             raise Stop("Stopped from the portal")
+        # 12 Nov 2026: "Watch robot" (Admin) - a fresh TNREGINET screen every 3 s while someone watches; nothing is clicked
+        if getattr(self.job, "watching", False) and time.time() - getattr(self.job, "_live", 0) >= 3:
+            self.job._live = time.time()
+            try:
+                kv_set("tp_shots", self.job.id, {"shot": "data:image/jpeg;base64," + base64.b64encode(self.p.screenshot(type="jpeg", quality=50, full_page=False)).decode(), "at": now(), "live": True})
+            except Exception as e:
+                log(self.job.id[:8], "live shot failed:", e)
 
     def popup_ok(self):
         """Read and accept TNREGINET pop-ups (OK / Yes - e.g. 'Is the Mortgagor also going to execute ... Proceed?')."""

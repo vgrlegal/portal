@@ -157,3 +157,5 @@ check("login IDs: added date, newest first, Duplicate mark",/created_at/.test(ht
 check("Sheet name box removed from Drafting",/"Sheet name"/.test(html),false);
 check("New captcha button next to every captcha box",(html.match(/\$\{capNewBtn\(/g)||[]).length,4);
 
+check("Watch robot: Admin-only button, live screen refresh",/isMD&&!ended&&j\.status!=="cancel"\)h\+=`<div style="margin-top:8px"><button type="button" class="btn" id="rvWatch">/.test(html)&&/function liveWatch\(/.test(html),true);
+

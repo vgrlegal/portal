@@ -2156,6 +2156,10 @@ function repAsk(c){if(!isRD(c.type)||!isAdmin)return"";const r=repOf(c,c.tp||{})
     <button type="button" class="btn primary" id="repOk" style="margin-top:6px">✓ Yes, exactly as Aadhaar</button> <span class="sf-note">If not, correct it in Settings → Clients → ${esc(c.bank)}; every open case of this company updates.</span></div>`}
 const mmss=x=>{x=+x||0;return x>=60?Math.floor(x/60)+"m "+(x%60)+"s":x+"s"};
 function tmHtml(t){if(!t||!t.steps)return"";return`<details style="margin-top:6px"><summary style="cursor:pointer;font-size:13px">⏱ Time taken: ${mmss(t.total)}</summary><table class="mini" style="margin-top:4px">${t.steps.filter(x=>x.sec>0).map(x=>`<tr><td>${esc(x.step)}</td><td class="r">${mmss(x.sec)}</td></tr>`).join("")}</table></details>`}
+function liveWatch(id,on){W.live=W.live||{};if(!on){if(W.live[id]){clearInterval(W.live[id]);delete W.live[id]}return}if(W.live[id])return;
+  const tick=async()=>{const dz=document.querySelector(`[data-shot="${CSS.escape(id)}"]`);if(!dz){clearInterval(W.live[id]);delete W.live[id];return}
+    try{const r=await db.doc("tp_shots/"+id).get();const v=r.exists&&r.data()||{};if(v.shot){dz.open=true;dz.querySelector("img").src=v.shot;const t=$("rvLiveAt");if(t&&v.at)t.textContent="screen at "+new Date(v.at).toLocaleTimeString("en-IN")}}catch(e){}};
+  tick();W.live[id]=setInterval(tick,3000)}
 function watchJob(c,id){if(W.unsub)W.unsub();const box=$("rvJob")||$("rvLogin");
   W.unsub=db.doc("tp_jobs/"+id).onSnapshot(s=>{const j=s.exists?s.data():{};if(!$("rvLogin")){W.unsub&&W.unsub();W.unsub=null;return}
     if(j.status==="translate"&&j.toEnglish&&!j.english&&W.trReq!==j.trId){W.trReq=j.trId;
@@ -2168,7 +2172,8 @@ function watchJob(c,id){if(W.unsub)W.unsub();const box=$("rvJob")||$("rvLogin");
     {const run=/^(filling|starting|translate)$/i.test(j.status||""),age=j.at?(Date.now()-new Date(j.at).getTime())/1000:0;
       if(run&&age>120)h+=`<p class="banner" style="background:#fff4e5;color:#7a4a00">⏳ No progress for ${Math.round(age/60)} min at “${esc(j.step||"?")}”. The robot may be stuck on this TNREGINET screen — open “Latest TNREGINET screen” below. If nothing moves, press Stop this TP and send the screen to Claude.</p>`}
     if(j.status==="captcha"&&j.captchaImg)h+=`<div class="capt"><img src="${j.captchaImg}" alt="Captcha from TNREGINET"><input id="rvCapIn" placeholder="Type the code" autocomplete="off"><button type="button" class="btn primary" id="rvCapGo">Sign in</button>${capNewBtn(id)}</div>`;
-    if(j.shotAt||j.shot)h+=`<details style="margin-top:8px" data-shot="${esc(id)}"><summary style="cursor:pointer;font-size:13px">Latest TNREGINET screen</summary><img src="${j.shot||""}" alt="TNREGINET screen" style="width:100%;border:1px solid var(--line);border-radius:8px;margin-top:6px"></details>`;
+    if(isMD&&!ended&&j.status!=="cancel")h+=`<div style="margin-top:8px"><button type="button" class="btn" id="rvWatch">${j.watch?"⏹ Stop watching":"👁 Watch robot (live screen)"}</button>${j.watch?` <span class="sub" id="rvLiveAt">live screen every few seconds…</span>`:""}</div>`;
+    if(j.shotAt||j.shot||j.watch)h+=`<details style="margin-top:8px" data-shot="${esc(id)}"${j.watch?" open":""}><summary style="cursor:pointer;font-size:13px">Latest TNREGINET screen</summary><img src="${j.shot||""}" alt="TNREGINET screen" style="width:100%;border:1px solid var(--line);border-radius:8px;margin-top:6px"></details>`;
     if(stale&&!["done","error","cancelled","review"].includes(j.status))h+=`<p class="banner">No news from the TP computer for a while. Check that the Mac is on, then start again.</p>`;
     h+=`<div style="margin-top:8px;display:flex;gap:6px">${!ended&&j.status!=="cancel"?`<button type="button" class="btn danger" id="rvCancelJob">Stop this TP</button>`:""}${ended||j.status==="cancel"?`<button type="button" class="btn primary" id="rvRetry">${/^TP\//.test(j.tpNo||c.tpNo||"")?"Upload documents again":"Start TP again"}</button>`:""}</div>`;
     tgt.innerHTML=(tgt.id==="rvLogin"?`<div class="sect">Generate TP on TNREGINET</div>`:"")+h;
@@ -2177,6 +2182,9 @@ function watchJob(c,id){if(W.unsub)W.unsub();const box=$("rvJob")||$("rvLogin");
     if($("rvCapGo")){$("rvCapIn").focus();$("rvCapIn").onkeydown=e=>{if(e.key==="Enter"){e.preventDefault();$("rvCapGo").click()}};
       $("rvCapGo").onclick=async()=>{const t=fv("rvCapIn");if(!t)return;$("rvCapGo").disabled=true;await db.doc("tp_jobs/"+id).update({captcha:t,status:"captcha_sent"})}}
     if($("rvCancelJob"))$("rvCancelJob").onclick=()=>db.doc("tp_jobs/"+id).update({status:"cancel",at:nowISO()});
+    /* 12 Nov 2026: Admin "Watch robot" - the robot sends its TNREGINET screen every ~3 s while watched; shown here, refreshed */
+    if($("rvWatch"))$("rvWatch").onclick=async()=>{$("rvWatch").disabled=true;try{await db.doc("tp_jobs/"+id).update({watch:!j.watch})}catch(e){toast(e.message||String(e));$("rvWatch").disabled=false}};
+    liveWatch(id,!!j.watch&&!ended);
     if($("rvRetry"))$("rvRetry").onclick=async()=>{if(!["done","error","cancelled","review"].includes(j.status))await db.doc("tp_jobs/"+id).update({status:"cancelled",message:"Stopped from the portal"}).catch(()=>{});
       if(W.unsub){W.unsub();W.unsub=null}const cur=cases.find(x=>x._doc===c._doc)||c;cloudTp(cur,true)};
   },()=>{})}
