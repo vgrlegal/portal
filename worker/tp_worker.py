@@ -3098,7 +3098,7 @@ def survey_question(job, q, shot, options=None, field=None):
 
 # 12 Nov 2026: what TNREGINET's survey screen really has (kept with the job when the survey list is not found)
 SURVEY_DIAG_JS = "()=>{" + VIS_JS + r"""const h=textEl(/^Survey Detail$/i)||textEl(/^Property Survey Details$/i);
-  const sel=[...document.querySelectorAll('select')].filter(x=>!h||(h.compareDocumentPosition(x)&Node.DOCUMENT_POSITION_FOLLOWING)).slice(0,10).map(x=>{let l='';let p=x.parentElement;for(let i=0;i<3&&p&&!l;i++,p=p.parentElement){const q=p.querySelector('label');if(q)l=q.innerText.trim()}
+  const sel=[...document.querySelectorAll('select')].filter(x=>!h||(h.compareDocumentPosition(x)&Node.DOCUMENT_POSITION_FOLLOWING)||/survey|sub|street|ward|block|natham|rural|urban|approval|land/i.test(x.id+' '+x.name)).slice(0,25).map(x=>{let l='';let p=x.parentElement;for(let i=0;i<3&&p&&!l;i++,p=p.parentElement){const q=p.querySelector('label');if(q)l=q.innerText.trim()}
     const w=x.nextElementSibling;return {id:x.id,name:x.name,label:l.slice(0,40),vis:vis(x),display:getComputedStyle(x).display,ok:selOk(x),next:w?(w.tagName+'.'+String(w.className||'').slice(0,40)+(vis(w)?' vis':'')):'',n:x.options.length,opts:[...x.options].slice(0,8).map(o=>o.text.trim()).join('|')}});
   const rad=[...document.querySelectorAll('input[type=radio]')].filter(e=>vis(e)||vis(e.parentElement)).map(e=>({id:e.id,name:e.name,v:e.value,c:e.checked,on:(e.getAttribute('onclick')||e.getAttribute('onchange')||'').slice(0,80),l:labelOf(e).slice(0,24)}));
   const tb=[...document.querySelectorAll('table')].filter(x=>vis(x)&&x.rows[0]&&/Survey/i.test(x.rows[0].innerText)).map(x=>x.innerText.replace(/\s+/g,' ').slice(0,240));
