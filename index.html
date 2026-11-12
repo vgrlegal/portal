@@ -465,7 +465,8 @@ tr.hf input,tr.hf select{font-size:12.5px;padding:5px 7px;margin:2px 0}
       <div class="card" data-part="set"><h2>Clients · Banks &amp; NBFCs</h2><p>Companies that send work.</p><details class="fold"><summary id="banksSum">Companies</summary><input id="bankQ" class="fq" placeholder="Search company…"><div class="chips" id="ch-banks"></div></details><form class="addline" data-k="banks"><input placeholder="e.g. Lendingkart Finance"><button class="btn primary">Add</button></form></div>
       <div class="card" data-part="tools"><h2>Payment details</h2><p>Used in the WhatsApp payment message to customers.</p>
         <div class="fgrid"><label class="full">Account details<textarea id="pay_account" placeholder="Account name, number, IFSC, bank"></textarea></label><label>UPI ID<input id="pay_upi"></label><label>Default service charge (₹)<input id="pay_service" type="number" min="0"></label><label class="full">Payment link (optional)<input id="pay_link" placeholder="https://"></label></div>
-        <div style="margin-top:10px"><button class="btn primary" id="paySave" type="button">Save payment details</button></div></div>
+        <div style="margin-top:10px"><button class="btn primary" id="paySave" type="button">Save payment details</button></div>
+        <label style="display:flex;gap:8px;align-items:center;margin-top:14px;font-size:14px" id="moneyRow"><input type="checkbox" id="showMoney" style="width:18px;height:18px;margin:0"> Show money on screens: fees to collect, service charge and Claude cost (Admin switch; when off they are hidden, nothing is deleted)</label></div>
       <div class="card" data-part="reg" style="grid-column:1/-1"><h2>TNREGINET login IDs</h2><p>The password is saved but can never be shown again, not even to the Admin; only the TP computer uses it. MODT IDs are used for any company; Receipt IDs belong to one company and are never used for MODT.</p>
         <div class="grid2" style="gap:14px"><div><h3 style="margin:4px 0">MODT logins</h3><div id="tnListM"></div></div><div><h3 style="margin:4px 0">Receipt logins</h3><input id="tnQ" class="fq" placeholder="Type a company name to see its login IDs…"><div id="tnList"></div></div></div>
         <div id="tnImp" style="margin-top:10px"><label class="btn" for="tnCsv">⬆ Import from Chrome passwords (CSV)</label><input type="file" id="tnCsv" accept=".csv,text/csv" hidden>
@@ -1162,7 +1163,9 @@ function bioP(c){if(isRD(c.type))return BIO_P;const d=c.draft||{},n=Math.min(4,M
   const out=[];for(let i=1;i<=n;i++)out.push(["th"+i,`Title holder ${n>1?i:""}${d[`Mortgagor ${i} name`]?" · "+d[`Mortgagor ${i} name`]:""}`.replace("holder  ","holder ")]);
   [1,2].forEach(i=>{const nm=d[`Witness ${i} name`]||(cw[i]||cw[String(i)]||{}).name||"";out.push(["w"+i,`Witness ${i}${nm?" · "+nm:""}`])});return out}
 /* fees to collect: TNREGINET's fees (read by the robot before Create Document) + ₹100 a page above 10 pages of the print + service charge */
-function feesHtml(c){const f=c.fees||{},it=f.items||{},r=(l,v,b)=>`<div class="kv"><span>${esc(l)}</span>${b?`<b>${esc(v)}</b>`:`<span>${esc(v)}</span>`}</div>`,m=v=>"₹"+Number(v||0).toLocaleString("en-IN");
+/* 12 Nov 2026: money on screens (fees to collect, service charge, Claude cost) only when the Admin turns it on in Settings (off for now); data is kept */
+const MONEY=()=>!!(cfg&&cfg.showMoney);
+function feesHtml(c){if(!MONEY())return"";const f=c.fees||{},it=f.items||{},r=(l,v,b)=>`<div class="kv"><span>${esc(l)}</span>${b?`<b>${esc(v)}</b>`:`<span>${esc(v)}</span>`}</div>`,m=v=>"₹"+Number(v||0).toLocaleString("en-IN");
   const ck=Object.keys(it).find(k=>/computer/i.test(k));
   return `<div class="sect">Fees to collect${f.tp?" · "+esc(f.tp):""}</div><div class="kvs">`+Object.entries(it).map(([k,v])=>r(k,m(+v+(k===ck?f.extraFee||0:0))+(k===ck&&f.extraFee?` (incl. ${f.extraPages} page(s) above 10 × ₹100)`:""))).join("")+
     (!ck&&f.extraFee?r("Computer fee · extra pages",`${m(f.extraFee)} (${f.pages} pages, ${f.extraPages} above 10 × ₹100)`):"")+
@@ -1558,12 +1561,12 @@ async function renderReport(){const mEl=$("repMonth");if(!mEl.value)mEl.value=ne
   REP_ROWS=Object.values(P).filter(r=>okOrg(r.org)).sort((a,b)=>a.org.localeCompare(b.org)||b.created+b.tp-a.created-a.tp);
   const tot=REP_ROWS.reduce((t,r)=>{["created","drafted","tp","done","ocr","img","usd"].forEach(k=>t[k]+=r[k]);return t},{created:0,drafted:0,tp:0,done:0,ocr:0,img:0,usd:0});
   const on=o=>o==="vgr"?"VGR Legal":(ORGS[o]||{}).name||o;
-  const C=isMD;/* Claude reading count, pages and cost: Admin only */
+  const C=isMD&&MONEY();/* Claude reading count, pages and cost: Admin only, and only when money is shown */
   $("repTbl").innerHTML=`<tr><th>Person</th><th>Organisation</th><th class="c">Cases created</th><th class="c">Drafts done</th><th class="c">TPs made</th><th class="c">Completed</th>${C?`<th class="c">Claude readings</th><th class="c">Pages read</th><th class="c">Cost (₹, approx.)</th>`:""}</tr>`+
     REP_ROWS.map(r=>`<tr><td>${esc(r.name)}</td><td>${esc(on(r.org))}</td><td class="c">${r.created}</td><td class="c">${r.drafted}</td><td class="c">${r.tp}</td><td class="c">${r.done}</td>${C?`<td class="c">${r.ocr}</td><td class="c">${r.img}</td><td class="c">${Math.round(r.usd*USD_INR)}</td>`:""}</tr>`).join("")+
     `<tr style="font-weight:700"><td>Total</td><td></td><td class="c">${tot.created}</td><td class="c">${tot.drafted}</td><td class="c">${tot.tp}</td><td class="c">${tot.done}</td>${C?`<td class="c">${tot.ocr}</td><td class="c">${tot.img}</td><td class="c">${Math.round(tot.usd*USD_INR)}</td>`:""}</tr>`;
   $("repNote").textContent=`People in this view: ${REP_ROWS.filter(r=>r.name!=="Mail (auto)").length}.`+(C?` Claude reading is counted from 9 Nov 2026; cost is worked out to match the Claude Console bill, in ₹ as charged to the card (≈ ₹${USD_INR} per $ incl. GST).`:"");
-  renderTime(from,to,want,on);if(isMD)renderAiCost(usage,mon);
+  renderTime(from,to,want,on);if(isMD&&MONEY())renderAiCost(usage,mon);else if($("aiCard"))$("aiCard").hidden=true;
   $("repCsv").onclick=()=>{const h=["Person","Organisation","Cases created","Drafts done","TPs made","Completed","Claude readings","Pages read","Cost INR approx"];
     if(!C)h.length=6;const csv=[h,...REP_ROWS.map(r=>[r.name,on(r.org),r.created,r.drafted,r.tp,r.done,r.ocr,r.img,Math.round(r.usd*USD_INR)].slice(0,C?9:6))].map(a=>a.map(x=>`"${String(x).replace(/"/g,'""')}"`).join(",")).join("\n");
     const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([csv],{type:"text/csv"}));a.download=`VGR report ${mon}.csv`;a.click()}}
@@ -2121,6 +2124,7 @@ function renderSettings(){
   $("staffAdd").hidden=ro;$("staffSave").hidden=ro;renderMasters(ro);loginStatus();$("bakCard").hidden=!isMD;$("bankQ").dispatchEvent(new Event("input"));if($("rulesSum"))$("rulesSum").textContent=`${(cfg.rules||[]).length} rules · tap to open`;
   renderClients(ro);renderRules(ro);
   const p=cfg.pay||{};["account","upi","link","service"].forEach(k=>{$("pay_"+k).value=p[k]||"";$("pay_"+k).disabled=ro});$("paySave").hidden=ro;
+  if($("showMoney")){$("moneyRow").hidden=!isMD;$("showMoney").checked=MONEY();$("showMoney").onchange=async e=>{await saveCfg({...cfg,showMoney:e.target.checked});toast(e.target.checked?"Money is shown on screens":"Money is hidden on screens")}}
   tnRender(ro);renderStageTool();
   const PART=tab==="__reg"?"reg":tab==="__tools"?"tools":"set",onlyStage=isPartner()&&!isMD&&!isAdmin;
   const roleHide={clientCard:!isMD,rulesCard:!(isMD||isAdmin),bakCard:!isMD,stageCard:false};
