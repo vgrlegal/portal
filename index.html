@@ -1114,7 +1114,8 @@ const DOMAIN_SEED={"janabank.com":"Jana Small Finance Bank Limited","muthootgrou
   "iifl.com":"IIFL Home Finance Limited","iiflhomeloans.com":"IIFL Home Finance Limited","dcbbank.com":"DCB Bank Limited","poonawallafincorp.com":"Poonawalla Fincorp Limited","protium.co.in":"Protium Finance Limited",
   "clix.capital":"Clix Capital Services Private Limited","veritasfin.in":"Veritas Finance Limited","ltfs.com":"L&T Finance Limited","lendingkart.com":"Lendingkart Finance Limited","smfgindia.com":"SMFG India Credit Company Limited",
   /* 12 Nov 2026: full TNREGINET names (were made from Gmail labels as "Ugro" / "Yes Bank") */
-  "ugrocapital.com":"UGRO Capital Limited","yes.bank.in":"Yes Bank Limited","yesbank.in":"Yes Bank Limited"};
+  "ugrocapital.com":"UGRO Capital Limited","yes.bank.in":"Yes Bank Limited","yesbank.in":"Yes Bank Limited",
+  "chola.murugappa.com":"Cholamandalam Investment and Finance Company Limited","cholams.murugappa.com":"Cholamandalam Investment and Finance Company Limited"};
 const FREE_MAIL=/^(gmail\.com|yahoo\.|outlook\.|hotmail\.|rediffmail\.|opinionandownership\.(in|com)|vgrlegal\.in)/i;
 function domOf(addr){const m=String(addr||"").match(/@([\w.-]+)/);return m?m[1].toLowerCase():""}
 function bankOfDomain(d){if(!d||FREE_MAIL.test(d))return"";const map={...(cfg.domains||{}),...DOMAIN_SEED};/* the fixed list wins over names learned from labels */for(const k of Object.keys(map))if(d===k||d.endsWith("."+k))return cfg.banks.includes(map[k])||!DOMAIN_SEED[k]?map[k]:(cfg.banks.find(b=>b===map[k])||map[k]);return""}
@@ -1167,9 +1168,11 @@ async function autoMergeDups(){if(!(isMD||isAdmin))return;const rd=cases.filter(
 /* 12 Nov 2026: old bank names made from Gmail labels -> full TNREGINET names (bank list, learned domains, cases).
    Runs once in an Admin window, after a backup of the settings. */
 const BANK_RENAME={"Ugro":"UGRO Capital Limited","Yes Bank":"Yes Bank Limited","Receipt-Auto/Logged":""};
-async function fixBankNames(){if(!isMD||!CFG_OK||!(cfg.banks||[]).some(b=>b in BANK_RENAME))return;
+/* companies the MD asked to add (exact TNREGINET government-body name) */
+const BANK_ADD=["Cholamandalam Investment and Finance Company Limited"];
+async function fixBankNames(){if(!isMD||!CFG_OK||!((cfg.banks||[]).some(b=>b in BANK_RENAME)||BANK_ADD.some(b=>!(cfg.banks||[]).includes(b))))return;
   try{const cur=(await db.doc("config/lists").get()).data()||{};const bk=await window.__sb.from("kv").upsert({collection:"config",id:"lists_backup_banknames",data:cur});if(bk.error)return;
-    const banks=[...new Set((cur.banks||[]).map(b=>b in BANK_RENAME?BANK_RENAME[b]:b).filter(Boolean))].sort((a,b)=>a.localeCompare(b));
+    const banks=[...new Set((cur.banks||[]).map(b=>b in BANK_RENAME?BANK_RENAME[b]:b).concat(BANK_ADD).filter(Boolean))].sort((a,b)=>a.localeCompare(b));
     const domains=Object.fromEntries(Object.entries(cur.domains||{}).map(([d,b])=>[d,b in BANK_RENAME?BANK_RENAME[b]:b]).filter(([,b])=>b));
     await saveCfg({...cfg,banks,domains});
     for(const c of cases.filter(c=>c.bank in BANK_RENAME&&BANK_RENAME[c.bank]))await patch(c,{bank:BANK_RENAME[c.bank]},`Bank name: ${c.bank} → ${BANK_RENAME[c.bank]}`)}catch(e){console.warn(e)}}
