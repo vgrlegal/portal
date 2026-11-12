@@ -54,6 +54,14 @@ with sync_playwright() as pw:
     check("single: Single Survey chosen", p.evaluate("()=>document.querySelectorAll('input[name=st]')[0].checked"), True)
     check("single: extent added", p.evaluate("()=>window.extAdded"), "555")
     p.close()
+    # the deleted row comes back after Linked Survey: deleted again, then the rows go in
+    p = b.new_page(); p.goto(URL + "#sep-back"); P = W.Portal(p, job); notes = []
+    try:
+        W.survey_tab(P, job, p, dict(D88), "Plot with Building", notes.append); err = ""
+    except W.Stop as e:
+        err = str(e)
+    check("row came back: deleted again and rows added", (err, len(p.evaluate("()=>rowsAdded")), any("came back" in n for n in notes)), ("", 2, True))
+    p.close()
     # row that never deletes: 4 tries, then stop and ask
     p = b.new_page(); p.goto(URL + "#sep"); P = W.Portal(p, job); asked.clear()
     p.evaluate("()=>{window.askDel=()=>{}}")

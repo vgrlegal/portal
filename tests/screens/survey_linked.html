@@ -21,9 +21,11 @@
 <table id="mt"><tr><th>Sr. No.</th><th>Mortgaged Survey Extent</th></tr></table>
 <div><label>Approved by</label><select id="appr"><option>- Select -</option><option>CMDA</option><option>DTCP</option><option>Local Body</option></select></div>
 <script>
-const SEP=location.hash==='#sep';
+const SEP=location.hash.startsWith('#sep'),BACK=location.hash==='#sep-back';let backDone=false;
+/* #sep-back: like TNREGINET on the 3rd Rajeswari run - the deleted row comes back once when Linked Survey is clicked */
+function comeBack(){if(BACK&&!backDone&&!document.getElementById('copied')){backDone=true;const r=lt.insertRow(1);r.id='copied';r.innerHTML='<td>1</td><td>Single Survey 20/2C1 2499.0 Sq.Ft</td><td></td><td><i class="fa fa-trash" onclick="askDel()">🗑</i></td>'}}
 /* TNREGINET (#sep): separate Survey No. / Sub Division boxes come only once Rural and Linked Survey are both really clicked */
-function lay(){const on=SEP&&document.querySelectorAll('input[name=st]')[1].checked&&document.querySelectorAll('input[name=u]')[2].checked;combined.style.display=on?'none':'';sep.style.display=on?'':'none'}lay();
+function lay(){comeBack();const on=SEP&&document.querySelectorAll('input[name=st]')[1].checked&&document.querySelectorAll('input[name=u]')[2].checked;combined.style.display=on?'none':'';sep.style.display=on?'':'none'}lay();
 document.querySelectorAll('input[name=u]').forEach(r=>r.addEventListener('click',lay));
 function askDel(){dm.style.display='block'}
 function subs(){sd.innerHTML='<option>- Select -</option>'+(sn.value==='20'?'<option>2B2</option><option>2C1A</option><option>2C2</option>':'<option>1</option>')}
