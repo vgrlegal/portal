@@ -11,11 +11,12 @@ src+=grab("const NOT_DOR_RE=","async function bankReads(){")+"\n";
 src+=grab("const DOCS={","\nconst docsFor=")+"\n"+grab("const docsFor=","\n")+"\n"+grab("function missingReq(","\n}\n")+"\n}\n";
 src="const flowOf=t=>/legal/i.test(t||'')?'legal':'modt';\n"+src;
 src+=grab("function modtUploads(","\n  return out}")+"\n  return out}\n";
+src+=grab("const DOC_NAME=","async function addDocs(")+"\n";
 src+=grab("function surveyClean(","\nasync function readModtCase(")+"\n";
 src+="const nowISO=()=>'2026-11-12T00:00:00Z',who=()=>'Test';\n"+grab("function settleQs(","\nfunction ")+"\n";
 src+=grab("async function doubtQs(","\n/* files are kept")+"\n";
 const MSTATES=(html.match(/MSTATES=\[[^\]]*\]/)||["MSTATES=[]"])[0];
-const T={};new Function("T",`const ${MSTATES};${src};T.parseSurvey=parseSurvey;T.partSurvey=partSurvey;T.modtCoAddr=modtCoAddr;T.lodBoxOf=lodBoxOf;T.dorDoneCheck=dorDoneCheck;T.custFromSubject=custFromSubject;T.NOT_DOR_RE=NOT_DOR_RE;T.dupPlan=dupPlan;T.missingReq=missingReq;T.modtUploads=modtUploads;T.surveyClean=surveyClean;T.settleQs=settleQs;T.doubtQs=doubtQs;T.svRowsOf=svRowsOf;T.svFix=svFix;T.legalSecurity=legalSecurity;T.secText=secText;T.deedProblems=deedProblems;T.applySecurity=applySecurity;T.legalBlock=legalBlock;`)(T);
+const T={};new Function("T",`const ${MSTATES};${src};T.parseSurvey=parseSurvey;T.partSurvey=partSurvey;T.modtCoAddr=modtCoAddr;T.lodBoxOf=lodBoxOf;T.dorDoneCheck=dorDoneCheck;T.custFromSubject=custFromSubject;T.NOT_DOR_RE=NOT_DOR_RE;T.dupPlan=dupPlan;T.missingReq=missingReq;T.modtUploads=modtUploads;T.surveyClean=surveyClean;T.settleQs=settleQs;T.doubtQs=doubtQs;T.svRowsOf=svRowsOf;T.svFix=svFix;T.legalSecurity=legalSecurity;T.secText=secText;T.deedProblems=deedProblems;T.applySecurity=applySecurity;T.legalBlock=legalBlock;T.lodParse=lodParse;T.lodSplit=lodSplit;T.lodRowsFromText=lodRowsFromText;T.lodBuild=lodBuild;T.lodSync=lodSync;T.lodTextOf=lodTextOf;T.docNames=docNames;T.remarksStreet=remarksStreet;`)(T);
 let fails=0;const check=(n,g,w)=>{if(JSON.stringify(g)!==JSON.stringify(w)){fails++;console.log("FAIL",n,"got",JSON.stringify(g),"want",JSON.stringify(w))}};
 for(const [text,exp] of JSON.parse(fs.readFileSync(path.join(__dirname,"survey_cases.json"),"utf8"))){const r=T.parseSurvey(text);for(const k in exp)check(`parseSurvey(${JSON.stringify(text.slice(0,40))}).${k}`,r[k],exp[k])}
 check("partSurvey part+new",T.partSurvey({type:"Deed of Receipt",tp:{"Survey number":"Old Sy.No.622/3 Part, New Survey No. 1025/12"}}),"");
@@ -103,4 +104,33 @@ if(globalThis.__MORE__)globalThis.__MORE__(T,check,html);
 
 check("login IDs: Edit and Delete buttons, password write-only",/data-tne=/.test(html)&&/function tnEdit\(/.test(html)&&/Leave empty to keep the saved password/.test(html)&&!/id="tne_pass"[^>]*value=/.test(html),true);
 check("survey rows widget: Edit, Delete, + Add survey row",/data-sv="e\$\{i\}">Edit</.test(html)&&/>Delete<\/button><\/div>`\)/.test(html)&&/\+ Add survey row/.test(html),true);
+
+// 12 Nov 2026 (Rajeswari 0088): the office's LOD correction is what the robot pastes, in the Word table's layout
+{const W='<table><tr><td>Sl.No</td><td>Date</td><td>  </td><td>Original/Photocopy</td></tr><tr><td></td><td>17.03.2022</td><td>Release Deed (Doc.No.5429/2022) &amp; - MOD</td><td>Original</td></tr><tr><td></td><td>07.11.2025</td><td>MODT (Doc.No.20504/2025)</td><td>Original</td></tr></table>';
+ const P=T.lodParse(W);check("LOD header kept",P.head,["Sl.No","Date","","Original/Photocopy"]);check("LOD rows",P.rows.length,2);
+ check("typed line -> columns",T.lodSplit("Deed of Receipt dated 10-11-2026, Doc.No.21195/2026, Online Copy",P),["","10.11.2026","Deed of Receipt, Doc.No.21195/2026","Online Copy"]);
+ const txt=T.lodTextOf([...P.rows,T.lodSplit("Deed of Receipt dated 10-11-2026, Doc.No.21195/2026, Online Copy",P)].map((r,i)=>{const c=[...r];c[0]=String(i+1);return c}));
+ const c={lodHtml:W,tpAuto:{"List of documents deposited":"1 | 17.03.2022 | Release Deed | Original"}};
+ const ch=T.lodSync(c,{"List of documents deposited":txt});
+ check("corrected LOD rebuilt with the Word header",[ch&&/Sl\.No/.test(ch.lodHtml),ch&&/Online Copy/.test(ch.lodHtml),ch&&/>3</.test(ch.lodHtml),ch&&/&amp;/.test(ch.lodHtml),ch&&ch.lodFrom===txt,ch&&ch.lodWord===W],[true,true,true,true,true,true]);
+ check("unchanged LOD -> Word table untouched",T.lodSync(c,{"List of documents deposited":"1 | 17.03.2022 | Release Deed | Original"}),null);
+ check("saved again -> nothing new",T.lodSync({...c,...ch},{"List of documents deposited":txt}),null);
+ check("pipe row with empty No. keeps its columns",T.lodRowsFromText(" | 17.03.2022 | Release Deed | Original",P)[0],["","17.03.2022","Release Deed","Original"]);
+ check("robot uses the rebuilt table",/case\.get\("lodFrom"\)/.test(require("fs").readFileSync(require("path").join(ROOT,"worker","tp_worker.py"),"utf8")),true);}
+
+// 12 Nov 2026: file names - Aadhaar files after the person on the Aadhaar, others case name + (title holder); slots unchanged
+{const c={type:"MODT",applicant:"Rajeswari",thKyc:[{url:"u1",name:"Balaji"}],caseWit:{1:{name:"MADHANKUMAR"}},draft:{"Title holders":"1","Mortgagor 1 name":"Balaji"},
+  docs:{th_kyc:[{url:"u1",name:"Rajeswari - Title Holder KYC.pdf"}],w1_kyc:[{url:"w",name:"MADHANKUMAR - Witness KYC.pdf"}],deed:[{url:"d",name:"Rajeswari - Title Deed 1.pdf"}],ec:[{url:"e",name:"Rajeswari - EC.pdf"}],photos:[{url:"p",name:"Rajeswari - Property Photo 1.jpeg"}],tpcopy:[{url:"t",name:"TP.pdf"}]}};
+ const D=T.docNames(c);check("file names",[D.th_kyc[0].name,D.w1_kyc[0].name,D.deed[0].name,D.ec[0].name,D.photos[0].name,D.tpcopy[0].name,D.deed[0].url],
+  ["Balaji - Title Holder 1 KYC.pdf","MADHANKUMAR - Witness 1 KYC.pdf","Rajeswari - Title Deed 1 (Balaji).pdf","Rajeswari - EC (Balaji).pdf","Rajeswari - Property Photo 1 (Balaji).jpeg","TP.pdf","d"]);
+ check("names again -> no change",T.docNames({...c,docs:D}),null);
+ check("holder = applicant -> no brackets",T.docNames({...c,applicant:"Balaji"}).ec[0].name,"Balaji - EC.pdf");
+ check("Deed of Receipt files untouched",T.docNames({...c,type:"Deed of Receipt"}),null);}
+
+// 12 Nov 2026: street of the schedule property before the village, English and Tamil; no street, no change
+{const d={"Street name":"Kuppusamy Nayakkar Street",Village:"Porur","Boundary South":"Kuppusamy Nayakkar Street","Boundary South Tamil":"குப்புசாமி நாயக்கர் தெரு","Property remarks":"Porur Village, New Survey No. 20/2B2, an extent of 2499 Sq.Ft.","Property remarks Tamil":"போரூர் கிராமம், புதிய சர்வே எண் 20/2B2"};
+ T.remarksStreet(d);check("street in remarks",[d["Property remarks"],d["Property remarks Tamil"],d["Street name Tamil"]],["Kuppusamy Nayakkar Street, Porur Village, New Survey No. 20/2B2, an extent of 2499 Sq.Ft.","குப்புசாமி நாயக்கர் தெரு, போரூர் கிராமம், புதிய சர்வே எண் 20/2B2","குப்புசாமி நாயக்கர் தெரு"]);
+ const e={...d};T.remarksStreet(e);check("street not added twice",e["Property remarks"],d["Property remarks"]);
+ check("Naicker spelling counts as the same street",T.remarksStreet({"Street name":"Kuppusamy Naicker St",Village:"Porur","Property remarks":d["Property remarks"]})["Property remarks"],d["Property remarks"]);
+ const n={Village:"Porur","Property remarks":"Porur Village, x"};check("no street, no change",T.remarksStreet({...n})["Property remarks"],"Porur Village, x");}
 

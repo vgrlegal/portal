@@ -63,5 +63,12 @@ check("deed_problems ok with only the title deed", ns["deed_problems"]({**dd, "D
 check("deed_problems top-up keeps the earlier MODT", ns["deed_problems"]({**dd, "Deed 3 Doc No": "", "Top-up loan": "Yes"}), [])
 check("deed_problems no legal report", ns["deed_problems"]({"Deed 1 Doc No": "1"}), [])
 check("survey select ignores CMDA list", "any(re.search(r\"\\d\", o) for o in opts)" in src and "selOk" in src, True)
+
+# 12 Nov 2026: the schedule street goes before the village in both remarks (robot side, when Drafting's remarks lack it)
+a = src.index("def street_in("); exec(src[a:src.index("\n\n\nINSERT_HTML_JS", a)], ns)
+dd = {"Street name": "Kuppusamy Nayakkar Street", "Village": "Porur", "Boundary South": "Kuppusamy Nayakkar Street", "Boundary South Tamil": "குப்புசாமி நாயக்கர் தெரு"}
+check("remarks_street", ns["remarks_street"](dd, "Porur Village, New Survey No. 20/2B2", "போரூர் கிராமம், புதிய சர்வே எண் 20/2B2"),
+      ("Kuppusamy Nayakkar Street, Porur Village, New Survey No. 20/2B2", "குப்புசாமி நாயக்கர் தெரு, போரூர் கிராமம், புதிய சர்வே எண் 20/2B2"))
+check("remarks_street no street", ns["remarks_street"]({"Village": "Porur"}, "Porur Village, x", "y"), ("Porur Village, x", "y"))
 print("worker tests:", "OK" if not fails else f"{fails} FAILED")
 sys.exit(1 if fails else 0)

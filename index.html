@@ -714,7 +714,7 @@ const MODT_FIELDS=[
   ["4 · Company representative",[["Representative","note","Skipped for MODT. Needed only when the property belongs to a company."]]],
   ["5 · Witnesses",[["Witness 1","wsel"],["Witness 2","wsel"]]],
   ["6 · Presenter",[["Presenter","s",["Title holder 1","Title holder 2","Title holder 3","Title holder 4"]]]],
-  ["7 · Property",[["Property type","s",PTYPES],["Building type","s",["RCC house","Tiled house","Sheet roof house","No building"]],["Property SRO","sro"],["Village","vil"],"Patta No",["Land type","s",["Urban","Natham","Rural"]],["Land classification","s",["Punjai","Nanjai","Manavari","Natham"]],"Ward","Block","Street name",["Unit","s",["Sq.ft","Sq.m","Cent","Acre","Hectare"]],["Survey rows","svrows"],["New survey no","hid"],["Subdivision","hid"],["Linked survey numbers","hid"],"Sheet name",["Old survey numbers","hid"],"Extent","Total survey extent","Plot No"]],
+  ["7 · Property",[["Property type","s",PTYPES],["Building type","s",["RCC house","Tiled house","Sheet roof house","No building"]],["Property SRO","sro"],["Village","vil"],"Patta No",["Land type","s",["Urban","Natham","Rural"]],["Land classification","s",["Punjai","Nanjai","Manavari","Natham"]],"Ward","Block","Street name","Street name Tamil",["Unit","s",["Sq.ft","Sq.m","Cent","Acre","Hectare"]],["Survey rows","svrows"],["New survey no","hid"],["Subdivision","hid"],["Linked survey numbers","hid"],"Sheet name",["Old survey numbers","hid"],"Extent","Total survey extent","Plot No"]],
   ["8 · Boundaries",[["Boundary type","s",["Regular","Irregular"]],"Boundary North","Boundary South","Boundary East","Boundary West","Boundary North Tamil","Boundary South Tamil","Boundary East Tamil","Boundary West Tamil"]],
   ["9 · Building details",[["Building","note","The robot deletes anything copied here from the old deed and leaves this page empty. The building (RCC / tiled house) goes into the property remarks."]]],
   ["10 · Linear measurement",["North length","South length","East length","West length"]],
@@ -750,7 +750,7 @@ function modtFill(c,d){const set=(k,v)=>{if(v!=null&&String(v).trim()!==""&&!Str
   return d}
 function modtRemarks(){const v=k=>{const e=$("rv_"+k.replace(/\W+/g,"_"));return e?e.value.trim():""};
   const sn=[v("New survey no")+(v("Subdivision")?"/"+v("Subdivision"):""),...v("Linked survey numbers").split(/[,;\n]+/).map(x=>x.split("=")[0].trim()).filter(Boolean)].filter(Boolean).join(", "),old=v("Old survey numbers"),ex=v("Extent"),b=v("Building type");
-  return `${v("Village")||"…"} Village, New Survey No. ${sn||"…"}${old?" (Old Survey No. "+old+")":""}, an extent of ${ex||"…"}${ex&&!/sq|cent|acre|hect/i.test(ex)?" "+(v("Unit")||"sq.ft"):""}${v("Plot No")?", Plot No. "+v("Plot No"):""}${b&&!/^no/i.test(b)?", together with the "+b+" and all the land therein.":", and all the land therein."}`.replace(/\s+/g," ")}
+  const en=`${v("Village")||"…"} Village, New Survey No. ${sn||"…"}${old?" (Old Survey No. "+old+")":""}, an extent of ${ex||"…"}${ex&&!/sq|cent|acre|hect/i.test(ex)?" "+(v("Unit")||"sq.ft"):""}${v("Plot No")?", Plot No. "+v("Plot No"):""}${b&&!/^no/i.test(b)?", together with the "+b+" and all the land therein.":", and all the land therein."}`.replace(/\s+/g," ");return streetIn(en,v("Street name"),v("Village"),false)}
 const BANK_SHEETS=["VISTAAR","Manapuram","Digimoney","CA Grameen-Rep","Chola HL-Rep","Chola LAP-Rep","Chola SME-Rep","Chola SBPL-Rep","APAC-Rep","Infinity_Rep","AMBIT-Rep","Vastu-Rep","Indostar-Rep"];
 
 /* ================= state & utils ================= */
@@ -1420,6 +1420,24 @@ function removeDoc(k,i,type){const f=(draftDocs[k]||[])[i];if(!f)return;const la
     if(isMD&&String(f.url).startsWith("sb:")&&!f.from&&window.__sb)window.__sb.storage.from("docs").remove([f.url.slice(3)]).catch(()=>{});
     toast("File removed")},"Remove")}
 const DOC_NAME={th_kyc:"Title Holder KYC",w1_kyc:"Witness 1 KYC",w2_kyc:"Witness 2 KYC",revenue:"Patta TSLR",photos:"Property Photo",ec:"EC",legal:"Legal Report",sanction:"Sanction Letter",deed:"Title Deed",modt:"MODT",noc:"NOC",letter:"Letter",mdraft:"MODT draft (Word copy)",report:"Legal Report",tpcopy:"TP Copy",payshot:"Payment Screenshot",rep_kyc:"Bank Rep KYC",rep_id:"Bank Rep ID"};
+/* 12 Nov 2026 (Rajeswari 0088): MODT file names. An Aadhaar / KYC file carries the name read from that Aadhaar
+   ("Balaji - Title Holder 1 KYC", "Madhankumar - Witness 1 KYC"); every other file the case name with the title holder in
+   brackets ("Rajeswari - Title Deed 1 (Balaji)"). Only the shown name changes - the stored file and its slot stay, and the
+   robot picks files by slot. Returns the renamed docs, or null when nothing changes. */
+const NAME_KEEP=new Set(["tpcopy","payshot","regcopy","report"]);
+function docNames(c,d){if(isRD(c.type)||flowOf(c.type)==="legal")return null;d=d||c.draft||{};const D=c.docs||{},out={};let chg=false;
+  const clean=x=>String(x||"").replace(/[\\/:*?"<>|]+/g," ").replace(/\s+/g," ").trim(),ext=f=>((String(f.name||"").match(/\.[a-z0-9]{2,5}$/i)||[""])[0]).toLowerCase();
+  const app=clean(c.applicant)||"Customer",n=Math.max(1,Math.min(4,+String(d["Title holders"]||"1").replace(/\D/g,"")||1));
+  const hs=[];for(let i=1;i<=n;i++){const h=clean(d[`Mortgagor ${i} name`]);if(h)hs.push(h)}
+  const holder=hs.length>2?hs[0]+" & others":hs.join(" & "),br=holder&&holder.toLowerCase()!==app.toLowerCase()?` (${holder})`:"";
+  const thName=(c.thKyc||[]).reduce((m,x)=>(x&&x.url&&x.name?(m[x.url]=clean(x.name),m):m),{});
+  for(const[k,list]of Object.entries(D)){if(!Array.isArray(list)){out[k]=list;continue}
+    out[k]=list.map((f,i)=>{if(!f||!f.name||NAME_KEEP.has(k))return f;let nm="";
+      if(k==="th_kyc"){const p=thName[f.url]||(list.length===hs.length?hs[i]:"");if(p)nm=`${p} - Title Holder ${i+1} KYC`}
+      else if(k==="w1_kyc"||k==="w2_kyc"){const w=(c.caseWit||{})[k[1]]||(c.caseWit||{})[+k[1]];if(w&&w.name&&i===0)nm=`${clean(w.name)} - Witness ${k[1]} KYC`}
+      else{const sd=(DOCS.modt||[]).find(x=>x.k===k)||{},lab=DOC_NAME[k]||String(sd.l||k).replace(/\s*\((optional|if [^)]*)\)/ig,"").trim();nm=`${app} - ${lab}${sd.multi||list.length>1?" "+(i+1):""}${br}`}
+      if(!nm)return f;nm+=ext(f);if(nm===f.name)return f;chg=true;return{...f,name:nm}})}
+  return chg?out:null}
 async function addDocs(d,files,type){
   if(!files.length)return;
   if(d.k==="modt"&&isRD(type)){const pf=files.find(f=>f.type==="application/pdf"||/\.pdf$/i.test(f.name));if(pf)autoBankFrom(pf)}
@@ -1535,8 +1553,9 @@ function openReview(c,gen){
     const autoAgri=()=>{if(/\b(cents?|acres?|ac\.?|hectares?|ஏக்கர்|சென்ட்)\b/i.test(ex.value)&&!agri()){pt.value=/building/i.test(pt.value)?"Agriculture Land with Building":"Agricultural Land";showLin()}};
     if(pt&&ex){pt.addEventListener("change",showLin);ex.addEventListener("change",autoAgri);autoAgri();showLin()}
     {const own=legalParas(((profOf(c.bank)||{}).company||{}).modt_legal),lt0=$("rv_List_of_documents_deposited");if(own.length&&lt0){const dv=document.createElement("div");dv.className="full";dv.style.cssText="grid-column:1/-1;border:1px solid #ccc;border-radius:8px;padding:12px 16px;background:#fff;color:#111";
-      dv.innerHTML=`<div class="sf-note" style="margin-bottom:6px"><b>${esc(c.bank)}'s own legal conditions</b> (Settings → company). The robot puts exactly this in TNREGINET's box, then 2 blank lines and the list of documents below:</div>`+own.map(x=>`<p style="text-align:justify;margin:0 0 1em;line-height:1.5">${esc(x)}</p>`).join("")+`<p style="margin:0">&nbsp;</p><p style="margin:0">&nbsp;</p>`+(c.lodHtml?`<div style="overflow-x:auto">${lodFit(c.lodHtml)}</div><p class="sf-note" style="margin:6px 0 0">The list of documents table from the Word draft (LOD corrections below are applied by the robot).</p>`:`<p class="sf-note" style="color:#b42318">⚠ No list of documents table from the Word draft — fill "List of documents deposited" below.</p>`);lt0.closest("label").before(dv);dv.dataset.lod=c.lodHtml?"1":""}}
-    const lt=$("rv_List_of_documents_deposited");const lodBox=c.lodHtml||lodBoxOf(lt&&lt.value);if(lt&&lodBox&&!document.querySelector('#rvBody [data-lod="1"]')){const dv=document.createElement("div");dv.className="sf-note full";dv.style.gridColumn="1/-1";dv.innerHTML="<b>"+(c.lodHtml?"Table from the Word draft":"The draft has no table, so the robot puts this list in a box")+" — the robot pastes this, with its boxes, under the legal conditions (corrections above are applied):</b><div style=\"overflow-x:auto\">"+lodFit(lodBox)+"</div>";lt.closest("label").after(dv)}
+      dv.innerHTML=`<div class="sf-note" style="margin-bottom:6px"><b>${esc(c.bank)}'s own legal conditions</b> (Settings → company). The robot puts exactly this in TNREGINET's box, then 2 blank lines and the list of documents below:</div>`+own.map(x=>`<p style="text-align:justify;margin:0 0 1em;line-height:1.5">${esc(x)}</p>`).join("")+`<p style="margin:0">&nbsp;</p><p style="margin:0">&nbsp;</p>`+(c.lodHtml?`<div style="overflow-x:auto" data-lodprev="1">${lodFit(c.lodHtml)}</div><p class="sf-note" style="margin:6px 0 0">The list of documents table from the Word draft (LOD corrections below are applied by the robot).</p>`:`<p class="sf-note" style="color:#b42318">⚠ No list of documents table from the Word draft — fill "List of documents deposited" below.</p>`);lt0.closest("label").before(dv);dv.dataset.lod=c.lodHtml?"1":""}}
+    const lt=$("rv_List_of_documents_deposited");const lodBox=c.lodHtml||lodBoxOf(lt&&lt.value);if(lt&&lodBox&&!document.querySelector('#rvBody [data-lod="1"]')){const dv=document.createElement("div");dv.className="sf-note full";dv.style.gridColumn="1/-1";dv.innerHTML="<b>"+(c.lodHtml?"Table from the Word draft":"The draft has no table, so the robot puts this list in a box")+" — the robot pastes this, with its boxes, under the legal conditions (corrections above are applied):</b><div style=\"overflow-x:auto\" data-lodprev=\"1\">"+lodFit(lodBox)+"</div>";lt.closest("label").after(dv)}
+    lodUi(c);
     const pr=$("rv_Property_remarks");if(pr){const b=document.createElement("button");b.type="button";b.className="btn";b.textContent="✎ Build remarks from the property fields";b.onclick=()=>{pr.value=modtRemarks()};pr.closest("label").after(b)}}
   if(!dor&&witUnread(c).length){const ks=witUnread(c);$("rvBody").insertAdjacentHTML("afterbegin",`<p class="banner" style="background:#fde8e6;color:#8a1c1c">⚠ The customer's witness Aadhaar is uploaded in this case (${ks.map(k=>esc(c.docs[`w${k}_kyc`][0].name)).join(", ")}) but not read yet, so Drafting still shows ${ks.map(k=>esc(data["Witness "+k]||"—")).join(" / ")}. <button type="button" class="btn primary" id="rvReadWit">Read customer's witness Aadhaar</button> (about 10 seconds each; used for this case only)</p>`);$("rvReadWit").onclick=()=>readCaseWitnesses(c)}
   /* boundaries: all four, English and Tamil; an empty one shows red and the robot will not start */
@@ -1812,6 +1831,7 @@ function modtDoneCheck(c,d){const P=[],v=k=>String(d[k]??"").trim(),n=Math.max(1
   if(/agri/i.test(v("Property type"))&&!v("Land classification"))P.push("Land classification (Punjai / Nanjai … from the patta) - TNREGINET's Land Type");
   if(/agri/i.test(v("Property type"))){if(!v("Total survey extent"))P.push("Total survey extent (agricultural land: from the patta)");else{const a=areaSqm(v("Extent")),b=areaSqm(v("Total survey extent"));if(a&&b&&a>b*1.002)P.push(`Mortgaged extent ${v("Extent")} is MORE than the patta total ${areaIn(v("Total survey extent"),u)} ${u}`)}}
   if(!v("Property remarks"))P.push("Property remarks (English) - press ✎ Build remarks");
+  if(v("Street name")&&!v("Street name Tamil"))P.push("Street name Tamil (the street goes into the Tamil remarks)");
   if(!v("Loan amount"))P.push("Loan amount");
   if(!c.lodHtml&&!v("List of documents deposited"))P.push("List of documents deposited (LOD table)");
   modtUploads(c,d).forEach(x=>{if(x.need&&!x.v)P.push(`Upload: ${x.l} - file missing`);(x.miss||[]).forEach(m=>P.push(`Upload: ${m} missing (mandatory for MODT)`))});
@@ -1857,6 +1877,60 @@ function lodBoxOf(t){const rows=String(t||"").split("\n").map(x=>x.trim()).filte
   if(rows.filter(l=>/\|/.test(l)).length>=2)return`<table style="border-collapse:collapse" border="1">${rows.filter(l=>/\|/.test(l)).map(l=>"<tr>"+l.replace(/^\||\|$/g,"").split("|").map(x=>td(esc(x.trim()))).join("")+"</tr>").join("")}</table>`;
   const body=[];let last=null;rows.forEach(l=>{const m=/^(\d+)\s*[.)\-:]\s*(.+)$/.exec(l);if(m){last=[m[1],m[2]];body.push(last)}else if(last)last[1]+=" "+l});
   return body.length?`<table style="border-collapse:collapse" border="1"><tr>${td("<b>No.</b>")}${td("<b>Documents deposited</b>")}</tr>${body.map(([a,b])=>"<tr>"+td(esc(a))+td(esc(b))+"</tr>").join("")}</table>`:`<table style="border-collapse:collapse" border="1">${rows.map(l=>"<tr>"+td(esc(l))+"</tr>").join("")}</table>`}
+/* 12 Nov 2026 (Rajeswari 0088): the street of the schedule property goes into the property remarks, before the village,
+   in English and Tamil ("Kuppusamy Nayakkar Street, Porur Village, ..." / "குப்புசாமி நாயக்கர் தெரு, போரூர் கிராமம், ...").
+   No street, no change. The Tamil street comes from "Street name Tamil", else from the Tamil boundary that is that street. */
+const stKey=x=>String(x||"").toLowerCase().replace(/\bn[a]?[iy]{1,2}[a]?[ck]{1,2}[ae]?r\b/g,"naicker").replace(/\b(street|st|road|rd|salai)\b\.?/g,"").replace(/[^a-z]/g,"");
+function streetIn(text,st,vil,ta){text=String(text||"");st=String(st||"").trim();if(!text.trim()||!st)return text;
+  if(ta?text.replace(/\s+/g,"").includes(st.replace(/\s+/g,"")):stKey(text).includes(stKey(st)))return text;
+  const m=ta?/[^\s,]+\s*கிராமம்/.exec(text):(vil?new RegExp("\\b"+String(vil).replace(/[.*+?^${}()|[\]\\]/g,"\\$&")+"\\s+Village","i").exec(text):null)||/[A-Za-z.]+\s+Village\b/.exec(text);
+  return m?text.slice(0,m.index)+st+", "+text.slice(m.index):st+", "+text}
+function streetTaOf(d){const st=stKey(d["Street name"]);if(!st)return"";for(const x of ["North","South","East","West"]){if(stKey(d["Boundary "+x])===st&&/தெரு|சாலை|வீதி|ரோடு/.test(d[`Boundary ${x} Tamil`]||""))return String(d[`Boundary ${x} Tamil`]).trim()}return""}
+function remarksStreet(d){if(!String(d["Street name"]||"").trim())return d;if(!String(d["Street name Tamil"]||"").trim()){const t=streetTaOf(d);if(t)d["Street name Tamil"]=t}
+  d["Property remarks"]=streetIn(d["Property remarks"],d["Street name"],d.Village,false);if(String(d["Street name Tamil"]||"").trim())d["Property remarks Tamil"]=streetIn(d["Property remarks Tamil"],d["Street name Tamil"],"",true);return d}
+function lodUi(c){const lt=$("rv_List_of_documents_deposited");if(!lt||!c.lodHtml||$("lodEd"))return;
+  const P=lodParse(c.lodWord||c.lodHtml),read=String(((c.tpAuto||{})["List of documents deposited"])||"").trim(),cur=lt.value.trim();
+  let rows=(c.lodFrom!=null&&String(c.lodFrom).trim()===cur)||(c.lodFrom==null&&(!read||read===cur))?lodParse(c.lodHtml).rows:lodRowsFromText(cur,P);
+  const R=lodRoles(P),names=R.map((r,i)=>(P.head&&P.head[i])||({no:"No.",date:"Date",desc:"Document",st:"Original / copy"}[r]||"Column "+(i+1)));
+  const ed=document.createElement("div");ed.id="lodEd";ed.className="full";ed.style.cssText="grid-column:1/-1;border:1px dashed #999;border-radius:8px;padding:8px 10px";lt.closest("label").after(ed);
+  const prev=()=>{const h=lodFit(lodBuild(P,rows));document.querySelectorAll("#rvBody [data-lodprev]").forEach(x=>x.innerHTML=h)};
+  const sync=()=>{lt.value=lodTextOf(lodNumber(rows,P));(rv.touched=rv.touched||new Set()).add(lt.id);prev()};
+  const draw=()=>{ed.innerHTML=`<b>List of documents table</b> <span class="sub">Same columns as the Word draft. Correct a row, add a row or delete one - the robot pastes this table.</span>
+    <div style="overflow-x:auto"><table style="border-collapse:collapse;width:100%;margin:6px 0"><tr>${names.map(n=>`<th style="text-align:left;font-size:12px;padding:2px 4px">${esc(n||"—")}</th>`).join("")}<th></th></tr>
+    ${rows.map((r,i)=>`<tr>${R.map((x,j)=>`<td style="padding:2px"><input data-lr="${i}" data-lc="${j}" value="${esc(r[j]||"")}" style="width:100%;${x==="desc"?"min-width:260px":"min-width:70px"}"></td>`).join("")}<td><button type="button" class="btn danger" data-ld="${i}">Delete</button></td></tr>`).join("")}</table></div>
+    <button type="button" class="btn" id="lodAdd">+ Add row</button>`;
+    ed.querySelectorAll("[data-lr]").forEach(e=>e.oninput=()=>{rows[+e.dataset.lr][+e.dataset.lc]=e.value;sync()});
+    ed.querySelectorAll("[data-ld]").forEach(b=>b.onclick=()=>{rows.splice(+b.dataset.ld,1);sync();draw()});
+    $("lodAdd").onclick=()=>{rows.push(R.map(()=>""));draw();const f=ed.querySelector(`[data-lr="${rows.length-1}"][data-lc="${Math.max(0,R.indexOf("desc"))}"]`);if(f)f.focus()}};
+  lt.addEventListener("change",()=>{rows=lodRowsFromText(lt.value,P);draw();prev()});draw();prev()}
+/* 12 Nov 2026 (Rajeswari 0088): the LOD table is editable in Drafting. The office's correction (rows added / changed in
+   the table or in "List of documents deposited") rebuilds the Word table in the same layout - same columns, same header row -
+   and the robot pastes that (case.lodFrom = the text the table was rebuilt from). An empty Sl.No column is numbered. */
+const lodDec=x=>String(x||"").replace(/<br\s*\/?>/gi," ").replace(/<[^>]+>/g,"").replace(/&nbsp;/g," ").replace(/&lt;/g,"<").replace(/&gt;/g,">").replace(/&quot;/g,'"').replace(/&#39;/g,"'").replace(/&amp;/g,"&").replace(/\s+/g," ").trim();
+const lodEnc=x=>String(x||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+function lodParse(html){const trs=String(html||"").match(/<tr[\s\S]*?<\/tr>/gi)||[];let rows=trs.map(tr=>[...tr.matchAll(/<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/gi)].map(m=>lodDec(m[1])));
+  const ncol=Math.max(0,...rows.map(r=>r.length));let head=null;
+  if(rows.length&&!rows[0].some(x=>/\b(19|20)\d\d\b/.test(x))&&rows[0].some(x=>/[a-z]/i.test(x))&&!/^\d+\.?$/.test(rows[0][0]||""))head=rows.shift();
+  return{head,rows,ncol:ncol||4}}
+function lodRoles(P){const n=P.ncol;if(P.head){let desc=false;return P.head.map((h,i)=>{if(/^\s*(s\.?\s*l\.?|sl|s\.?\s*no|no)\b/i.test(h))return"no";if(/date/i.test(h))return"date";if(/original|photo|copy|nature/i.test(h))return"st";if(!desc){desc=true;return"desc"}return"x"})}
+  return n>=4?["no","date","desc","st",...Array(n-4).fill("x")]:n===3?["no","desc","st"]:n===2?["no","desc"]:["desc"]}
+/* one typed line -> the table's columns: "Deed of Receipt dated 10-11-2026, Doc.No.21195/2026, Online Copy" */
+function lodSplit(line,P){const R=lodRoles(P);let t=String(line).trim(),no="",date="",st="";
+  let m=/^(\d+)\s*[.)\-:]\s*/.exec(t);if(m){no=m[1];t=t.slice(m[0].length)}
+  m=/[,\s-]*\b(online\s*copy|certified\s*copy|true\s*copy|original|photo\s*copy|photocopy|xerox(?:\s*copy)?)\s*\.?\s*$/i.exec(t);if(m&&R.includes("st")){st=m[1].replace(/\b\w/g,c=>c.toUpperCase());t=t.slice(0,m.index)}
+  m=/(?:,?\s*\bdated\b\s*)?\b(\d{1,2})[.\-\/](\d{1,2})[.\-\/]((?:19|20)\d\d)\b/i.exec(t);if(m&&R.includes("date")){date=`${m[1].padStart(2,"0")}.${m[2].padStart(2,"0")}.${m[3]}`;t=(t.slice(0,m.index)+t.slice(m.index+m[0].length))}
+  const desc=t.replace(/\s+,/g,",").replace(/^[\s,]+|[\s,]+$/g,"").replace(/\s{2,}/g," ");
+  return R.map(r=>r==="no"?no:r==="date"?date:r==="st"?st:r==="desc"?desc:"")}
+function lodRowsFromText(txt,P){return String(txt||"").split("\n").map(x=>x.trim()).filter(Boolean).map(l=>{if(/\|/.test(l)){const c=l.split("|").map(x=>x.trim());if(c.length>P.ncol&&c[0]==="")c.shift();if(c.length>P.ncol&&c[c.length-1]==="")c.pop();while(c.length<P.ncol)c.push("");return c.slice(0,Math.max(P.ncol,c.length))}return lodSplit(l,P)})}
+function lodTextOf(rows){return rows.map(r=>r.map(x=>String(x||"").trim()).join(" | ")).join("\n")}
+function lodNumber(rows,P){const i=lodRoles(P).indexOf("no");if(i<0)return rows;let k=0;return rows.map(r=>{k++;if(String(r[i]||"").trim())return r;const c=[...r];c[i]=String(k);return c})}
+function lodBuild(P,rows){const td="border:1px solid #000;padding:2px 4px;vertical-align:top",tr=r=>"<tr>"+r.map(x=>`<td style="${td}">${lodEnc(x)}</td>`).join("")+"</tr>";
+  return`<table border="1" cellpadding="2" style="border-collapse:collapse;width:100%">${P.head?tr(P.head):""}${lodNumber(rows,P).map(tr).join("")}</table>`}
+/* what the save writes for the LOD: nothing when the text is still what Claude read / what the table was built from */
+function lodSync(c,data){const txt=String(data["List of documents deposited"]||"").trim();if(!c.lodHtml||!txt)return null;
+  if(c.lodFrom!=null&&String(c.lodFrom).trim()===txt)return null;
+  const read=String(((c.tpAuto||{})["List of documents deposited"])||"").trim();if(c.lodFrom==null&&(!read||read===txt))return null;
+  const P=lodParse(c.lodWord||c.lodHtml);return{lodHtml:lodBuild(P,lodRowsFromText(txt,P)),lodFrom:txt,...(c.lodWord?{}:{lodWord:c.lodHtml})}}
 const OFF_TA={"Registered Office":"பதிவு அலுவலகம்","Head Office":"தலைமை அலுவலகம்","Corporate Office":"கார்ப்பரேட் அலுவலகம்"};
 function officeWord(t){const m=/having\s+its\s+(registered|head|corporate)\s+office/i.exec(t||"")||/(registered|head|corporate)\s+office\s+at/i.exec(t||"");return m?m[1][0].toUpperCase()+m[1].slice(1).toLowerCase()+" Office":""}
 function stripStPin(a,st){let x=String(a||"").replace(/[\s,–-]*\b\d{3}\s?\d{3}\b/g,"");
@@ -1879,19 +1953,20 @@ function modtCoAddr(d,draftText){const w=officeWord(draftText)||d["Company offic
   if(t.ho){let br=t.br;if(br&&!/கிளை/.test(br)&&br.split(",").length<2)br+=" கிளை";const ho=stripStPin(t.ho,st);d["Company address Tamil"]=br?`${br}, ${OFF_TA[w]||OFF_TA["Registered Office"]} - ${ho}`:`${OFF_TA[w]||OFF_TA["Registered Office"]} - ${ho}`}
   return d}
 async function saveReview(done){
-  const c=rv.c,dor=isRD(c.type),data=readReview(),ch=dor?{tp:data,...witPicks()}:{draft:data};if(!dor){modtCoAddr(data,c.draftText||"");surveyClean(data)}
+  const c=rv.c,dor=isRD(c.type),data=readReview(),ch=dor?{tp:data,...witPicks()}:{draft:data};if(!dor){modtCoAddr(data,c.draftText||"");surveyClean(data);remarksStreet(data)}
   {const st=settleQs(c,data,dor?"tp":"draft",rv.touched);if(st.n)ch.robotQs=st.qs}
   if(c.tpAuto){const fx=fixesOf(c,data);if(fx.length!==(c.fixes||[]).length||JSON.stringify(fx)!==JSON.stringify(c.fixes||[]))ch.fixes=fx}
   if(!dor&&data.SRO)ch.sro=data.SRO;if(dor&&data.SRO)ch.sro=data.SRO;
+  if(!dor){const lod=lodSync(c,data);if(lod)Object.assign(ch,lod);const dn=docNames(c,data);if(dn)ch.docs=dn}
   if(done){const P=dor?dorDoneCheck(c,data):modtDoneCheck({...c,...ch},data);if(P.length){await patch(c,ch,"Draft saved (Draft done refused: "+P.length+" item(s) missing)");showDoneProblems(P);return}}
   if(done)ch.stage="TP Creation";
   if(await patch(c,ch,done?"Draft done":"Draft saved")){if(done)closeReview()}
 }
 async function approveReview(){
-  const c=rv.c,dor=isRD(c.type),data=readReview();if(!dor){modtCoAddr(data,c.draftText||"");surveyClean(data)}
+  const c=rv.c,dor=isRD(c.type),data=readReview();if(!dor){modtCoAddr(data,c.draftText||"");surveyClean(data);remarksStreet(data)}
   if(dor){const P=dorDoneCheck(c,data);if(P.length){showDoneProblems(P);return}}
   if(!dor){const P=modtDoneCheck(c,data);if(P.length){showDoneProblems(P);return}}
-  await patch(c,dor?{tp:data,...witPicks()}:{draft:data},"Draft approved for TP");
+  await patch(c,dor?{tp:data,...witPicks()}:{draft:data,...(lodSync(c,data)||{})},"Draft approved for TP");
   if(!dor){cloudTp(c);return}
   cloudTp(c);
 }
@@ -3132,7 +3207,7 @@ function legalBlock(legal){legal=String(legal||"").trim();if(!legal)return"";
   return `=== LEGAL REPORT (read this first) ===
 RULES FROM THE LAW OFFICE FOR THIS READING:
 (1) Deed 1-3 = ONLY the title deed(s) listed under "Documents for security" in this legal report (or marked "- MOD" in its list of documents). Never put any other deed from the list of documents there - not the earlier sale deeds, not the earlier MODT (unless the case is a top-up loan), never a Deed of Receipt / discharge receipt.
-(2) The property is the ONE schedule described in this legal report (property address / schedule): survey numbers, old survey numbers, extent, street, boundaries and measurements come from it. Where the MODT draft differs, follow the legal report and say so in Doubts.
+(2) The property is the ONE schedule described in this legal report (property address / schedule): survey numbers, old survey numbers, extent, street, boundaries and measurements come from it. "Street name" is the street exactly as written in that schedule ("Street name Tamil" the same in Tamil); it goes before the village in both property remarks. Where the MODT draft differs, follow the legal report and say so in Doubts.
 (3) New survey no = the number only (e.g. 20), Subdivision = its sub-division (e.g. 2B2); every other new survey number of the same property goes to Linked survey numbers as survey/sub-division (e.g. 20/2C1A). Old survey numbers comma separated.
 ${legal.slice(0,12000)}
 === END OF LEGAL REPORT ===
@@ -3193,10 +3268,10 @@ async function readModtCase(c,force){window.__readRef=c.id+" · MODT case read";
     Object.keys(F).forEach(k=>{const m=/^Mortgagor (\d+) address$/.exec(k);if(m)cleanAddrPair(F,k,`Mortgagor ${m[1]} address Tamil`,`Mortgagor ${m[1]} district`)});
     surveyClean(F);
     const d={...(c.draft||{})};let n=0;Object.entries(F).forEach(([k,v])=>{v=Array.isArray(v)?v.join("\n"):String(v??"").trim();if(!v)return;if(force||!String(d[k]||"").trim()){if(d[k]!==v)n++;d[k]=v}});
-    modtCoAddr(d,draft);surveyClean(d);
+    modtCoAddr(d,draft);surveyClean(d);remarksStreet(d);
     {const sec=legalSecurity(legal);if(sec.length){d["Documents for security (legal report)"]=secText(sec);if(applySecurity(d,sec,/^yes/i.test(String(d["Top-up loan"]||""))))n++}}
     if(lodHtml)for(let i=dq.length-1;i>=0;i--)if(dq[i].field==="List of documents deposited")dq.splice(i,1);/* the Word table is pasted as it is - no question */
-    const ch={draft:d,draftText:draft.slice(0,20000),...(legal.trim()?{legalText:legal.slice(0,20000)}:{}),tpAuto:{...(c.tpAuto||{}),...Object.fromEntries(Object.entries(F).map(([k,v])=>[k,String(v??"")]))},tpNotes:doubts};if(lodHtml)ch.lodHtml=lodHtml;
+    const ch={draft:d,draftText:draft.slice(0,20000),...(legal.trim()?{legalText:legal.slice(0,20000)}:{}),tpAuto:{...(c.tpAuto||{}),...Object.fromEntries(Object.entries(F).map(([k,v])=>[k,String(v??"")]))},tpNotes:doubts};if(lodHtml){ch.lodHtml=lodHtml;ch.lodFrom=null;ch.lodWord=null}
     if(dq.length)ch.robotQs=await doubtQs(c,dq,"draft","MODT documents");
     {const u=caseUnit(d),a=areaSqm(d.Extent),b=areaSqm(d["Total survey extent"]);if(a&&b&&a>b*1.002&&/agri/i.test(d["Property type"]||""))ch.robotQs=[...(ch.robotQs||c.robotQs||[]),{id:crypto.randomUUID(),q:`Mortgaged extent (MODT) ${d.Extent} is MORE than the patta total ${areaIn(d["Total survey extent"],u)} ${u}. Which is right?`,options:[`MODT is right: ${d.Extent}`,"Patta is right - I will correct the MODT extent"],hint:"The mortgaged extent cannot be more than the whole survey extent in the patta",src:"Extent check",at:nowISO()}]}
     {const miss=["North","South","East","West"].filter(x=>String(d["Boundary "+x]??"")===""||String(d[`Boundary ${x} Tamil`]??"")==="");if(miss.length)ch.robotQs=[...(ch.robotQs||c.robotQs||[]),...miss.map(x=>({id:crypto.randomUUID(),q:`Boundary ${x} is not in the MODT draft or the title deed reading. Type it (English) from the title deed.`,options:[],field:"Boundary "+x,hint:"All four boundaries are needed in English and Tamil",src:"Boundary check",at:nowISO()}))]}
@@ -3213,6 +3288,7 @@ async function readModtCase(c,force){window.__readRef=c.id+" · MODT case read";
       pg.step("Reading the name on the title holder Aadhaar…",96);
       try{const o=await readAadhaar([await fileOfDoc(f)],()=>{},true);thk.push({url:f.url,name:o.name||""})}catch(e){thk.push({url:f.url,name:""})}}
     if(thk.length)ch2.thKyc=thk;
+    {const f0=cases.find(x=>x._doc===c._doc)||fresh,dn=docNames({...f0,...ch2});if(dn)ch2.docs=dn}
     if(Object.keys(ch2).length){fresh=cases.find(x=>x._doc===c._doc)||fresh;await patch(fresh,ch2,"Witness / title holder Aadhaar read for this case");fresh=cases.find(x=>x._doc===c._doc)||{...fresh,...ch2};if(rv.c&&rv.c._doc===c._doc)openReview(fresh,rv.gen)}
     pg.done(`✓ Claude filled ${n} field${n===1?"":"s"}. Check every field${doubts?" and the doubts at the top":""}.`);toast(`Claude filled ${n} field${n===1?"":"s"}. Check every field.`)}
   catch(e){console.warn(e);pg.fail("Could not read the MODT documents: "+(e.message||e));toast("Could not read the MODT documents: "+(e.message||e))}}

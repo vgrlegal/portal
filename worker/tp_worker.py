@@ -3349,9 +3349,34 @@ def remarks_text(d):
         en = (f"{g(d, 'Village')} Village, New Survey No. {sn}" + (f" (Old Survey No. {old})" if old else "") + f", an extent of {g(d, 'Extent')}"
               + ("" if re.search(r"sq|cent|acre|hect", g(d, "Extent"), re.I) else f" {unit}") + (f", Plot No. {g(d, 'Plot No')}" if g(d, "Plot No") else "")
               + (f", together with the {bld} and all the land therein." if bld and not re.search(r"^no", bld, re.I) else ", and all the land therein."))
+    en, ta = remarks_street(d, en, ta)
     if is_triangle(d):
         en, ta = tri_remarks(en, ta)
     return en, ta
+
+
+def street_in(text, st, vil, ta):
+    """12 Nov 2026 (Rajeswari 0088): the schedule property's street before the village (same rule as the portal's streetIn)."""
+    text, st = str(text or ""), str(st or "").strip()
+    if not text.strip() or not st:
+        return text
+    if (re.sub(r"\s+", "", st) in re.sub(r"\s+", "", text)) if ta else (street_key(st).replace(" ", "") in street_key(text).replace(" ", "")):
+        return text
+    m = re.search(r"[^\s,]+\s*கிராமம்", text) if ta else ((re.search(r"\b" + re.escape(vil) + r"\s+Village", text, re.I) if vil else None) or re.search(r"[A-Za-z.]+\s+Village\b", text))
+    return text[:m.start()] + st + ", " + text[m.start():] if m else st + ", " + text
+
+
+def remarks_street(d, en, ta):
+    st = g(d, "Street name")
+    if not st:
+        return en, ta
+    st_ta = g(d, "Street name Tamil")
+    if not st_ta:
+        for x in ("North", "South", "East", "West"):
+            if street_key(g(d, f"Boundary {x}")) == street_key(st) and re.search(r"தெரு|சாலை|வீதி|ரோடு", g(d, f"Boundary {x} Tamil")):
+                st_ta = g(d, f"Boundary {x} Tamil")
+                break
+    return street_in(en, st, g(d, "Village"), False), (street_in(ta, st_ta, "", True) if st_ta else ta)
 
 
 def remarks_tab(P, job, page, d, note):
@@ -3423,7 +3448,9 @@ def lod_html(case, d, comments):
     txt = g(d, "List of documents deposited")
     read = g(case.get("tpAuto") or {}, "List of documents deposited")
     # the Word table is used unless the office changed the list in Drafting after Claude read it
-    html = case.get("lodHtml") or "" if (not read or nz(read) == nz(txt)) else ""
+    # 12 Nov 2026 (Rajeswari 0088): the portal rebuilds lodHtml from the office's corrected list (case.lodFrom = that text)
+    rebuilt = case.get("lodFrom") is not None and nz(case.get("lodFrom")) == nz(txt)
+    html = (case.get("lodHtml") or "") if (rebuilt or not read or nz(read) == nz(txt)) else ""
     if not html and txt:
         rows = [l for l in txt.split("\n") if l.strip()]
         if sum(1 for l in rows if "|" in l) >= 2:
