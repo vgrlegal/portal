@@ -1850,8 +1850,21 @@ async function startTp(c,u){
 const W={at:null,unsub:null,busy:[]};
 /* Survey number 'Part' (e.g. 22(Part)) with no sub-divided number: TNREGINET will not make the TP. Revenue record (patta / TSLR) needed. */
 const PART_RE=/\bpart\b|\bpt\b|\(p\)/i;
+/* 12 Nov 2026 - same reader as the robot's parse_survey (tests/survey_cases.json): T.S.No / Sy.No / S.No / R.S.No / S.F.No /
+   Natham S.No are all survey numbers; "Part" with a NEW sub-divided number is NOT held - the TP is made with the new number */
+const SV_KW="(?:t\\.?\\s*s\\.?|town\\s*survey|r\\.?\\s*s\\.?|s\\.?\\s*f\\.?|sy\\.?|s\\.?|survey|natham\\s*(?:s\\.?|survey)?)\\s*(?:no\\.?|number)?\\.?\\s*[:.\\-]?\\s*",SV_NUM="(\\d+[A-Za-z]?(?:\\s*/\\s*[0-9A-Za-z]+)*)";
+function parseSurvey(text){const t=String(text||"").replace(/\(\s*(part|pt|p)\s*\)/ig," Part"),o={new:"",old:[],part:PART_RE.test(t),ward:"",block:"",land:"",all:[]};
+  let m=/\bward\s*(?:no\.?)?\s*[-:.]?\s*([0-9A-Za-z]+)/i.exec(t);o.ward=m?m[1]:"";m=/\bblock\s*(?:no\.?)?\s*[-:.]?\s*([0-9A-Za-z]+)/i.exec(t);o.block=m?m[1]:"";
+  o.land=/\bnatham\b/i.test(t)?"Natham":(/\bt\.?\s*s\.?\s*no|town\s*survey/i.test(t)||o.ward||o.block)?"Urban":"";
+  const news=[],plain=[];
+  for(let seg of t.split(/[,;()]|\band\b|&|\bas per\b/i)){seg=(seg||"").trim();if(!seg||/^(plot|patta|door|flat|house|block|ward|survey\s*extent)\b/i.test(seg))continue;
+    const isNew=/\bnew\b|sub\s*-?\s*divi/i.test(seg);if(isNew){const k=[...seg.matchAll(/\bnew\b|\binto\b|\bof\b/ig)].map(x=>x.index+x[0].length);if(k.length)seg=seg.slice(k[k.length-1])}
+    m=new RegExp("(?:^|\\b|\\s)"+SV_KW+SV_NUM,"i").exec(seg)||new RegExp("^\\s*"+SV_NUM+"\\s*(?:part|pt)?\\s*$","i").exec(seg);if(!m)continue;
+    const n=m[1].replace(/\s+/g,""),isPart=PART_RE.test(seg);o.all.push(n);
+    if(isNew&&!isPart)news.push(n);else if(/\bold\b/i.test(seg)||isPart)o.old.push(n+(isPart?" Part":""));else plain.push(n)}
+  o.new=(news.length?news:plain.length?plain:[""])[0];o.hold=o.part&&!o.new;return o}
 function partSurvey(c){if(!isRD(c.type)||c.partOk||/^TP\//.test(c.tpNo||""))return"";const t=c.tp||{},sv=["Survey number","Survey No","New survey no"].map(k=>String(t[k]||"").trim()).filter(Boolean);
-  const part=sv.find(x=>PART_RE.test(x)),other=sv.find(x=>/\d/.test(x)&&!PART_RE.test(x));return part&&!other?part:""}
+  const part=sv.find(x=>PART_RE.test(x));return part&&!sv.some(x=>parseSurvey(x).new)?part:""}
 const PART_REASON=sv=>`Survey number is "${sv}" (Part). TNREGINET will not make a TP with a Part survey number. Revenue document (patta / TSLR with the sub-divided survey number) asked from the bank.`;
 /* "Busy · case · status" while the TP computer is working (its heartbeat carries the jobs it is on) */
 const BUSY_ST={starting:"starting",captcha:"waiting for the captcha",captcha_sent:"signing in",filling:"filling",uploading:"uploading",translate:"waiting for English names"};

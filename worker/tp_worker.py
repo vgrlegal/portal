@@ -782,12 +782,74 @@ def apply_profile(case, t):
     return t
 
 
+# 12 Nov 2026 - one reader for every way a survey number is written (MD: T.S.No = Town Survey Number, Sy.No / S.No /
+# R.S.No / S.F.No = Survey Number, Natham S.No = Natham Survey Number - all are survey numbers). "Part" with a NEW
+# sub-divided number is not held: the TP is made with the new number (old ones go as Old Survey No.); a T.S.No brings
+# its Ward and Block (Urban). Mirrored in the portal (parseSurvey); tests in tests/survey_cases.json.
+SV_KW = r"(?:t\.?\s*s\.?|town\s*survey|r\.?\s*s\.?|s\.?\s*f\.?|sy\.?|s\.?|survey|natham\s*(?:s\.?|survey)?)\s*(?:no\.?|number)?\.?\s*[:.\-]?\s*"
+SV_NUM = r"(\d+[A-Za-z]?(?:\s*/\s*[0-9A-Za-z]+)*)"
+PART_WORD_RE = re.compile(r"\bpart\b|\bpt\b|\(p\)", re.I)
+
+
+def parse_survey(text):
+    t = re.sub(r"\(\s*(part|pt|p)\s*\)", " Part", str(text or ""), flags=re.I)  # "22(Part)" -> "22 Part"
+    out = {"new": "", "old": [], "part": bool(PART_WORD_RE.search(t)), "ward": "", "block": "", "land": "", "all": []}
+    m = re.search(r"\bward\s*(?:no\.?)?\s*[-:.]?\s*([0-9A-Za-z]+)", t, re.I)
+    out["ward"] = m.group(1) if m else ""
+    m = re.search(r"\bblock\s*(?:no\.?)?\s*[-:.]?\s*([0-9A-Za-z]+)", t, re.I)
+    out["block"] = m.group(1) if m else ""
+    if re.search(r"\bnatham\b", t, re.I):
+        out["land"] = "Natham"
+    elif re.search(r"\bt\.?\s*s\.?\s*no|town\s*survey", t, re.I) or out["ward"] or out["block"]:
+        out["land"] = "Urban"
+    news, plain = [], []
+    # "sub division of New ..." / "subdivided into New ..." count as new
+    for seg in re.split(r"[,;()]|\band\b|&|\bas per\b", t, flags=re.I):
+        seg = seg.strip()
+        if not seg or re.match(r"^(plot|patta|door|flat|house|block|ward|survey\s*extent)\b", seg, re.I):
+            continue
+        is_new = bool(re.search(r"\bnew\b|sub\s*-?\s*divi", seg, re.I))
+        if is_new:  # the number after the last "new" / "into" / "of" is the new one
+            k = [x.end() for x in re.finditer(r"\bnew\b|\binto\b|\bof\b", seg, re.I)]
+            if k:
+                seg = seg[k[-1]:]
+        m = re.search(r"(?:^|\b|\s)" + SV_KW + SV_NUM, seg, re.I) or re.match(r"^\s*" + SV_NUM + r"\s*(?:part|pt)?\s*$", seg, re.I)
+        if not m:
+            continue
+        n = re.sub(r"\s+", "", m.group(1))
+        is_part = bool(PART_WORD_RE.search(seg))
+        out["all"].append(n)
+        if is_new and not is_part:
+            news.append(n)
+        elif re.search(r"\bold\b", seg, re.I) or is_part:
+            out["old"].append(n + (" Part" if is_part else ""))
+        else:
+            plain.append(n)
+    out["new"] = (news or plain or [""])[0]
+    out["hold"] = out["part"] and not out["new"]
+    return out
+
+
+def dor_survey_change(t):
+    """Deed of Receipt: the survey fields for TNREGINET when the MODT's survey is Part but has a new number, else None."""
+    raw = " , ".join(x for x in (g(t, "Survey number"), g(t, "Survey No"), g(t, "Old survey no"), g(t, "New survey no")) if x)
+    ps = parse_survey(raw)
+    if not (ps["part"] and ps["new"]):
+        return None
+    sn, _, sub = ps["new"].partition("/")
+    return {"New survey no": sn, "Subdivision": sub, "Old survey numbers": ", ".join(ps["old"]), "Ward": ps["ward"], "Block": ps["block"],
+            "Land type": ps["land"], "Extent": g(t, "Extent"), "TNREGINET survey option": g(t, "TNREGINET survey option"),
+            "Land classification": g(t, "Land classification")}
+
+
 def part_survey(t):
     """'22(Part)' / '22 Pt' with no other (sub-divided) survey number: TNREGINET will not make the TP. Revenue record needed."""
     sv = [g(t, k) for k in ("Survey number", "Survey No", "New survey no") if g(t, k)]
-    part = [x for x in sv if re.search(r"\bpart\b|\bpt\b|\(p\)", x, re.I)]
-    other = [x for x in sv if re.search(r"\d", x) and not re.search(r"\bpart\b|\bpt\b|\(p\)", x, re.I)]
-    return part[0] if part and not other else ""
+    part = [x for x in sv if PART_WORD_RE.search(x)]
+    # held only when no field gives a new (not Part) survey number - in its own field or inside the same line
+    if not part or any(parse_survey(x)["new"] for x in sv):
+        return ""
+    return part[0]
 
 
 def run_dor(page, job, case):
@@ -1050,6 +1112,14 @@ def property_step(P, job, page, t):
             else:
                 d = english_pass(P, job, tab)
                 done_all.update({f"{tab}:{k}": v for k, v in d.items()})
+        elif re.search(r"survey", tab, re.I) and dor_survey_change(t):
+            # 12 Nov 2026 (MD): the MODT's survey is "Part" but a new sub-divided number exists - TNREGINET refuses the Part
+            # number, so the copied row is replaced with the new number (old ones go as Old Survey No.; T.S.No brings Ward/Block)
+            dd = dor_survey_change(t)
+            job.step(f"8 · Survey: Part survey replaced with the new number {dd['New survey no']}/{dd['Subdivision']}".rstrip("/"), page)
+            survey_tab(P, job, page, dd, "", lambda m: comments.append("Survey: " + m))
+            comments.append(f"Survey: the MODT's Part survey number was replaced with the new number {dd['New survey no']}"
+                            f"{'/' + dd['Subdivision'] if dd['Subdivision'] else ''} (old: {dd['Old survey numbers'] or '-'})")
         else:
             # Property / Survey / Building / Linear measurement: verify only, never change.
             # Only a Property Remarks field (upper, English one) is turned into English.
@@ -1695,9 +1765,17 @@ def geo_sro(name):
 
 
 def survey_list(t):
-    """'123/1A, 124/2B' (old and new) -> [('123','1A'), ('124','2B')]"""
+    """'123/1A, 124/2B' (old and new) -> [('123','1A'), ('124','2B')] - new number first; T.S.No / Sy.No / Natham S.No read too"""
     raw = " , ".join(x for x in (g(t, "Survey number"), g(t, "Old survey no"), g(t, "New survey no")) if x)
     out = []
+    ps = parse_survey(raw)
+    for n in ([ps["new"]] if ps["new"] else []) + ps["all"]:
+        a, _, b = n.partition("/")
+        pair = (a, b)
+        if a and pair not in out:
+            out.append(pair)
+    if out:
+        return out
     for tok in re.split(r"[,;&]|\band\b|\bold\b|\bnew\b|S\.?\s*F\.?\s*No\.?|Survey\s*No\.?|R\.?S\.?\s*No\.?", raw, flags=re.I):
         tok = tok.strip(" .:-()")
         m = re.match(r"^(\d+[A-Za-z]?)(?:\s*/\s*([0-9A-Za-z]+(?:\s*/\s*[0-9A-Za-z]+)*))?", tok)
@@ -2820,7 +2898,8 @@ def survey_question(job, q, shot, options=None, field=None):
         c = kv_get("cases", cid) or {}
         qs = (c.get("robotQs") or []) + [{"id": str(uuid.uuid4()), "q": q[:400], "options": (options or ["Looks right - go on", "Wrong - I will correct Drafting"])[:30],
                                            "hint": "From the robot, on TNREGINET's survey screen", "src": "TNREGINET survey screen", "shot": shot,
-                                           "kind": "survey" if not field else "survey-pick", **({"field": field} if field else {}), "at": now()}]
+                                           "kind": "survey" if not field else "survey-pick", **({"field": field} if field else {}),
+                                           **({"store": "tp"} if job.d.get("kind") == "dor" else {}), "at": now()}]
         kv_merge("cases", cid, {"robotQs": qs})
     except Exception as e:
         log("survey question failed", e)

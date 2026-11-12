@@ -1,0 +1,16 @@
+[
+ ["Plot No.57 (Western Portion), Old T.S.No.334/2 Part, T.S.No.57, as per TSLR Old S.No.334, 57 part, New T.S.No.57/1, Block No.20, Ward No-2", {"new":"57/1","part":true,"hold":false,"ward":"2","block":"20","land":"Urban"}],
+ ["Natham Old Survey No.60/1 Part, sub division of New Natham Survey No.60/17, Patta No.53", {"new":"60/17","part":true,"hold":false,"land":"Natham"}],
+ ["Old Sy.No.622/3 Part, New Survey No. 1025/12", {"new":"1025/12","part":true,"hold":false}],
+ ["R.S.No.117/1 Part", {"new":"","part":true,"hold":true}],
+ ["22(Part)", {"new":"","part":true,"hold":true}],
+ ["713/1B1 Part", {"new":"","part":true,"hold":true}],
+ ["S.No.24 Part", {"new":"","part":true,"hold":true}],
+ ["S.F.No.123/4A", {"new":"123/4A","part":false,"hold":false}],
+ ["Survey No.140/2A2", {"new":"140/2A2","part":false,"hold":false}],
+ ["T.S.No.45/2, Ward-B, Block No.12", {"new":"45/2","part":false,"hold":false,"ward":"B","block":"12","land":"Urban"}],
+ ["Natham S.No.42/28", {"new":"42/28","part":false,"hold":false,"land":"Natham"}],
+ ["S.No.230/4A3B (Natham S.No.230/4A3 subdivided into New Natham S.No.230/4A3B), Old S.No.230", {"new":"230/4A3B","part":false,"hold":false,"land":"Natham"}],
+ ["Sy.No.88/1 Pt, New Sy.No.88/5", {"new":"88/5","part":true,"hold":false}],
+ ["", {"new":"","part":false,"hold":false}]
+]
