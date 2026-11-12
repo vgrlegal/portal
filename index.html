@@ -1781,9 +1781,9 @@ function modtUploads(c,d){const D=c.docs||{},n=Math.max(1,Math.min(4,+String(d["
   for(let i=1;i<=n;i++){const f=(D.th_kyc||[])[i-1];out.push({l:`Title holder ${i} ID (Aadhaar)`,v:f?f.name:"",need:1})}
   for(const k of [1,2]){const own=(c.caseWit||{})[k],nm=(own||{}).name||d["Witness "+k]||c["w"+k]||"",tok=(nm.toLowerCase().match(/[a-z]{3,}/g)||[])[0]||"",cf0=(D[`w${k}_kyc`]||[])[0],cf=cf0&&(own||(tok&&String(cf0.name||"").toLowerCase().includes(tok)))?cf0:null,w=(cfg.wit||[]).find(x=>x.name===nm),mf=w&&(w.kyc||[])[0];
     out.push({l:`Witness ${k} ID${nm?" · "+nm:""}`,v:cf?cf.name:mf?(mf.name||"from KYC Master")+" (KYC Master)":"",need:1,miss:cf0&&!cf?[`the case's witness file "${cf0.name}" is someone else - not used`]:[]})}
-  out.push({l:"Property image",v:((D.photos||[])[0]||{}).name||"",need:1});
+  out.push({l:"Property image (optional)",v:((D.photos||[])[0]||{}).name||"",need:0});/* 12 Nov 2026: optional for MODT */
   out.push((D.deed||[]).length||!(D.letter||[]).length?{l:"Title deed (colour copy, all files joined)",v:(D.deed||[]).map(f=>f.name).join(", "),need:1}:{l:"Bank letter (no title deed copy; uploaded in the title deed slot)",v:(D.letter||[]).map(f=>f.name).join(", "),need:1});
-  const ep=["ec","revenue","other"].flatMap(k=>(D[k]||[]).map(f=>f.name));out.push({l:"EC + patta + others (joined)",v:ep.join(", "),need:1,miss:[!(D.ec||[]).length&&"EC",!(D.revenue||[]).length&&"patta"].filter(Boolean)});
+  const ep=["ec","revenue","other"].flatMap(k=>(D[k]||[]).map(f=>f.name));out.push({l:"EC + patta + others (joined; EC optional)",v:ep.join(", "),need:1,miss:[!(D.revenue||[]).length&&"patta"].filter(Boolean)});/* 12 Nov 2026: EC optional, patta still needed */
   return out}
 /* "Draft done" for a MODT: everything the robot needs, or a list of what is missing */
 function modtDoneCheck(c,d){const P=[],v=k=>String(d[k]??"").trim(),n=Math.max(1,+v("Title holders").replace(/\D/g,"")||1);

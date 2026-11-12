@@ -2,7 +2,7 @@
 const fs=require("fs"),path=require("path"),ROOT=path.join(__dirname,"..");
 const html=fs.readFileSync(path.join(ROOT,"index.html"),"utf8");
 const grab=(start,end)=>{const a=html.indexOf(start);if(a<0)throw new Error("not found: "+start);const b=html.indexOf(end,a+start.length);return html.slice(a,b)};
-let src="const isRD=t=>/receipt/i.test(t||'');const esc=x=>String(x);\n";
+let src="const isRD=t=>/receipt/i.test(t||'');const esc=x=>String(x);const cfg={wit:[],banks:[],profiles:{}};\n";
 src+=grab("const PART_RE=","\n")+"\n"+grab("/* 12 Nov 2026 - same reader","const PART_REASON=")+"\n";
 const extra=(globalThis.__EXTRA__||[]);
 for(const [a,b] of [["function lodBoxOf(","\nconst OFF_TA="],["const OFF_TA=","\nasync function saveReview("]])src+=grab(a,b)+"\n";
@@ -10,8 +10,9 @@ src+=grab("const DOR_REQ=","\n")+"\n"+grab("const digits=","\n")+"\n"+grab("func
 src+=grab("const NOT_DOR_RE=","async function bankReads(){")+"\n";
 src+=grab("const DOCS={","\nconst docsFor=")+"\n"+grab("const docsFor=","\n")+"\n"+grab("function missingReq(","\n}\n")+"\n}\n";
 src="const flowOf=t=>/legal/i.test(t||'')?'legal':'modt';\n"+src;
+src+=grab("function modtUploads(","\n  return out}")+"\n  return out}\n";
 const MSTATES=(html.match(/MSTATES=\[[^\]]*\]/)||["MSTATES=[]"])[0];
-const T={};new Function("T",`const ${MSTATES};${src};T.parseSurvey=parseSurvey;T.partSurvey=partSurvey;T.modtCoAddr=modtCoAddr;T.lodBoxOf=lodBoxOf;T.dorDoneCheck=dorDoneCheck;T.custFromSubject=custFromSubject;T.NOT_DOR_RE=NOT_DOR_RE;T.dupPlan=dupPlan;T.missingReq=missingReq;`)(T);
+const T={};new Function("T",`const ${MSTATES};${src};T.parseSurvey=parseSurvey;T.partSurvey=partSurvey;T.modtCoAddr=modtCoAddr;T.lodBoxOf=lodBoxOf;T.dorDoneCheck=dorDoneCheck;T.custFromSubject=custFromSubject;T.NOT_DOR_RE=NOT_DOR_RE;T.dupPlan=dupPlan;T.missingReq=missingReq;T.modtUploads=modtUploads;`)(T);
 let fails=0;const check=(n,g,w)=>{if(JSON.stringify(g)!==JSON.stringify(w)){fails++;console.log("FAIL",n,"got",JSON.stringify(g),"want",JSON.stringify(w))}};
 for(const [text,exp] of JSON.parse(fs.readFileSync(path.join(__dirname,"survey_cases.json"),"utf8"))){const r=T.parseSurvey(text);for(const k in exp)check(`parseSurvey(${JSON.stringify(text.slice(0,40))}).${k}`,r[k],exp[k])}
 check("partSurvey part+new",T.partSurvey({type:"Deed of Receipt",tp:{"Survey number":"Old Sy.No.622/3 Part, New Survey No. 1025/12"}}),"");
@@ -53,5 +54,10 @@ check("MODT read starts without the draft (title deed or bank letter)",/if\(!\(D
 check("MODT with bank letter only",T.missingReq("MODT",{letter:[{}],th_kyc:[{}],w1_kyc:[{}],w2_kyc:[{}]}),[]);
 check("MODT with title deed only",T.missingReq("MODT",{deed:[{}],th_kyc:[{}],w1_kyc:[{}],w2_kyc:[{}]}),[]);
 check("MODT with neither",T.missingReq("MODT",{th_kyc:[{}],w1_kyc:[{}],w2_kyc:[{}]}).length,1);
+// MODT uploads: EC and property image optional, patta still needed (12 Nov)
+{const U=T.modtUploads({docs:{th_kyc:[{name:"a"}],w1_kyc:[{name:"x"}],w2_kyc:[{name:"y"}],deed:[{name:"d"}],revenue:[{name:"p"}]},caseWit:{1:{name:"x"},2:{name:"y"}}},{"Title holders":"1"});
+ const need=U.filter(x=>(x.need&&!x.v)||(x.miss||[]).length).map(x=>x.l);check("MODT uploads: no EC, no photo -> nothing missing",need,[]);
+ const U2=T.modtUploads({docs:{th_kyc:[{name:"a"}],deed:[{name:"d"}]},caseWit:{1:{name:"x"},2:{name:"y"}}},{"Title holders":"1"});
+ check("MODT uploads: patta still needed",U2.some(x=>(x.miss||[]).includes("patta")),true);}
 if(globalThis.__MORE__)globalThis.__MORE__(T,check,html);
 console.log("portal tests:",fails?fails+" FAILED":"OK");process.exit(fails?1:0);

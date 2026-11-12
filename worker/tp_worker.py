@@ -3370,7 +3370,7 @@ def modt_plan(case, d, folder, P, comments):
     rest = [fetch(x, f"OTHER_{k}_{i + 1}") for k in ("ec", "revenue", "other") for i, x in enumerate(docs.get(k) or [])]
     rest = [x for x in rest if x]
     if not (docs.get("ec") or []):
-        comments.append("EC not in the case (mandatory for MODT)")
+        comments.append("EC not in the case (optional for MODT) - the other documents were uploaded")
     if not (docs.get("revenue") or []):
         comments.append("Patta not in the case (mandatory for MODT)")
     other = None
