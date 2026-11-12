@@ -26,7 +26,7 @@ create or replace function public.client_view(id text, d jsonb) returns jsonb la
     'refuseReason', d->>'refuseReason', 'source', d->>'source',
     'docs', coalesce((select jsonb_object_agg(k, v) from jsonb_each(coalesce(d->'docs','{}'::jsonb)) e(k, v)
                       where k in ('modt','modt2','noc','revenue','tpcopy','regcopy',
-                                  'mdraft','deed','th_kyc','ec','photos','w1_kyc','w2_kyc','sanction','legal','other','report')), '{}'::jsonb),
+                                  'mdraft','deed','letter','th_kyc','ec','photos','w1_kyc','w2_kyc','sanction','legal','other','report')), '{}'::jsonb),
     'comments', coalesce((select jsonb_agg(c) from jsonb_array_elements(coalesce(d->'comments','[]'::jsonb)) c
                           where c->>'internal' = 'false'), '[]'::jsonb),
     'queries', coalesce(d->'queries', '[]'::jsonb))
@@ -59,7 +59,7 @@ end $$;
 create or replace function public.client_add_doc(doc text, k text, f jsonb) returns boolean language plpgsql security definer set search_path = public as $$
 declare d jsonb; who text := coalesce(client_me()->>'name', auth.jwt()->>'email') || ' (bank)'; t text := to_char(now() at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"');
         lbl text := case k when 'modt' then 'MODT' when 'modt2' then 'Supplementary MODT' when 'noc' then 'NOC' when 'revenue' then 'Revenue document'
-                           when 'mdraft' then 'MODT draft (Word copy)' when 'deed' then 'Title deed' when 'th_kyc' then 'Title holder Aadhaar'
+                           when 'mdraft' then 'MODT draft (Word copy)' when 'deed' then 'Title deed' when 'letter' then 'Bank letter' when 'th_kyc' then 'Title holder Aadhaar'
                            when 'ec' then 'EC' when 'photos' then 'Property photo' when 'w1_kyc' then 'Witness 1 Aadhaar' when 'w2_kyc' then 'Witness 2 Aadhaar'
                            when 'sanction' then 'Sanction letter' when 'legal' then 'Legal report' when 'other' then 'Other document' else k end;
         typ text;
@@ -70,7 +70,7 @@ begin
   if d is null or not client_owns(d) then raise exception 'case not found'; end if;
   typ := d->>'type';
   if not ((typ = 'Deed of Receipt' and k in ('modt','modt2','noc','revenue'))
-       or (typ = 'MODT' and k in ('mdraft','deed','th_kyc','revenue','ec','photos','w1_kyc','w2_kyc','sanction','legal','other'))
+       or (typ = 'MODT' and k in ('mdraft','deed','letter','th_kyc','revenue','ec','photos','w1_kyc','w2_kyc','sanction','legal','other'))
        or (typ = 'Legal Report' and k in ('deed','ec','revenue','other'))) then raise exception 'not allowed'; end if;
   d := jsonb_set(d, array['docs'], coalesce(d->'docs','{}'::jsonb) || jsonb_build_object(k, coalesce(d->'docs'->k,'[]'::jsonb) ||
         jsonb_build_array(jsonb_build_object('name', left(f->>'name',150), 'url', f->>'url', 'at', t, 'by', who))));

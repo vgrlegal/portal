@@ -30,5 +30,7 @@ check("dor_survey_change none for part only", ns["dor_survey_change"]({"Survey n
 # EC search reads every written form, new number first
 check("survey_list T.S", ns["survey_list"]({"Survey number": "Old T.S.No.334/2 Part, New T.S.No.57/1"})[0], ("57", "1"))
 check("survey_list Sy", ns["survey_list"]({"Survey number": "Sy.No.622/3"}), [("622", "3")])
+# MODT upload: no title deed -> the bank letter goes in the title deed slot (12 Nov)
+check("modt_plan bank letter fallback", 'docs.get("deed") or docs.get("letter")' in src, True)
 print("worker tests:", "OK" if not fails else f"{fails} FAILED")
 sys.exit(1 if fails else 0)

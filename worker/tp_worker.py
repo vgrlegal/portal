@@ -3353,7 +3353,11 @@ def modt_plan(case, d, folder, P, comments):
         plan.append(("Identification", nm, f, f"Witness {n} ID", f"WITNESS{n}"))
     ph = (docs.get("photos") or [None])[0]
     plan.append(("Property", "re:^(?!\\s*-+\\s*select)", fetch(ph, "PROPERTY_IMAGE"), "Property image", "PROPERTY_IMAGE"))
-    deeds = [fetch(x, f"TITLE_DEED_{i + 1}") for i, x in enumerate(docs.get("deed") or [])]
+    # 12 Nov 2026 (MD): no title deed copy -> the bank letter goes in the "original / title deed" slot instead
+    src = docs.get("deed") or docs.get("letter") or []
+    if not docs.get("deed") and src:
+        comments.append("No title deed copy in the case - the bank letter was uploaded in its place")
+    deeds = [fetch(x, f"TITLE_DEED_{i + 1}") for i, x in enumerate(src)]
     deeds = [x for x in deeds if x]
     deed = None
     if deeds:
@@ -3362,7 +3366,7 @@ def modt_plan(case, d, folder, P, comments):
         except Exception as e:
             comments.append(f"title deed files could not be joined ({e}); first file used")
             deed = deeds[0]
-    plan.append(("Reference", "re:original", deed, "Title deed (colour copy)", "TITLE_DEED"))
+    plan.append(("Reference", "re:original", deed, "Title deed (colour copy)" if docs.get("deed") else "Bank letter (no title deed)", "TITLE_DEED"))
     rest = [fetch(x, f"OTHER_{k}_{i + 1}") for k in ("ec", "revenue", "other") for i, x in enumerate(docs.get(k) or [])]
     rest = [x for x in rest if x]
     if not (docs.get("ec") or []):

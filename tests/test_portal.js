@@ -8,8 +8,10 @@ const extra=(globalThis.__EXTRA__||[]);
 for(const [a,b] of [["function lodBoxOf(","\nconst OFF_TA="],["const OFF_TA=","\nasync function saveReview("]])src+=grab(a,b)+"\n";
 src+=grab("const DOR_REQ=","\n")+"\n"+grab("const digits=","\n")+"\n"+grab("function dorDoneCheck(","function showDoneProblems(")+"\n";
 src+=grab("const NOT_DOR_RE=","async function bankReads(){")+"\n";
+src+=grab("const DOCS={","\nconst docsFor=")+"\n"+grab("const docsFor=","\n")+"\n"+grab("function missingReq(","\n}\n")+"\n}\n";
+src="const flowOf=t=>/legal/i.test(t||'')?'legal':'modt';\n"+src;
 const MSTATES=(html.match(/MSTATES=\[[^\]]*\]/)||["MSTATES=[]"])[0];
-const T={};new Function("T",`const ${MSTATES};${src};T.parseSurvey=parseSurvey;T.partSurvey=partSurvey;T.modtCoAddr=modtCoAddr;T.lodBoxOf=lodBoxOf;T.dorDoneCheck=dorDoneCheck;T.custFromSubject=custFromSubject;T.NOT_DOR_RE=NOT_DOR_RE;T.dupPlan=dupPlan;`)(T);
+const T={};new Function("T",`const ${MSTATES};${src};T.parseSurvey=parseSurvey;T.partSurvey=partSurvey;T.modtCoAddr=modtCoAddr;T.lodBoxOf=lodBoxOf;T.dorDoneCheck=dorDoneCheck;T.custFromSubject=custFromSubject;T.NOT_DOR_RE=NOT_DOR_RE;T.dupPlan=dupPlan;T.missingReq=missingReq;`)(T);
 let fails=0;const check=(n,g,w)=>{if(JSON.stringify(g)!==JSON.stringify(w)){fails++;console.log("FAIL",n,"got",JSON.stringify(g),"want",JSON.stringify(w))}};
 for(const [text,exp] of JSON.parse(fs.readFileSync(path.join(__dirname,"survey_cases.json"),"utf8"))){const r=T.parseSurvey(text);for(const k in exp)check(`parseSurvey(${JSON.stringify(text.slice(0,40))}).${k}`,r[k],exp[k])}
 check("partSurvey part+new",T.partSurvey({type:"Deed of Receipt",tp:{"Survey number":"Old Sy.No.622/3 Part, New Survey No. 1025/12"}}),"");
@@ -46,6 +48,10 @@ check("dupPlan different loan",T.dupPlan(mk("A1",{}),{...mk("B2",{}),loanNo:"999
 // MODT draft (Word copy) is optional (12 Nov): office New case and client New case
 check("MODT draft not required (office)",/\{k:"mdraft"[^}]*req:1/.test(html),false);
 check("MODT draft not required (client)",/"MODT":\[\["mdraft",[^\]]*,1\]/.test(html),false);
-check("MODT read starts without the draft",/if\(!\(D\.deed\|\|\[\]\)\.length\)\{toast\("Upload the title deed first/.test(html),true);
+check("MODT read starts without the draft (title deed or bank letter)",/if\(!\(D\.deed\|\|\[\]\)\.length&&!\(D\.letter\|\|\[\]\)\.length\)\{toast\("Upload the title deed or the bank letter first/.test(html),true);
+// MODT: title deed OR bank letter is enough (12 Nov)
+check("MODT with bank letter only",T.missingReq("MODT",{letter:[{}],th_kyc:[{}],w1_kyc:[{}],w2_kyc:[{}]}),[]);
+check("MODT with title deed only",T.missingReq("MODT",{deed:[{}],th_kyc:[{}],w1_kyc:[{}],w2_kyc:[{}]}),[]);
+check("MODT with neither",T.missingReq("MODT",{th_kyc:[{}],w1_kyc:[{}],w2_kyc:[{}]}).length,1);
 if(globalThis.__MORE__)globalThis.__MORE__(T,check,html);
 console.log("portal tests:",fails?fails+" FAILED":"OK");process.exit(fails?1:0);
