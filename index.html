@@ -1164,7 +1164,16 @@ async function autoMergeDups(){if(!(isMD||isAdmin))return;const rd=cases.filter(
     const note=how==="same"?`${drop.id} merged here: the bank sent the same MODT (${modtNoKey(drop)}) twice`:`${drop.id} merged here: its MODT ${modtNoKey(drop)} is linked as the supplementary MODT (same owner, same loan)`;
     const ch={docs,comments:[...(keep.comments||[]),...(drop.comments||[]).filter(x=>x.internal===false)].slice(-80)};if(how==="supp")ch.needsRead="modt2";
     if(await patch(keep,ch,note)){await db.collection("cases").doc(drop._doc).update({mergedInto:keep._doc,lockMerge:null,log:[...(drop.log||[]),{at:nowISO(),by:"Portal",text:`Merged into ${keep.id} (${how==="same"?"same MODT sent twice":"supplementary MODT"})`}].slice(-80)})}}}
-async function bankReads(){if(!(isMD||isAdmin||isPartner())||!canWrite||!CFG_OK)return;
+/* 12 Nov 2026: old bank names made from Gmail labels -> full TNREGINET names (bank list, learned domains, cases).
+   Runs once in an Admin window, after a backup of the settings. */
+const BANK_RENAME={"Ugro":"UGRO Capital Limited","Yes Bank":"Yes Bank Limited","Receipt-Auto/Logged":""};
+async function fixBankNames(){if(!isMD||!CFG_OK||!(cfg.banks||[]).some(b=>b in BANK_RENAME))return;
+  try{const cur=(await db.doc("config/lists").get()).data()||{};const bk=await window.__sb.from("kv").upsert({collection:"config",id:"lists_backup_banknames",data:cur});if(bk.error)return;
+    const banks=[...new Set((cur.banks||[]).map(b=>b in BANK_RENAME?BANK_RENAME[b]:b).filter(Boolean))].sort((a,b)=>a.localeCompare(b));
+    const domains=Object.fromEntries(Object.entries(cur.domains||{}).map(([d,b])=>[d,b in BANK_RENAME?BANK_RENAME[b]:b]).filter(([,b])=>b));
+    await saveCfg({...cfg,banks,domains});
+    for(const c of cases.filter(c=>c.bank in BANK_RENAME&&BANK_RENAME[c.bank]))await patch(c,{bank:BANK_RENAME[c.bank]},`Bank name: ${c.bank} → ${BANK_RENAME[c.bank]}`)}catch(e){console.warn(e)}}
+async function bankReads(){try{await fixBankNames()}catch(e){}if(!(isMD||isAdmin||isPartner())||!canWrite||!CFG_OK)return;
   if(isMD||isAdmin){const learn={};cases.filter(x=>x.source==="mail"&&x.bank).forEach(x=>{const d=domOf(x.mailOrigFrom||x.mailFrom);if(d&&!FREE_MAIL.test(d)&&!(cfg.domains||{})[d]&&!DOMAIN_SEED[d])learn[d]=x.bank});
     if(Object.keys(learn).length)await saveCfg({...cfg,domains:{...(cfg.domains||{}),...learn}})}
   for(const c of cases.filter(x=>x.source==="mail"&&!x.bank&&!x.mailBankDone&&!BR.has("b"+x._doc))){BR.add("b"+c._doc);
