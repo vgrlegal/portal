@@ -454,6 +454,7 @@ tr.hf input,tr.hf select{font-size:12.5px;padding:5px 7px;margin:2px 0}
   <section id="v-rep" hidden><div class="wrap" style="padding-top:16px"><div class="card"><h2>Reports</h2>
     <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-bottom:10px"><label>Month<input type="month" id="repMonth"></label><label id="repOrgL">Show<select id="repOrg"><option value="all">Everything</option><option value="vgr">VGR office only</option><option value="oo">Opinion &amp; Ownership only</option></select></label><button class="btn" id="repCsv" type="button">⬇ Excel (CSV)</button></div>
     <div style="overflow-x:auto"><table class="mini" id="repTbl"></table></div><p class="sf-note" id="repNote"></p></div>
+    <div class="card" id="aiCard" style="margin-top:16px" hidden><h2>Claude cost</h2><p class="sf-note">Admin only. Every Claude call the portal makes, from the usage log (from 9 Nov 2026). Cost is an estimate from tokens; the Anthropic Console bill is the final figure.</p><div id="aiCost"></div></div>
     <div class="card" style="margin-top:16px"><h2>Time on the portal</h2><p class="sf-note">Minutes with the portal open, counted each day (India time). Open but idle still counts, so read it together with the work done above.</p><div style="overflow-x:auto"><table class="mini" id="timeTbl"></table></div></div></div></section>
   <section id="v-team" hidden><div class="wrap" style="padding-top:16px"><div class="card"><h2>My team</h2><p>Your team works on Deed of Receipt only. Add a person, save, then press Invite (e-mail) or Copy link (to send on WhatsApp). The link works once; only that person should open it.</p>
     <div style="overflow-x:auto"><table class="mini" id="teamTbl"></table></div>
@@ -1100,6 +1101,14 @@ const DOMAIN_SEED={"janabank.com":"Jana Small Finance Bank Limited","muthootgrou
 const FREE_MAIL=/^(gmail\.com|yahoo\.|outlook\.|hotmail\.|rediffmail\.|opinionandownership\.in|vgrlegal\.in)/i;
 function domOf(addr){const m=String(addr||"").match(/@([\w.-]+)/);return m?m[1].toLowerCase():""}
 function bankOfDomain(d){if(!d||FREE_MAIL.test(d))return"";const map={...DOMAIN_SEED,...(cfg.domains||{})};for(const k of Object.keys(map))if(d===k||d.endsWith("."+k))return cfg.banks.includes(map[k])||!DOMAIN_SEED[k]?map[k]:(cfg.banks.find(b=>b===map[k])||map[k]);return""}
+/* 12 Nov 2026 - Claude cost: every open portal window (Admin, Raja, extra tabs) used to read the same new mail case at the
+   same time, and a reading that hit an error was retried at once, again and again (one MODT read 63 times in 5 minutes).
+   Now one window claims the case first (lock on the case, 15 min), and an error counts as a failed try (2 tries, then stop). */
+const MY_SESS=Math.random().toString(36).slice(2,10);
+async function claimRead(c,f){try{const ref=db.collection("cases").doc(c._doc);const d=((await ref.get()).data())||{};const L=d[f];
+    if(L&&L.s!==MY_SESS&&Date.now()-new Date(L.at).getTime()<15*60000)return false;
+    await ref.update({[f]:{s:MY_SESS,at:nowISO(),by:who()}});await new Promise(r=>setTimeout(r,1200+Math.random()*1800));
+    return ((((await ref.get()).data())||{})[f]||{}).s===MY_SESS}catch(e){return false}}
 async function bankReads(){if(!(isMD||isAdmin||isPartner())||!canWrite||!CFG_OK)return;
   if(isMD||isAdmin){const learn={};cases.filter(x=>x.source==="mail"&&x.bank).forEach(x=>{const d=domOf(x.mailOrigFrom||x.mailFrom);if(d&&!FREE_MAIL.test(d)&&!(cfg.domains||{})[d]&&!DOMAIN_SEED[d])learn[d]=x.bank});
     if(Object.keys(learn).length)await saveCfg({...cfg,domains:{...(cfg.domains||{}),...learn}})}
@@ -1109,11 +1118,18 @@ async function bankReads(){if(!(isMD||isAdmin||isPartner())||!canWrite||!CFG_OK)
       const ch={mailBankDone:true};if(b){ch.bank=b;const who2=cfg.staff.map(staffObj).filter(m=>m.team&&(m.banks||[]).includes(b));if(who2.length===1&&!c.assignee)ch.assignee=who2[0].name}
       await db.collection("cases").doc(c._doc).update(ch)}catch(e){BR.delete("b"+c._doc)}}
   if(window.__noCredit)return;
-  for(const c of cases.filter(x=>x.source==="mail"&&!x.classified&&!BR.has("k"+x._doc))){if(window.__noCredit)break;BR.add("k"+c._doc);try{await classifyMail(c)}catch(e){console.warn(e);BR.delete("k"+c._doc)}}
-  for(const c of cases.filter(x=>x.needsRead&&!(x.source==="mail"&&!x.classified)&&!BR.has(x._doc))){BR.add(c._doc);
-  try{if(window.__noCredit)break;if(c.needsRead==="modt2")await readSuppModt(c);else if(c.modtReadOf&&c.modtReadOf===(((c.docs||{}).modt||[])[0]||{}).url&&c.tpAuto){}else if(!await rereadModt(c,false)){const n=(c.readFails||0)+1;
+  for(const c of cases.filter(x=>x.source==="mail"&&!x.classified&&!x.classifyFailed&&!BR.has("k"+x._doc))){if(window.__noCredit)break;BR.add("k"+c._doc);
+    if(!await claimRead(c,"lockCls"))continue;
+    try{await classifyMail(c)}catch(e){console.warn(e);const n=(c.classifyFails||0)+1;
+      await db.collection("cases").doc(c._doc).update(n>=2?{classifyFails:n,classifyFailed:true,lockCls:null,log:[...(c.log||[]),{at:nowISO(),by:"Claude",text:"Mail files could not be sorted automatically (tried twice): "+String(e.message||e).slice(0,120)+". Open the case and put the files in their boxes by hand."}].slice(-80)}:{classifyFails:n,lockCls:null}).catch(()=>{});
+      if(n<2)setTimeout(()=>BR.delete("k"+c._doc),10*60000)}}
+  for(const c of cases.filter(x=>x.needsRead&&!x.readFailed&&!(x.source==="mail"&&!x.classified)&&!BR.has(x._doc))){BR.add(c._doc);
+  if(window.__noCredit)break;if(!await claimRead(c,"lockRead"))continue;
+  try{if(c.needsRead==="modt2")await readSuppModt(c);else if(c.modtReadOf&&c.modtReadOf===(((c.docs||{}).modt||[])[0]||{}).url&&c.tpAuto){}else if(!await rereadModt(c,false)){const n=(c.readFails||0)+1;
       await db.collection("cases").doc(c._doc).update(n>=2?{readFails:n,needsRead:null,readFailed:true,log:[...(c.log||[]),{at:nowISO(),by:"Claude",text:"MODT could not be read automatically (tried twice). Open Drafting: check the MODT file, upload a clearer copy, or press Read MODT again."}].slice(-80)}:{readFails:n});continue}
-    await db.collection("cases").doc(c._doc).update({needsRead:null,readFails:0,readFailed:null})}catch(e){BR.delete(c._doc)}}}
+    await db.collection("cases").doc(c._doc).update({needsRead:null,readFails:0,readFailed:null,lockRead:null})}catch(e){console.warn(e);const n=(c.readFails||0)+1;
+    await db.collection("cases").doc(c._doc).update(n>=2?{readFails:n,needsRead:null,readFailed:true,lockRead:null,log:[...(c.log||[]),{at:nowISO(),by:"Claude",text:"MODT could not be read automatically (tried twice): "+String(e.message||e).slice(0,120)+". Open Drafting and press Read MODT again."}].slice(-80)}:{readFails:n,lockRead:null}).catch(()=>{});
+    if(n<2)setTimeout(()=>BR.delete(c._doc),10*60000)}}}
 
 /* ================= writes ================= */
 async function patch(c,changes,logText){
@@ -1541,10 +1557,23 @@ async function renderReport(){const mEl=$("repMonth");if(!mEl.value)mEl.value=ne
     REP_ROWS.map(r=>`<tr><td>${esc(r.name)}</td><td>${esc(on(r.org))}</td><td class="c">${r.created}</td><td class="c">${r.drafted}</td><td class="c">${r.tp}</td><td class="c">${r.done}</td>${C?`<td class="c">${r.ocr}</td><td class="c">${r.img}</td><td class="c">${Math.round(r.usd*USD_INR)}</td>`:""}</tr>`).join("")+
     `<tr style="font-weight:700"><td>Total</td><td></td><td class="c">${tot.created}</td><td class="c">${tot.drafted}</td><td class="c">${tot.tp}</td><td class="c">${tot.done}</td>${C?`<td class="c">${tot.ocr}</td><td class="c">${tot.img}</td><td class="c">${Math.round(tot.usd*USD_INR)}</td>`:""}</tr>`;
   $("repNote").textContent=`People in this view: ${REP_ROWS.filter(r=>r.name!=="Mail (auto)").length}.`+(C?` Claude reading is counted from 9 Nov 2026; cost is an estimate (≈ ₹${USD_INR}/$).`:"");
-  renderTime(from,to,want,on);
+  renderTime(from,to,want,on);if(isMD)renderAiCost(usage,mon);
   $("repCsv").onclick=()=>{const h=["Person","Organisation","Cases created","Drafts done","TPs made","Completed","Claude readings","Pages read","Cost INR approx"];
     if(!C)h.length=6;const csv=[h,...REP_ROWS.map(r=>[r.name,on(r.org),r.created,r.drafted,r.tp,r.done,r.ocr,r.img,Math.round(r.usd*USD_INR)].slice(0,C?9:6))].map(a=>a.map(x=>`"${String(x).replace(/"/g,'""')}"`).join(",")).join("\n");
     const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([csv],{type:"text/csv"}));a.download=`VGR report ${mon}.csv`;a.click()}}
+/* 12 Nov 2026: Claude cost - today, this month, per work type, per day, repeat reads (same file read again within an hour) */
+const AI_KIND={classify:"Mail files sorted (first page of each file)",modt:"Deed of Receipt · MODT copy read",modt_case:"MODT robot · whole case read (MODT, deed, patta, EC)",aadhaar:"Aadhaar / ID card read",tamil:"Translation to Tamil",english:"Translation to English"};
+function renderAiCost(U,mon){const card=$("aiCard"),el=$("aiCost");if(!card)return;card.hidden=false;const r=v=>"₹"+Math.round(v*USD_INR).toLocaleString("en-IN"),r2=v=>"₹"+(v*USD_INR).toFixed(1);
+  const today=new Date(Date.now()+19800000).toISOString().slice(0,10),ist=u=>new Date(new Date(u.at).getTime()+19800000).toISOString().slice(0,10);
+  const S={},rep=new Set();U.slice().sort((a,b)=>String(a.at).localeCompare(String(b.at))).forEach(u=>{const k=u.kind+"|"+u.images+"|"+Math.round((+u.inTok||0)/300),L=S[k];if(L&&new Date(u.at)-new Date(L)<3600000)rep.add(u);S[k]=u.at});
+  const K={},D={};let tot=0,tod=0,rpU=0;U.forEach(u=>{const v=+u.usd||0;tot+=v;if(ist(u)===today)tod+=v;if(rep.has(u))rpU+=v;
+    const k=K[u.kind]||(K[u.kind]={n:0,img:0,usd:0,rep:0,repU:0});k.n++;k.img+=+u.images||0;k.usd+=v;if(rep.has(u)){k.rep++;k.repU+=v}
+    const d=D[ist(u)]||(D[ist(u)]={n:0,usd:0,rep:0});d.n++;d.usd+=v;if(rep.has(u))d.rep++});
+  const kv=(l,v)=>`<div class="kv"><span>${l}</span><b>${v}</b></div>`;
+  el.innerHTML=`<div class="kvs">${kv("Today",r(tod))}${kv(mon+" (month)",r(tot)+` · ${U.length} calls`)}${kv("Repeat reads (same file again within an hour)",`${rep.size} calls · ${r(rpU)}`)}</div>
+   <div style="overflow-x:auto"><table class="mini"><tr><th>Work</th><th class="c">Calls</th><th class="c">Pages</th><th class="c">Cost</th><th class="c">Per call</th><th class="c">Repeats</th></tr>${Object.entries(K).sort((a,b)=>b[1].usd-a[1].usd).map(([k,v])=>`<tr><td>${esc(AI_KIND[k]||k)}</td><td class="c">${v.n}</td><td class="c">${v.img}</td><td class="c">${r(v.usd)}</td><td class="c">${r2(v.usd/v.n)}</td><td class="c">${v.rep?`${v.rep} (${r(v.repU)})`:"0"}</td></tr>`).join("")}</table></div>
+   <div style="overflow-x:auto;margin-top:10px"><table class="mini"><tr><th>Day</th><th class="c">Calls</th><th class="c">Repeats</th><th class="c">Cost</th></tr>${Object.entries(D).sort((a,b)=>b[0].localeCompare(a[0])).map(([d,v])=>`<tr><td>${d}</td><td class="c">${v.n}</td><td class="c">${v.rep}</td><td class="c">${r(v.usd)}</td></tr>`).join("")}</table></div>
+   <p class="sf-note">Repeat reads were mostly several portal windows reading the same new mail case together, and errors retried at once. Fixed on 12 Nov 2026: one window reads a case (15-minute lock), and an error counts as a try (2 tries, then stop).</p>`}
 async function renderTime(from,to,want,on){const t=$("timeTbl");if(!t)return;let rows=[];
   try{const{data}=await window.__sb.from("kv").select("data").eq("collection","presence").gte("data->>date",from).lt("data->>date",to).limit(5000);rows=(data||[]).map(r=>r.data)}catch(e){}
   if(isMD&&want!=="all")rows=rows.filter(r=>want==="vgr"?!r.org:r.org===want);
