@@ -1891,6 +1891,67 @@ def aadhaar_ok(v):
     return c == 0
 
 
+# 12 Nov 2026 - MODT company address, one format (same as the portal's modtCoAddr):
+# "<Branch>, having its <Registered/Head Office> at <office address>" / "<கிளை>, பதிவு அலுவலகம் - <முகவரி>";
+# state and pincode never inside the address (own dropdown / box). Safe on an address already in this format.
+OFF_TA = {"Registered Office": "பதிவு அலுவலகம்", "Head Office": "தலைமை அலுவலகம்", "Corporate Office": "கார்ப்பரேட் அலுவலகம்"}
+CO_STATES = ["Tamil Nadu", "Karnataka", "Kerala", "Andhra Pradesh", "Telangana", "Maharashtra", "Delhi", "Gujarat", "West Bengal",
+             "Uttar Pradesh", "Haryana", "Rajasthan", "Madhya Pradesh", "Punjab", "Odisha", "Bihar", "Puducherry", "India",
+             "தமிழ்நாடு", "மகாராஷ்டிரா", "இந்தியா"]
+
+
+def strip_st_pin(a, st=""):
+    x = re.sub(r"[\s,–-]*\b\d{3}\s?\d{3}\b", "", str(a or ""))
+    for _ in range(3):
+        for w in [st] + CO_STATES:
+            if w:
+                x = re.sub(r"[\s,–-]*" + re.escape(w) + r"[\s,.–-]*$", "", x, flags=re.I)
+    x = re.sub(r"\s+", " ", x)
+    return re.sub(r"^[\s,.;:–-]+|[\s,.;:–-]+$", "", x).strip()
+
+
+def co_split(a, ta):
+    a = str(a or "").strip()
+    br, ho = "", a
+    pats = ([(r"^(.*?),?\s*(?:பதிவு|தலைமை|கார்ப்பரேட்)\s*அலுவலகம்\s*[-:]\s*(.*)$", "brho"),
+             (r"^(.*?)[,\s]*\(?\s*கிளை(?:\s*அலுவலகம்)?\s*[:\-]?\s*([^)]*?)\)?\s*$", "hobr")] if ta else
+            [(r"^(.*?),?\s*having its .*?office at\s+(.*)$", "brho"),
+             (r"^(.*?)[,\s]*\(?\s*branch(?:\s*office)?\s*(?:at|:|-)\s*([^)]*?)\)?\s*$", "hobr"),
+             (r"^(.*?)\s*\(([^)]*branch[^)]*)\)\s*$", "hobr")])
+    for pat, how in pats:
+        m = re.match(pat, a, re.I)
+        if m:
+            br, ho = (m.group(1), m.group(2)) if how == "brho" else (m.group(2), m.group(1))
+            break
+    seg = [x.strip() for x in str(br).split(",") if x.strip()]
+    bn = [x for x in seg if (re.search("கிளை", x) if ta else re.search("branch", x, re.I))]
+    if bn and len(seg) <= 2:
+        br = bn[-1]
+    elif seg and len(seg) <= 2:
+        br = seg[-1]
+    return str(br).strip(), str(ho).strip()
+
+
+def modt_co_addr(d):
+    """English and Tamil company address in the agreed format (dict changed in place and returned)."""
+    w = d.get("Company office") or "Registered Office"
+    st = d.get("Company state") or ""
+    br, ho = co_split(d.get("Company address"), False)
+    if ho:
+        if br and not re.search("branch", br, re.I) and len(br.split(",")) < 2:
+            br += " Branch"
+        ho = strip_st_pin(ho, st)
+        d["Company address"] = f"{br}, having its {w} at {ho}" if br else f"Having its {w} at {ho}"
+    br, ho = co_split(d.get("Company address Tamil"), True)
+    if ho:
+        if br and "கிளை" not in br and len(br.split(",")) < 2:
+            br += " கிளை"
+        ho = strip_st_pin(ho, st)
+        t = OFF_TA.get(w, OFF_TA["Registered Office"])
+        d["Company address Tamil"] = f"{br}, {t} - {ho}" if br else f"{t} - {ho}"
+    return d
+
+
 def modt_problems(case):
     """MODT checks before login: all four boundaries (English and Tamil), and the MODT extent not more than the patta's total."""
     d, out = case.get("draft") or {}, []
@@ -1901,6 +1962,8 @@ def modt_problems(case):
     for n in (1, 2):
         if (docs.get(f"w{n}_kyc") or []) and not (cw.get(str(n)) or cw.get(n) or {}).get("name"):
             out.append(f"witness {n} Aadhaar is uploaded in the case ({(docs[f'w{n}_kyc'][0].get('name') or '')}) but not read - press 'Read customer's witness Aadhaar' in Drafting")
+    if not (case.get("lodHtml") or g(d, "List of documents deposited")):
+        out.append("List of documents deposited (LOD) is empty in Drafting - it is compulsory for every MODT (read the MODT draft again or type it)")
     tot, ext = area_sqm(g(d, "Total survey extent")), area_sqm(g(d, "Extent"))
     ptype = ptype_of(d) or ""
     if "Agri" in ptype and tot and ext and ext > tot * 1.002:
@@ -2201,8 +2264,9 @@ def run_modt(page, job, case):
     if not str(r).startswith("ok"):
         job.step("Company not found in TNREGINET list", page)
         raise Stop(f"TNREGINET's company list has no match for '{co}'. Check Govt Body Name in Drafting.")
-    address(P, g(d, "Company state") or "Tamil Nadu", g(d, "Company district"), addr=g(d, "Company address").replace(":", " "),
-            addr_ta=g(d, "Company address Tamil").replace(":", " "), pin=g(d, "Company pincode"))
+    co = modt_co_addr({k: d.get(k) for k in ("Company office", "Company state", "Company address", "Company address Tamil")})
+    address(P, g(d, "Company state") or "Tamil Nadu", g(d, "Company district"), addr=g(co, "Company address").replace(":", " "),
+            addr_ta=g(co, "Company address Tamil").replace(":", " "), pin=g(d, "Company pincode"))
     add_and_next(P, "Company")
     # 4. Representative: not needed for MODT
     job.step("4 · Representative: skipped for MODT", page)

@@ -708,7 +708,7 @@ const MODT_FIELDS=[
   ["1 · Linked documents (title deeds)",[["Deed 1 SRO","sro"],"Deed 1 Doc No",["Deed 1 Year","year"],["Deed 2 SRO","sro"],"Deed 2 Doc No",["Deed 2 Year","year"],["Deed 3 SRO","sro"],"Deed 3 Doc No",["Deed 3 Year","year"]]],
   ["2 · Mortgagor (title holders)",[["Title holders","s",["1","2","3","4"]]]],
   ["2 · Title holder 1",MP(1)],["2 · Title holder 2",MP(2)],["2 · Title holder 3",MP(3)],["2 · Title holder 4",MP(4)],
-  ["3 · Mortgagee (company)",["Govt Body Name",["Company state","s",MSTATES],"Company district",["Company address","w"],["Company address Tamil","w"],"Company pincode"]],
+  ["3 · Mortgagee (company)",["Govt Body Name",["Company office","s",["Registered Office","Head Office","Corporate Office"]],["Company state","s",MSTATES],"Company district",["Company address","w"],["Company address Tamil","w"],"Company pincode"]],
   ["4 · Company representative",[["Representative","note","Skipped for MODT. Needed only when the property belongs to a company."]]],
   ["5 · Witnesses",[["Witness 1","wsel"],["Witness 2","wsel"]]],
   ["6 · Presenter",[["Presenter","s",["Title holder 1","Title holder 2","Title holder 3","Title holder 4"]]]],
@@ -1747,8 +1747,33 @@ function fixesOf(c,data){const a=c.tpAuto||{},out=[...(c.fixes||[])];
 function learned(){const m=new Map();cases.forEach(c=>(c.fixes||[]).forEach(x=>{const key=x.field+"|"+x.read;const o=m.get(key);if(!o||o.at<x.at)m.set(key,x)}));
   return[...m.values()].sort((a,b)=>a.at<b.at?1:-1)}
 function applyLearned(d){const L=learned();let n=0;Object.keys(d).forEach(k=>{const x=L.find(y=>y.field===k&&y.read===String(d[k]).trim());if(x){d[k]=x.fixed;n++}});return n}
+/* 12 Nov 2026 - MODT company address, one format for every case: "<Branch>, having its <Registered/Head Office> at <office address>".
+   Branch = branch address, or only the branch name; the office word is the one the MODT draft uses; state, district (as a
+   separate word) and pincode never go inside the address (they have their own dropdown / boxes). Tamil: "<கிளை>, பதிவு அலுவலகம் - <முகவரி>"
+   (no ':' - TNREGINET refuses it). Safe to run again on an address already in this format. */
+const OFF_TA={"Registered Office":"பதிவு அலுவலகம்","Head Office":"தலைமை அலுவலகம்","Corporate Office":"கார்ப்பரேட் அலுவலகம்"};
+function officeWord(t){const m=/having\s+its\s+(registered|head|corporate)\s+office/i.exec(t||"")||/(registered|head|corporate)\s+office\s+at/i.exec(t||"");return m?m[1][0].toUpperCase()+m[1].slice(1).toLowerCase()+" Office":""}
+function stripStPin(a,st){let x=String(a||"").replace(/[\s,–-]*\b\d{3}\s?\d{3}\b/g,"");
+  const esc2=w=>w.replace(/[.*+?^${}()|[\]\\]/g,"\\$&");
+  for(let i=0;i<3;i++)[st,...MSTATES,"India","தமிழ்நாடு","மகாராஷ்டிரா","இந்தியா"].filter(Boolean).forEach(w=>{x=x.replace(new RegExp("[\\s,–-]*"+esc2(w)+"[\\s,.–-]*$","i"),"")});
+  return x.replace(/\s+/g," ").replace(/[\s,.;:–-]+$/,"").replace(/^[\s,.;:–-]+/,"").trim()}
+function coSplit(a,ta){a=String(a||"").trim();let br="",ho=a,m;
+  if(!ta&&(m=/^(.*?),?\s*having its .*?office at\s+(.*)$/i.exec(a)))[br,ho]=[m[1],m[2]];
+  else if(ta&&(m=/^(.*?),?\s*(?:பதிவு|தலைமை|கார்ப்பரேட்)\s*அலுவலகம்\s*[-:]\s*(.*)$/.exec(a)))[br,ho]=[m[1],m[2]];
+  else if(!ta&&(m=/^(.*?)[,\s]*\(?\s*(?:branch(?:\s*office)?)\s*(?:at|:|-)\s*([^)]*?)\)?\s*$/i.exec(a)))[ho,br]=[m[1],m[2]];
+  else if(!ta&&(m=/^(.*?)\s*\(([^)]*branch[^)]*)\)\s*$/i.exec(a)))[ho,br]=[m[1],m[2]];
+  else if(ta&&(m=/^(.*?)[,\s]*\(?\s*கிளை(?:\s*அலுவலகம்)?\s*[:\-]?\s*([^)]*?)\)?\s*$/.exec(a)))[ho,br]=[m[1],m[2]];
+  const seg=String(br).split(",").map(x=>x.trim()).filter(Boolean),bn=ta?seg.filter(x=>/கிளை/.test(x)):seg.filter(x=>/branch/i.test(x));
+  // "L&T Finance Ltd, Tharamangalam Branch" → the branch part only; a real branch street address (3+ parts) stays whole
+  if(bn.length&&seg.length<=2)br=bn[bn.length-1];else if(seg.length<=2&&seg.length)br=seg[seg.length-1];
+  return{br:String(br).trim(),ho:String(ho).trim()}}
+function modtCoAddr(d,draftText){const w=officeWord(draftText)||d["Company office"]||"Registered Office";d["Company office"]=w;const st=d["Company state"];
+  const e=coSplit(d["Company address"],false),t=coSplit(d["Company address Tamil"],true);
+  if(e.ho){let br=e.br;if(br&&!/branch/i.test(br)&&br.split(",").length<2)br+=" Branch";const ho=stripStPin(e.ho,st);d["Company address"]=br?`${br}, having its ${w} at ${ho}`:`Having its ${w} at ${ho}`}
+  if(t.ho){let br=t.br;if(br&&!/கிளை/.test(br)&&br.split(",").length<2)br+=" கிளை";const ho=stripStPin(t.ho,st);d["Company address Tamil"]=br?`${br}, ${OFF_TA[w]||OFF_TA["Registered Office"]} - ${ho}`:`${OFF_TA[w]||OFF_TA["Registered Office"]} - ${ho}`}
+  return d}
 async function saveReview(done){
-  const c=rv.c,dor=isRD(c.type),data=readReview(),ch=dor?{tp:data,...witPicks()}:{draft:data};
+  const c=rv.c,dor=isRD(c.type),data=readReview(),ch=dor?{tp:data,...witPicks()}:{draft:data};if(!dor)modtCoAddr(data,c.draftText||"");
   if(c.tpAuto){const fx=fixesOf(c,data);if(fx.length!==(c.fixes||[]).length||JSON.stringify(fx)!==JSON.stringify(c.fixes||[]))ch.fixes=fx}
   if(!dor&&data.SRO)ch.sro=data.SRO;if(dor&&data.SRO)ch.sro=data.SRO;
   if(done&&!dor){const P=modtDoneCheck({...c,...ch},data);if(P.length){await patch(c,ch,"Draft saved (Draft done refused: "+P.length+" item(s) missing)");showDoneProblems(P);return}}
@@ -1756,7 +1781,7 @@ async function saveReview(done){
   if(await patch(c,ch,done?"Draft done":"Draft saved")){if(done)closeReview()}
 }
 async function approveReview(){
-  const c=rv.c,dor=isRD(c.type),data=readReview();
+  const c=rv.c,dor=isRD(c.type),data=readReview();if(!dor)modtCoAddr(data,c.draftText||"");
   if(dor){const miss=DOR_REQ.filter(k=>!String(data[k]||"").trim());if(miss.length){toast("Fill these first: "+miss.join(", "));return}
     const bad=["Rep Aadhaar","Witness 1 Aadhaar","Witness 2 Aadhaar","Mortgagor Aadhaar"].filter(k=>data[k]&&digits(data[k]).length!==12);if(bad.length){toast("Check: "+bad.join(", ")+" (12 digits)");return}}
   if(!dor){const P=modtDoneCheck(c,data);if(P.length){showDoneProblems(P);return}}
@@ -2923,7 +2948,8 @@ async function readModtCase(c,force){window.__readRef=c.id+" · MODT case read";
       if(v&&unitKey(t)!==unitKey(u)){F["Total survey extent (patta)"]=t;F["Total survey extent"]=`${v} ${u}`}}
     Object.keys(F).forEach(k=>{const m=/^Mortgagor (\d+) address$/.exec(k);if(m)cleanAddrPair(F,k,`Mortgagor ${m[1]} address Tamil`,`Mortgagor ${m[1]} district`)});
     const d={...(c.draft||{})};let n=0;Object.entries(F).forEach(([k,v])=>{v=Array.isArray(v)?v.join("\n"):String(v??"").trim();if(!v)return;if(force||!String(d[k]||"").trim()){if(d[k]!==v)n++;d[k]=v}});
-    const ch={draft:d,tpAuto:{...(c.tpAuto||{}),...Object.fromEntries(Object.entries(F).map(([k,v])=>[k,String(v??"")]))},tpNotes:doubts};if(lodHtml)ch.lodHtml=lodHtml;
+    modtCoAddr(d,draft);
+    const ch={draft:d,draftText:draft.slice(0,20000),tpAuto:{...(c.tpAuto||{}),...Object.fromEntries(Object.entries(F).map(([k,v])=>[k,String(v??"")]))},tpNotes:doubts};if(lodHtml)ch.lodHtml=lodHtml;
     if(dq.length)ch.robotQs=await doubtQs(c,dq,"draft","MODT documents");
     {const u=caseUnit(d),a=areaSqm(d.Extent),b=areaSqm(d["Total survey extent"]);if(a&&b&&a>b*1.002&&/agri/i.test(d["Property type"]||""))ch.robotQs=[...(ch.robotQs||c.robotQs||[]),{id:crypto.randomUUID(),q:`Mortgaged extent (MODT) ${d.Extent} is MORE than the patta total ${areaIn(d["Total survey extent"],u)} ${u}. Which is right?`,options:[`MODT is right: ${d.Extent}`,"Patta is right - I will correct the MODT extent"],hint:"The mortgaged extent cannot be more than the whole survey extent in the patta",src:"Extent check",at:nowISO()}]}
     {const miss=["North","South","East","West"].filter(x=>String(d["Boundary "+x]??"")===""||String(d[`Boundary ${x} Tamil`]??"")==="");if(miss.length)ch.robotQs=[...(ch.robotQs||c.robotQs||[]),...miss.map(x=>({id:crypto.randomUUID(),q:`Boundary ${x} is not in the MODT draft or the title deed reading. Type it (English) from the title deed.`,options:[],field:"Boundary "+x,hint:"All four boundaries are needed in English and Tamil",src:"Boundary check",at:nowISO()}))]}
