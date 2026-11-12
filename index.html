@@ -356,7 +356,7 @@ tr.hf input,tr.hf select{font-size:12.5px;padding:5px 7px;margin:2px 0}
 <main class="wrap">
   <div id="banner" class="banner" hidden></div>
 
-  <section id="v-dash" hidden><div id="bioBox"></div><div class="dash" id="dash"></div></section>
+  <section id="v-dash" hidden><div id="healthBox"></div><div id="bioBox"></div><div class="dash" id="dash"></div></section>
 
   <section id="v-list">
     <div class="bar">
@@ -1112,10 +1112,12 @@ const DOMAIN_SEED={"janabank.com":"Jana Small Finance Bank Limited","muthootgrou
   "adityabirlacapital.com":"Aditya Birla Housing Finance Limited","aadharhousing.com":"Aadhar Housing Finance Limited","idfcfirstbank.com":"IDFC FIRST Bank Limited","idfcfirstbharat.com":"IDFC FIRST Bharat Limited",
   "equitasbank.com":"Equitas Small Finance Bank Limited","fedfina.com":"Fedbank Financial Services Limited","godrejcapital.com":"Godrej Housing Finance Limited","herohfl.com":"Hero Housing Finance Limited",
   "iifl.com":"IIFL Home Finance Limited","iiflhomeloans.com":"IIFL Home Finance Limited","dcbbank.com":"DCB Bank Limited","poonawallafincorp.com":"Poonawalla Fincorp Limited","protium.co.in":"Protium Finance Limited",
-  "clix.capital":"Clix Capital Services Private Limited","veritasfin.in":"Veritas Finance Limited","ltfs.com":"L&T Finance Limited","lendingkart.com":"Lendingkart Finance Limited","smfgindia.com":"SMFG India Credit Company Limited"};
-const FREE_MAIL=/^(gmail\.com|yahoo\.|outlook\.|hotmail\.|rediffmail\.|opinionandownership\.in|vgrlegal\.in)/i;
+  "clix.capital":"Clix Capital Services Private Limited","veritasfin.in":"Veritas Finance Limited","ltfs.com":"L&T Finance Limited","lendingkart.com":"Lendingkart Finance Limited","smfgindia.com":"SMFG India Credit Company Limited",
+  /* 12 Nov 2026: full TNREGINET names (were made from Gmail labels as "Ugro" / "Yes Bank") */
+  "ugrocapital.com":"UGRO Capital Limited","yes.bank.in":"Yes Bank Limited","yesbank.in":"Yes Bank Limited"};
+const FREE_MAIL=/^(gmail\.com|yahoo\.|outlook\.|hotmail\.|rediffmail\.|opinionandownership\.(in|com)|vgrlegal\.in)/i;
 function domOf(addr){const m=String(addr||"").match(/@([\w.-]+)/);return m?m[1].toLowerCase():""}
-function bankOfDomain(d){if(!d||FREE_MAIL.test(d))return"";const map={...DOMAIN_SEED,...(cfg.domains||{})};for(const k of Object.keys(map))if(d===k||d.endsWith("."+k))return cfg.banks.includes(map[k])||!DOMAIN_SEED[k]?map[k]:(cfg.banks.find(b=>b===map[k])||map[k]);return""}
+function bankOfDomain(d){if(!d||FREE_MAIL.test(d))return"";const map={...(cfg.domains||{}),...DOMAIN_SEED};/* the fixed list wins over names learned from labels */for(const k of Object.keys(map))if(d===k||d.endsWith("."+k))return cfg.banks.includes(map[k])||!DOMAIN_SEED[k]?map[k]:(cfg.banks.find(b=>b===map[k])||map[k]);return""}
 /* 12 Nov 2026 - Claude cost: every open portal window (Admin, Raja, extra tabs) used to read the same new mail case at the
    same time, and a reading that hit an error was retried at once, again and again (one MODT read 63 times in 5 minutes).
    Now one window claims the case first (lock on the case, 15 min), and an error counts as a failed try (2 tries, then stop). */
@@ -1124,12 +1126,50 @@ async function claimRead(c,f){try{const ref=db.collection("cases").doc(c._doc);c
     if(L&&L.s!==MY_SESS&&Date.now()-new Date(L.at).getTime()<15*60000)return false;
     await ref.update({[f]:{s:MY_SESS,at:nowISO(),by:who()}});await new Promise(r=>setTimeout(r,1200+Math.random()*1800));
     return ((((await ref.get()).data())||{})[f]||{}).s===MY_SESS}catch(e){return false}}
+/* 12 Nov 2026: mails that are not a Deed of Receipt, and the customer's name out of a mail subject
+   ("Request For Online MODT Cancellation || MEENA TIFFEN CENTRE || UGTHTMS0000017545" -> "MEENA TIFFEN CENTRE") */
+const NOT_DOR_RE=/\bvetting\b|legal\s*(report|opinion)|scrutiny\s*report|title\s*(report|opinion)|\bTSR\b/i;
+function custFromSubject(sub){const t=String(sub||"").replace(/^\s*((re|fw|fwd)\s*:\s*)+/i,"").replace(/\[external\][-:]?/ig,"").trim();
+  if(!/\|\||\/\/|request|cancel|initiate|modt|receipt|loan|\bcase\b/i.test(t)&&t.length<=40)return t;
+  const junk=/request|cancel|initiate|modt|receipt|deed|online|loan|\bcase\b|\breq\b|\bnoc\b|branch|^\s*(kcc|re|fw)\s*$/i;
+  const parts=t.split(/\|\||\/\/|\||\s[-–]\s|\s:\s/).map(x=>x.replace(/\b(mr|mrs|ms|m\/s)\.?\s+/i,"").trim()).filter(Boolean);
+  const pick=parts.find(x=>/[a-z]{3}/i.test(x)&&!junk.test(x)&&!/[A-Z]{2,}\d{5,}|\d{6,}/.test(x)&&x.length<=50);
+  return pick?pick.replace(/\s+/g," ").trim():t.slice(0,80)}
+/* 12 Nov 2026 (MD's rule) - two Deed of Receipt cases with the same loan number:
+   same owner + same MODT document number  -> the bank sent the mail twice: merge into one case (one TP);
+   same owner, different MODT number       -> main + supplementary MODT: one case, the second MODT linked as supplementary;
+   different owner                          -> keep both, warn on the Dashboard health check.
+   The kept case is the one that went further (TP made / later stage), else the older one. Merged cases stay restorable. */
+const loanKey=c=>String(c.loanNo||"").toUpperCase().replace(/[^A-Z0-9]/g,"");
+const ownerKey=c=>{const t={...(c.tpAuto||{}),...(c.tp||{})};return String(t.Mortgagor||c.applicant||"").toLowerCase().replace(/\b(mr|mrs|ms|m\/s|dr)\b\.?/g," ").split(/[^a-z]+/).filter(w=>w.length>1).sort().join(" ")};
+const modtNoKey=c=>{const t={...(c.tpAuto||{}),...(c.tp||{})};const n=String(t["Doc No"]||"").replace(/\D/g,"");return n?n+"/"+String(t.Year||"").replace(/\D/g,""):""};
+const STAGE_RANK=s=>["Draft Pending","TP On Hold","TP Creation","Photo/Biometric","Payment","Submitted Online","Under Verification","Under Processing","Registered"].indexOf(s);
+function dupPlan(a,b){/* -> {keep,drop,how} | {warn} | null */
+  if(!loanKey(a)||loanKey(a).length<6||loanKey(a)!==loanKey(b))return null;
+  if(/^TP\//.test(a.tpNo||"")&&/^TP\//.test(b.tpNo||""))return{warn:"both have a TP"};
+  const oa=ownerKey(a),ob=ownerKey(b);if(!oa||!ob)return null;
+  const sameOwner=oa===ob||oa.split(" ").filter(w=>w.length>2).every(w=>ob.includes(w))||ob.split(" ").filter(w=>w.length>2).every(w=>oa.includes(w));
+  if(!sameOwner)return{warn:"same loan number, different owner"};
+  const ka=modtNoKey(a),kb=modtNoKey(b);if(!ka||!kb)return null;/* wait until both MODTs are read */
+  const rank=c=>(/^TP\//.test(c.tpNo||"")?100:0)+STAGE_RANK(c.stage||"");
+  const [keep,drop]=rank(a)!==rank(b)?(rank(a)>rank(b)?[a,b]:[b,a]):(String(a.createdAt)<=String(b.createdAt)?[a,b]:[b,a]);
+  return{keep,drop,how:ka===kb?"same":"supp"}}
+async function autoMergeDups(){if(!(isMD||isAdmin))return;const rd=cases.filter(c=>isRD(c.type)&&!c.mergedInto&&!c.notCase);
+  for(let i=0;i<rd.length;i++)for(let j=i+1;j<rd.length;j++){const p=dupPlan(rd[i],rd[j]);if(!p)continue;
+    if(p.warn){for(const c of [rd[i],rd[j]])if(!c.dupWarn)await db.collection("cases").doc(c._doc).update({dupWarn:`${p.warn}: ${rd[i]===c?rd[j].id:rd[i].id}`}).catch(()=>{});continue}
+    const {keep,drop,how}=p;if(BR.has("m"+drop._doc))continue;BR.add("m"+drop._doc);if(!await claimRead(drop,"lockMerge"))continue;
+    const docs=JSON.parse(JSON.stringify(keep.docs||{})),have=new Set(Object.values(docs).flat().map(f=>f&&f.name));
+    if(how==="supp"){const m=(drop.docs||{}).modt||[];if(m.length&&!(docs.modt2||[]).length)docs.modt2=m}
+    for(const [k,a] of Object.entries(drop.docs||{})){if(how==="supp"&&k==="modt")continue;for(const f of a||[])if(f&&!have.has(f.name)){(docs[k]=docs[k]||[]).push(f);have.add(f.name)}}
+    const note=how==="same"?`${drop.id} merged here: the bank sent the same MODT (${modtNoKey(drop)}) twice`:`${drop.id} merged here: its MODT ${modtNoKey(drop)} is linked as the supplementary MODT (same owner, same loan)`;
+    const ch={docs,comments:[...(keep.comments||[]),...(drop.comments||[]).filter(x=>x.internal===false)].slice(-80)};if(how==="supp")ch.needsRead="modt2";
+    if(await patch(keep,ch,note)){await db.collection("cases").doc(drop._doc).update({mergedInto:keep._doc,lockMerge:null,log:[...(drop.log||[]),{at:nowISO(),by:"Portal",text:`Merged into ${keep.id} (${how==="same"?"same MODT sent twice":"supplementary MODT"})`}].slice(-80)})}}}
 async function bankReads(){if(!(isMD||isAdmin||isPartner())||!canWrite||!CFG_OK)return;
   if(isMD||isAdmin){const learn={};cases.filter(x=>x.source==="mail"&&x.bank).forEach(x=>{const d=domOf(x.mailOrigFrom||x.mailFrom);if(d&&!FREE_MAIL.test(d)&&!(cfg.domains||{})[d]&&!DOMAIN_SEED[d])learn[d]=x.bank});
     if(Object.keys(learn).length)await saveCfg({...cfg,domains:{...(cfg.domains||{}),...learn}})}
   for(const c of cases.filter(x=>x.source==="mail"&&!x.bank&&!x.mailBankDone&&!BR.has("b"+x._doc))){BR.add("b"+c._doc);
     try{const lab=(c.mailLabels||[]).filter(l=>!/^(inbox|important|starred|unread|vgr-portal|opinion-portal)$/i.test(l)&&!/[\/]|receipt|auto|logged|done|pending|follow/i.test(l));let b=bankOfDomain(domOf(c.mailOrigFrom))||bankOfDomain(domOf(c.mailFrom))||(lab.length?matchBank(lab.join(" ")):"");
-      if(!b&&lab.length&&(isMD||isAdmin)){const nm=lab[0].toLowerCase().replace(/\b\w/g,x=>x.toUpperCase());if(!cfg.banks.some(x=>x.toLowerCase()===nm.toLowerCase())){await saveCfg({...cfg,banks:[...cfg.banks,nm].sort((a,b)=>a.localeCompare(b))})}b=nm}
+      if(!b&&lab.length&&(isMD||isAdmin)&&lab[0].trim().split(/\s+/).length>=2){const nm=lab[0].toLowerCase().replace(/\b\w/g,x=>x.toUpperCase());if(!cfg.banks.some(x=>x.toLowerCase()===nm.toLowerCase())){await saveCfg({...cfg,banks:[...cfg.banks,nm].sort((a,b)=>a.localeCompare(b))})}b=nm}
       const ch={mailBankDone:true};if(b){ch.bank=b;const who2=cfg.staff.map(staffObj).filter(m=>m.team&&(m.banks||[]).includes(b));if(who2.length===1&&!c.assignee)ch.assignee=who2[0].name}
       await db.collection("cases").doc(c._doc).update(ch)}catch(e){BR.delete("b"+c._doc)}}
   if(window.__noCredit)return;
@@ -1144,7 +1184,9 @@ async function bankReads(){if(!(isMD||isAdmin||isPartner())||!canWrite||!CFG_OK)
       await db.collection("cases").doc(c._doc).update(n>=2?{readFails:n,needsRead:null,readFailed:true,log:[...(c.log||[]),{at:nowISO(),by:"Claude",text:"MODT could not be read automatically (tried twice). Open Drafting: check the MODT file, upload a clearer copy, or press Read MODT again."}].slice(-80)}:{readFails:n});continue}
     await db.collection("cases").doc(c._doc).update({needsRead:null,readFails:0,readFailed:null,lockRead:null})}catch(e){console.warn(e);const n=(c.readFails||0)+1;
     await db.collection("cases").doc(c._doc).update(n>=2?{readFails:n,needsRead:null,readFailed:true,lockRead:null,log:[...(c.log||[]),{at:nowISO(),by:"Claude",text:"MODT could not be read automatically (tried twice): "+String(e.message||e).slice(0,120)+". Open Drafting and press Read MODT again."}].slice(-80)}:{readFails:n,lockRead:null}).catch(()=>{});
-    if(n<2)setTimeout(()=>BR.delete(c._doc),10*60000)}}}
+    if(n<2)setTimeout(()=>BR.delete(c._doc),10*60000)}}
+  /* after the reads, in every Admin window (lock per case): merge duplicates by the MD's rule */
+  try{await autoMergeDups()}catch(e){console.warn(e)}}
 
 /* ================= writes ================= */
 async function patch(c,changes,logText){
@@ -1651,6 +1693,9 @@ async function classifyMail(c){window.__readRef=c.id+" · sort mail files";const
   /* 12 Nov 2026: a "supplementary" MODT with no main MODT is the main MODT (Revathi OO-20261109-0011 was never read) */
   if(!(docs.modt||[]).length&&(docs.modt2||[]).length){docs.modt=docs.modt2;delete docs.modt2}
   const ch={docs,classified:true,noModt:!docs.modt,multiCustomer:multi,needsRead:docs.modt?"modt":null,lockCls:null};
+  /* 12 Nov 2026: a vetting report / legal report mail with no MODT is not a Deed of Receipt - no case (restorable from "Removed mails") */
+  if(!docs.modt&&NOT_DOR_RE.test((c.mailSubject||"")+" "+Object.keys(docs).join(" ")))ch.notCase={at:nowISO(),by:"Claude",why:"Not a Deed of Receipt mail (vetting / legal report)"};
+  if(c.applicantFromMail){const nm=custFromSubject(c.applicant);if(nm&&nm!==c.applicant)ch.applicant=nm}
   if(inside)ch.log=[...(c.log||[]),{at:nowISO(),by:"Claude",text:`MODT found inside ${inside.name}, pages ${inside.from}–${inside.to}; those pages saved as the MODT copy`}].slice(-80);
   if(!c.phone&&data.fields.phone)ch.phone=String(data.fields.phone).replace(/\D/g,"").slice(-10);
   if(!c.bank&&data.fields.lender){const b=await bankFromName(data.fields.lender);if(b){ch.bank=b;ch.mailBankDone=true}}
@@ -2097,7 +2142,29 @@ async function bioNow(){const by={};cases.filter(c=>c.stage==="Photo/Biometric"&
   let n=0;for(const[u,cs]of Object.entries(by)){if(!ids[u])continue;const id=`bio-${istDay()}-${u.replace(/[^A-Za-z0-9]/g,"").slice(0,24)}`,old=BIOJ.list.find(j=>j._id===id);
     if(old&&!["done","error","cancelled"].includes(old.status))continue;await db.doc("tp_jobs/"+id).set({kind:"bio",login:ids[u],loginUser:u,cases:cs,status:"queued",at:nowISO(),by:who()});n++}
   toast(n?`Biometric check started for ${n} login(s). Type the captcha when it appears here.`:"Already running");setTimeout(bioPoll,1500)}
-function renderDash(){if(Date.now()-BIOJ.t>20000){BIOJ.t=Date.now();setTimeout(bioPoll,300)}else setTimeout(renderBioBox,0);
+/* 12 Nov 2026 - portal health check (Admin): runs every time the Dashboard opens (so every morning), red when something
+   needs a person - duplicates, wrong holds, incomplete drafts at TP Creation, stuck readings, robot errors (24 h),
+   banks with Deed of Receipt work but no saved representative. */
+const HJ={t:0,errs:[]};
+async function healthJobs(){if(Date.now()-HJ.t<600000||!window.__sb)return;HJ.t=Date.now();try{const since=new Date(Date.now()-86400000).toISOString();
+  const{data}=await window.__sb.from("kv").select("id,data").eq("collection","tp_jobs").eq("data->>status","error").gte("data->>at",since).limit(50);
+  HJ.errs=(data||[]).map(r=>r.data).filter(j=>!/captcha for 10 minutes|Stopped from the portal/i.test(j.message||""));renderHealth()}catch(e){}}
+function healthIssues(){const I=[],add=(k,txt,list)=>{if(list.length)I.push({k,txt,list})},live=cases.filter(c=>!c.mergedInto&&!c.notCase),mins=t=>t?(Date.now()-new Date(t))/60000:0;
+  const by={};live.filter(c=>isRD(c.type)&&loanKey(c).length>=6).forEach(c=>(by[loanKey(c)]=by[loanKey(c)]||[]).push(c));
+  add("dup","Same loan number in more than one case (not merged yet)",Object.values(by).filter(a=>a.length>1).map(a=>a.map(c=>c.id).join(" + ")));
+  add("hold","On hold for “Part” although a new survey number is there - move back to Draft Pending",live.filter(c=>c.stage==="TP On Hold"&&/\(Part\)/.test(c.holdReason||"")&&!partSurvey(c)&&(c.tp||{})["Survey number"]).map(c=>c.id+" "+(c.applicant||"")));
+  add("draft","At TP Creation but the draft is not complete",live.filter(c=>c.stage==="TP Creation"&&!/^TP\//.test(c.tpNo||"")).map(c=>{const P=isRD(c.type)?dorDoneCheck(c,c.tp||{}):modtDoneCheck(c,c.draft||{});return P.length?`${c.id} ${c.applicant||""} - ${P.slice(0,3).join(", ")}${P.length>3?" …":""}`:""}).filter(Boolean));
+  add("read","Mail / MODT reading stuck or failed",live.filter(c=>c.readFailed||c.classifyFailed||(c.needsRead&&mins(c.updatedAt)>30)||(c.source==="mail"&&!c.classified&&mins(c.createdAt)>30)).map(c=>c.id+" "+(c.applicant||"").slice(0,30)));
+  add("robot","Robot stopped with an error in the last 24 hours",HJ.errs.map(j=>`${(cases.find(c=>c._doc===j.case)||{}).id||""} ${String(j.message||"").slice(0,110)}`));
+  const P=cfg.profiles||{},noRep=[...new Set(live.filter(c=>isRD(c.type)&&["Draft Pending","TP Creation"].includes(c.stage)&&c.bank&&!((P[c.bank]||{}).reps||[]).length).map(c=>c.bank))];
+  add("rep","Banks with Deed of Receipt work but no saved representative (Clients & Staff)",noRep.map(b=>`${b} (${live.filter(c=>c.bank===b&&isRD(c.type)&&["Draft Pending","TP Creation"].includes(c.stage)).length})`));
+  add("warn","Duplicate warnings",live.filter(c=>c.dupWarn).map(c=>c.id+" - "+c.dupWarn));
+  return I}
+function renderHealth(){const box=$("healthBox");if(!box)return;if(!(isMD||isAdmin)){box.innerHTML="";return}const I=healthIssues();
+  box.innerHTML=I.length?`<div class="card" style="margin:0 0 12px;padding:12px 16px;border:2px solid #c0392b;background:#fdecea"><b style="color:#a01c1c">⚠ Portal health check · ${I.reduce((t,x)=>t+x.list.length,0)} item(s) need you</b>
+    ${I.map(x=>`<details style="margin-top:6px"><summary><b>${esc(x.txt)}</b> (${x.list.length})</summary><ul style="margin:4px 0 0 18px">${x.list.slice(0,25).map(l=>`<li class="sub">${esc(l)}</li>`).join("")}</ul></details>`).join("")}</div>`
+    :`<div class="sf-note" style="margin:0 0 10px">✓ Portal health check: nothing needs you.</div>`}
+function renderDash(){if(Date.now()-BIOJ.t>20000){BIOJ.t=Date.now();setTimeout(bioPoll,300)}else setTimeout(renderBioBox,0);setTimeout(()=>{renderHealth();healthJobs()},0);
   const vis=cases.filter(c=>allowedTab(c.type)),cs=vis.filter(inRange),open=vis.filter(c=>!FINAL.has(c.stage));
   const now=new Date(),hr=now.getHours(),greet=hr<12?"Good morning":hr<17?"Good afternoon":"Good evening";
   const types=cfg.types.filter(allowedTab);
