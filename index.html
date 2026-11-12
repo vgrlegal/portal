@@ -553,6 +553,8 @@ details.fold>summary{cursor:pointer;list-style:revert;padding:4px 0}
 const SB_URL="https://kxngtgtgycatottekcwb.supabase.co",SB_KEY="sb_publishable_dsx2czFgeZe4SSEqHmlbVA_2UAxabmo",BUCKET="docs";
 const sb=window.supabase.createClient(SB_URL,SB_KEY,{auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:true}});
 window.__sb=sb;
+/* 12 Nov 2026: every Claude reading carries which case/file it was for (window.__readRef), so the cost report can show exact repeats */
+{const inv=sb.functions.invoke.bind(sb.functions);sb.functions.invoke=(name,o)=>{try{const b=o&&o.body;if(name==="read-aadhaar"&&b&&!b.ref&&(b.images||b.texts||b.pdfText)&&window.__readRef)b.ref=String(window.__readRef).slice(0,160)}catch(e){}return inv(name,o)}}
 const uuid=()=>(crypto.randomUUID?crypto.randomUUID():"xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g,c=>{const r=crypto.getRandomValues(new Uint8Array(1))[0]&15;return(c==="x"?r:(r&3|8)).toString(16)}));
 const gate=document.getElementById("authGate"),msg=t=>document.getElementById("agMsg").textContent=t||"";
 let session=null,role=null,readyResolve;const ready=new Promise(r=>readyResolve=r);
@@ -1565,15 +1567,18 @@ async function renderReport(){const mEl=$("repMonth");if(!mEl.value)mEl.value=ne
 const AI_KIND={classify:"Mail files sorted (first page of each file)",modt:"Deed of Receipt · MODT copy read",modt_case:"MODT robot · whole case read (MODT, deed, patta, EC)",aadhaar:"Aadhaar / ID card read",tamil:"Translation to Tamil",english:"Translation to English"};
 function renderAiCost(U,mon){const card=$("aiCard"),el=$("aiCost");if(!card)return;card.hidden=false;const r=v=>"₹"+Math.round(v*USD_INR).toLocaleString("en-IN"),r2=v=>"₹"+(v*USD_INR).toFixed(1);
   const today=new Date(Date.now()+19800000).toISOString().slice(0,10),ist=u=>new Date(new Date(u.at).getTime()+19800000).toISOString().slice(0,10);
-  const S={},rep=new Set();U.slice().sort((a,b)=>String(a.at).localeCompare(String(b.at))).forEach(u=>{const k=u.kind+"|"+u.images+"|"+Math.round((+u.inTok||0)/300),L=S[k];if(L&&new Date(u.at)-new Date(L)<3600000)rep.add(u);S[k]=u.at});
+  // repeat = the same case + file read again within 6 hours (only calls from 12 Nov carry the case/file); cut = reply hit the length limit
+  const S={},rep=new Set(),LIM={modt_case:16000,modt:3000};U.slice().sort((a,b)=>String(a.at).localeCompare(String(b.at))).forEach(u=>{if(!u.ref)return;const k=u.kind+"|"+u.ref,L=S[k];if(L&&new Date(u.at)-new Date(L)<6*3600000)rep.add(u);S[k]=u.at});
+  const isCut=u=>u.cut!==undefined?!!u.cut:(+u.outTok||0)>=(LIM[u.kind]||3000)-5,cuts=U.filter(isCut),cutU=cuts.reduce((t,u)=>t+(+u.usd||0),0),withRef=U.filter(u=>u.ref).length;
+  const rdN=cases.filter(c=>isRD(c.type)&&String(c.createdAt||"").slice(0,7)===mon&&(c.docs||{}).modt).length,mdN=U.filter(u=>u.kind==="modt").length;
   const K={},D={};let tot=0,tod=0,rpU=0;U.forEach(u=>{const v=+u.usd||0;tot+=v;if(ist(u)===today)tod+=v;if(rep.has(u))rpU+=v;
     const k=K[u.kind]||(K[u.kind]={n:0,img:0,usd:0,rep:0,repU:0});k.n++;k.img+=+u.images||0;k.usd+=v;if(rep.has(u)){k.rep++;k.repU+=v}
     const d=D[ist(u)]||(D[ist(u)]={n:0,usd:0,rep:0});d.n++;d.usd+=v;if(rep.has(u))d.rep++});
   const kv=(l,v)=>`<div class="kv"><span>${l}</span><b>${v}</b></div>`;
-  el.innerHTML=`<div class="kvs">${kv("Today",r(tod))}${kv(mon+" (month)",r(tot)+` · ${U.length} calls`)}${kv("Repeat reads (same file again within an hour)",`${rep.size} calls · ${r(rpU)}`)}</div>
+  el.innerHTML=`<div class="kvs">${kv("Today",r(tod))}${kv(mon+" (month)",r(tot)+` · ${U.length} calls`)}${kv("Deed of Receipt: MODT reads per case",rdN?`${(mdN/rdN).toFixed(1)} (${mdN} reads, ${rdN} cases with an MODT; 1 to 1.5 is normal)`:"-")}${kv("Replies cut off (too long, usually read again)",`${cuts.length} calls · ${r(cutU)}`)}${kv("Exact repeats (same case and file within 6 h)",withRef?`${rep.size} calls · ${r(rpU)}`:"counted from 12 Nov 2026")}</div>
    <div style="overflow-x:auto"><table class="mini"><tr><th>Work</th><th class="c">Calls</th><th class="c">Pages</th><th class="c">Cost</th><th class="c">Per call</th><th class="c">Repeats</th></tr>${Object.entries(K).sort((a,b)=>b[1].usd-a[1].usd).map(([k,v])=>`<tr><td>${esc(AI_KIND[k]||k)}</td><td class="c">${v.n}</td><td class="c">${v.img}</td><td class="c">${r(v.usd)}</td><td class="c">${r2(v.usd/v.n)}</td><td class="c">${v.rep?`${v.rep} (${r(v.repU)})`:"0"}</td></tr>`).join("")}</table></div>
    <div style="overflow-x:auto;margin-top:10px"><table class="mini"><tr><th>Day</th><th class="c">Calls</th><th class="c">Repeats</th><th class="c">Cost</th></tr>${Object.entries(D).sort((a,b)=>b[0].localeCompare(a[0])).map(([d,v])=>`<tr><td>${d}</td><td class="c">${v.n}</td><td class="c">${v.rep}</td><td class="c">${r(v.usd)}</td></tr>`).join("")}</table></div>
-   <p class="sf-note">Repeat reads were mostly several portal windows reading the same new mail case together, and errors retried at once. Fixed on 12 Nov 2026: one window reads a case (15-minute lock), and an error counts as a try (2 tries, then stop).</p>`}
+   <p class="sf-note">Changes on 12 Nov 2026 to cut waste: one portal window reads a new mail case (15-minute lock, so Admin, Raja and extra tabs don't all read it); an error counts as a try (2 tries, then stop - no instant retry loop); the Deed of Receipt MODT reply limit raised from 3000 to 6000 tokens so it is not cut off and read again; each reading now records its case and file.</p>`}
 async function renderTime(from,to,want,on){const t=$("timeTbl");if(!t)return;let rows=[];
   try{const{data}=await window.__sb.from("kv").select("data").eq("collection","presence").gte("data->>date",from).lt("data->>date",to).limit(5000);rows=(data||[]).map(r=>r.data)}catch(e){}
   if(isMD&&want!=="all")rows=rows.filter(r=>want==="vgr"?!r.org:r.org===want);
@@ -1608,7 +1613,7 @@ function freeType(t){t=String(t||"").replace(/\s+/g," ");if(t.length<300)return 
   if(/no objection certificate|தடையில்லா/i.test(t)&&!/memorandum of deposit/i.test(t.slice(0,600)))return"noc";
   if(/memorandum of deposit of title deeds?|deposit of title deeds?|அடமானப்? ?பத்திரம்|உரிமை ஆவண(ங்கள்)? ஒப்படைப்பு/i.test(t.slice(0,1500))&&/(R\/\s*[A-Za-z .]+\/\s*\S*\s*-?\s*\d\s*\/\s*\d+\s*\/\s*\d{4})|document\s*no|ஆவண\s*எண்/i.test(t)&&!/\b(dear sir|we request|kindly|cancellation request)\b/i.test(t.slice(0,800)))return"modt";
   return null}
-async function classifyMail(c){const seen=new Set(),F=allFiles(c).filter(x=>{const k=String(x.f.name||"").toLowerCase()+"|"+(x.f.size||"");if(seen.has(k))return false;seen.add(k);return true});if(!F.length){await db.collection("cases").doc(c._doc).update({classified:true,noModt:true,needsRead:null});return}
+async function classifyMail(c){window.__readRef=c.id+" · sort mail files";const seen=new Set(),F=allFiles(c).filter(x=>{const k=String(x.f.name||"").toLowerCase()+"|"+(x.f.size||"");if(seen.has(k))return false;seen.add(k);return true});if(!F.length){await db.collection("cases").doc(c._doc).update({classified:true,noModt:true,needsRead:null});return}
   const imgs=[],labels=[],idx=[],free={};
   for(const [j,x] of F.slice(0,12).entries()){try{const file=await fileOfDoc(x.f);if(/\.docx?$/i.test(x.f.name))continue;const{canvases,text}=await canvasesOf([file],()=>{},1);
     const ft=freeType(text);if(ft){free[j]=ft;continue}
@@ -2893,7 +2898,7 @@ async function docBinText(file){const b=new Uint8Array(await file.arrayBuffer())
       return out.join("\n")}}
   docBinText.lod="";
   return (score(u16)>=score(u8)*0.6?u16:u8).replace(/\x07\x07/g,"\n").replace(/\x07/g," | ").replace(/\r/g,"\n").replace(/\t/g," ").replace(/\n{3,}/g,"\n\n").trim()}
-async function readModtCase(c,force){const D=c.docs||{};if(!(D.mdraft||[]).length&&!(D.deed||[]).length){toast("Upload the MODT draft and title deed first");return}
+async function readModtCase(c,force){window.__readRef=c.id+" · MODT case read";const D=c.docs||{};if(!(D.mdraft||[]).length&&!(D.deed||[]).length){toast("Upload the MODT draft and title deed first");return}
   const pg=readProg();pg.step("Step 1/4 · Opening the MODT draft…",5);
   try{let draft="";const imgs=[],labels=[],cvs=[];let dn=0;const dTot=["th_kyc","deed","revenue","photos","ec","sanction"].filter(k=>(D[k]||[]).length).length||1;
     const add=async(list,label,maxPages,cap)=>{if((list||[]).length){dn++;pg.step(`Step 2/4 · Opening documents ${dn}/${dTot}: ${label.replace(/ page$/,"").toLowerCase()}…`,8+Math.round(dn/dTot*22))}let n=0;for(const f of list||[]){if(n>=cap)break;const file=await fileOfDoc(f);const{canvases}=await canvasesOf([file],()=>{},maxPages);for(const cv of canvases){if(n>=cap||imgs.length>=20)break;imgs.push(jpegOf(cv,1400));cvs.push(cv);labels.push(label);n++}}};
@@ -2946,7 +2951,7 @@ async function combineModt(c){const parts=modtParts(c);if(parts.length<2)return 
   const d={...(c.docs||{})},used=new Set(parts.map(x=>x.url));const rest=[...(d.modt||[]),...(d.other||[])].filter(x=>used.has(x.url));
   d.modt=[{...up,combined:true,kind:"modt"}];d.other=[...(d.other||[]).filter(x=>!used.has(x.url)),...rest.filter((x,i,a)=>a.indexOf(x)===i)];
   await patch(c,{docs:d,multiCustomer:false},`MODT came as ${parts.length} files (${parts.map(x=>x.name).join(", ")}); joined into one MODT copy`);return cases.find(x=>x._doc===c._doc)||{...c,docs:d,multiCustomer:false}}
-async function rereadModt(c,force){if(!c.modtJoined&&modtParts(c).length>1){try{const j=await combineModt(c);if(j){c=j;await db.collection("cases").doc(c._doc).update({modtJoined:true})}}catch(e){console.warn(e)}}
+async function rereadModt(c,force){window.__readRef=c.id+" · MODT "+((((c.docs||{}).modt||[])[0]||{}).name||"");if(!c.modtJoined&&modtParts(c).length>1){try{const j=await combineModt(c);if(j){c=j;await db.collection("cases").doc(c._doc).update({modtJoined:true})}}catch(e){console.warn(e)}}
   const f=((c.docs||{}).modt||[])[0];if(!f){toast("Upload the MODT copy first");return}
   toast("Reading the MODT with Claude… about 10–20 seconds.");
   try{const r=await claudeModt(await fileOfDoc(f));if(!r||!Object.keys(r.d).length){toast("Could not read the MODT. Check that it is clear and try again.");return false}
@@ -2957,7 +2962,7 @@ async function rereadModt(c,force){if(!c.modtJoined&&modtParts(c).length>1){try{
     try{await autoDup({...c,...ch})}catch(e){console.warn(e)}
     const fresh=cases.find(x=>x._doc===c._doc)||{...c,...ch};if(rv.c&&rv.c._doc===c._doc)openReview(fresh,rv.gen);return true}
   catch(e){console.warn(e);toast("Could not read the MODT: "+(e.message||e));return false}}
-async function readSuppModt(c){const f=((c.docs||{}).modt2||[])[0];if(!f)return;
+async function readSuppModt(c){window.__readRef=c.id+" · supplementary MODT";const f=((c.docs||{}).modt2||[])[0];if(!f)return;
   toast("Reading the supplementary MODT with Claude…");
   try{const r=await claudeModt(await fileOfDoc(f));if(!r){toast("Could not read the supplementary MODT");return}const d=r.d,tp={...(c.tp||{})};
     tp["Supp MODT SRO"]=d.SRO||tp["Supp MODT SRO"]||"";tp["Supp MODT Book"]=d.Book||"1";tp["Supp MODT Doc No"]=d["Doc No"]||"";tp["Supp MODT Year"]=d.Year||"";tp["Supp loan amount"]=d["Loan Amount"]||"";

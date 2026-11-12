@@ -221,9 +221,11 @@ async function mailQueryDone(admin: any, doc: string, how: string) {
   return json({ ok: true });
 }
 
+// reply hit the length limit (cut off) - counted in the cost report
+const out_cut = (u: any, kind: string) => Number(u?.output_tokens ?? 0) >= (kind === "modt_case" ? 16000 : kind === "modt" ? 6000 : 3000) - 5;
 // Usage log (who ran Claude reading, how much): kv collection "usage", one row per reading, for the reports.
 // deno-lint-ignore no-explicit-any
-async function logUsage(sb: any, kind: string, images: number, usage: any, model = "") {
+async function logUsage(sb: any, kind: string, images: number, usage: any, model = "", ref = "") {
   const { data: u } = await sb.auth.getUser();
   const email = String(u?.user?.email ?? "").toLowerCase();
   const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
@@ -233,7 +235,7 @@ async function logUsage(sb: any, kind: string, images: number, usage: any, model
   const cheap = /haiku/i.test(model);
   const usd = cheap ? (inT * 1 + outT * 5) / 1e6 : (inT * 3 + outT * 15) / 1e6; // approximate list price per million tokens
   await admin.from("kv").insert({ collection: "usage", id: crypto.randomUUID(), data: {
-    at: new Date().toISOString(), email, name: st?.name ?? "", org: st?.partner || st?.team || "vgr", kind, images, model, inTok: inT, outTok: outT, usd: Math.round(usd * 10000) / 10000 } });
+    at: new Date().toISOString(), email, name: st?.name ?? "", org: st?.partner || st?.team || "vgr", kind, images, model, inTok: inT, outTok: outT, ref, cut: out_cut(usage, kind), usd: Math.round(usd * 10000) / 10000 } });
 }
 
 // company logos: Admin only. From the company's website (server side, no browser CORS limits) or an uploaded picture,
@@ -352,11 +354,11 @@ Deno.serve(async (req) => {
     const r = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: { "x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json" },
-      body: JSON.stringify({ model, max_tokens: kind === "modt_case" ? 16000 : 3000, messages: [{ role: "user", content }] }),
+      body: JSON.stringify({ model, max_tokens: kind === "modt_case" ? 16000 : kind === "modt" ? 6000 : 3000, messages: [{ role: "user", content }] }),
     });
     const out = await r.json();
     if (!r.ok) return json({ error: out?.error?.message ?? "Claude error" }, 502);
-    try { await logUsage(sb, kind, Array.isArray(images) ? images.length : 0, out?.usage, model); } catch (_) { /* usage log never blocks reading */ }
+    try { await logUsage(sb, kind, Array.isArray(images) ? images.length : 0, out?.usage, model, String(body?.ref ?? "").slice(0, 160)); } catch (_) { /* usage log never blocks reading */ }
     const text = (out.content ?? []).map((c: { text?: string }) => c.text ?? "").join("");
     const m = text.match(/\{[\s\S]*\}/);
     if (m) { try { return json({ fields: JSON.parse(m[0]) }); } catch (_) { /* cut short: mend below */ } }
