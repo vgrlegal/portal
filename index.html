@@ -2843,12 +2843,12 @@ function paintProfile(){
   if(isMD){const R=modtRule(bank),set=!!(p.modtDocs&&Object.keys(p.modtDocs).length);
     h+=`<div class="rvsec" style="margin-top:14px" id="mdocSec"><div class="sect">MODT documents for ${esc(bank)}</div>
       <p class="sf-note" style="margin:0 0 6px">${set?"Set for this company.":"Not set yet - the office rule is used (title deed or bank letter, Aadhaar and patta mandatory; the rest optional)."} New case, Draft done and the robot follow this. Witnesses come from KYC Master as before.</p>
-      <table style="border-collapse:collapse;width:100%">${MODT_DOC_ROWS.map(([k,l])=>`<tr><td style="padding:3px 6px">${esc(l)}</td>${["m","o"].map(v=>`<td style="padding:3px 6px;white-space:nowrap"><label style="display:inline-flex;gap:4px;align-items:center;margin:0"><input type="radio" name="md_${k}" value="${v}"${R[k]===v?" checked":""}> ${v==="m"?"Mandatory":"Optional"}</label></td>`).join("")}</tr>`).join("")}</table>
+      <div class="fgrid">${MODT_DOC_ROWS.map(([k,l])=>`<label>${esc(l)}<select id="md_${k}" data-md="${k}"><option value="m"${R[k]==="m"?" selected":""}>Mandatory</option><option value="o"${R[k]==="o"?" selected":""}>Optional</option></select></label>`).join("")}</div>
       ${set?`<button type="button" class="btn" id="mdocReset" style="margin-top:6px">Use the office rule again</button>`:""}</div>`}
   if(false)h+=`<div class="rvsec" style="margin-top:14px"><div class="sect">Default witnesses for ${esc(bank)}</div><div class="fgrid">${[1,2].map(n=>`<label>Witness ${n}<select id="pw${n}"><option value="">Use the office default</option>${W.map(w=>`<option${p["w"+n]===w.name?" selected":""}>${esc(w.name)}</option>`).join("")}</select></label>`).join("")}</div></div>`;
   openPE(bank,h,saveProfile);
   const keep=()=>{pe.p=collectProfile()};
-  document.querySelectorAll('#mdocSec input[type=radio]').forEach(r=>r.onchange=()=>{pe.mdocTouched=true;pe.mdocReset=false});
+  document.querySelectorAll('#mdocSec [data-md]').forEach(r=>r.onchange=()=>{pe.mdocTouched=true;pe.mdocReset=false});
   if($("mdocReset"))$("mdocReset").onclick=()=>{pe.mdocReset=true;pe.mdocTouched=false;keep();pe.mdocReset=false;paintProfile();toast("This company now uses the office rule - press Save")};
   p.reps.forEach((r,i)=>{
     $("rk_"+i).onchange=async e=>{const fs=[...e.target.files];if(!fs.length)return;keep();let o=null;try{o=await readAadhaar(fs,toast)}catch(err){console.warn(err)}
@@ -2860,7 +2860,7 @@ function paintProfile(){
   $("repAdd").onclick=()=>{keep();pe.p.reps.push({sal:"Mr",state:"Tamil Nadu"});paintProfile()};
 }
 function collectProfile(){const p=pe.p;
-  if(isMD&&$("mdocSec")){if(pe.mdocReset)p.modtDocs=null;else if(pe.mdocTouched||(p.modtDocs&&Object.keys(p.modtDocs).length)){const o={};MODT_DOC_ROWS.forEach(([k])=>{const r=document.querySelector(`input[name="md_${k}"]:checked`);if(r)o[k]=r.value});p.modtDocs=o}}
+  if(isMD&&$("mdocSec")){if(pe.mdocReset)p.modtDocs=null;else if(pe.mdocTouched||(p.modtDocs&&Object.keys(p.modtDocs).length)){const o={};MODT_DOC_ROWS.forEach(([k])=>{const r=$("md_"+k);if(r&&r.value)o[k]=r.value});p.modtDocs=o}}
   return{...p,company:readF("co_",CO_F,p.company),reps:p.reps.map((r,i)=>readF(`r${i}_`,PERSON_F,r)),w1:$("pw1")?$("pw1").value:p.w1,w2:$("pw2")?$("pw2").value:p.w2}}
 function saveProfile(){const p=collectProfile();p.reps=p.reps.filter(r=>r.name||(r.kyc||[]).length);
   const bad=p.reps.find(r=>r.id_no&&digits(r.id_no).length!==12);if(bad){toast(`Aadhaar for ${bad.name||"the rep"} should be 12 digits`);return}
