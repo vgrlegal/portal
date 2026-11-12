@@ -2522,7 +2522,9 @@ const textEl=re=>{const els=[...document.querySelectorAll('label,span,div,p,b,st
 const after=(el,sel)=>[...document.querySelectorAll(sel)].find(x=>vis(x)&&(el.compareDocumentPosition(x)&Node.DOCUMENT_POSITION_FOLLOWING));
 /* 12 Nov 2026 (Rajeswari 0088): TNREGINET hides some dropdowns behind a chosen / select2 box - the hidden <select> is
    still the right one (before, the next plain dropdown, CMDA / DTCP / Local Body, was read as the survey list) */
-const selOk=x=>vis(x)||[x.nextElementSibling,x.parentElement].some(w=>!!w&&/chosen|select2|bootstrap-select|selectize|ss-main|choices/i.test(w.className||'')&&vis(w));
+const selOk=x=>vis(x)||[x.nextElementSibling,x.parentElement].some(w=>!!w&&/chosen|select2|bootstrap-select|selectize|ss-main|choices|nice-select|selectric|dropdown|custom-select|multiselect|selectBox|dd-container/i.test(w.className||'')&&vis(w))
+  /* 12 Nov 2026 (2nd Rajeswari run): any plugin box drawn right after a hidden <select> (div / span / button, no other select inside) */
+  ||(()=>{const w=x.nextElementSibling;return !!w&&getComputedStyle(x).display==='none'&&/^(DIV|SPAN|BUTTON)$/.test(w.tagName)&&vis(w)&&!w.querySelector('select')&&w.getBoundingClientRect().height<80})();
 const selAfter=t=>[...document.querySelectorAll('select')].find(x=>selOk(x)&&(t.compareDocumentPosition(x)&Node.DOCUMENT_POSITION_FOLLOWING));
 const fire=e=>['input','change','blur'].forEach(t=>e.dispatchEvent(new Event(t,{bubbles:true})));"""
 
@@ -2543,11 +2545,26 @@ SELECT_AFTER_JS = "([pat,op])=>{" + VIS_JS + r"""const t=textEl(new RegExp(pat,'
   let s=selAfter(t);if(!s){s=[...document.querySelectorAll('select')].find(x=>t.compareDocumentPosition(x)&Node.DOCUMENT_POSITION_FOLLOWING&&vis(x.nextElementSibling||x.parentElement))}
   if(!s)return 'NOSEL';const ro=new RegExp(op,'i');const o=[...s.options].find(o=>ro.test(o.text.trim()));
   if(!o)return 'NOOPT '+[...s.options].map(o=>o.text.trim()).slice(0,25).join('|');
-  if(window.jQuery){jQuery(s).val(o.value).trigger('change').trigger('chosen:updated')}else{s.value=o.value;fire(s)}return 'ok '+o.text.trim()}"""
+  if(window.jQuery){const j=jQuery(s);j.val(o.value).trigger('change').trigger('chosen:updated');try{if(j.niceSelect)j.niceSelect('update');if(j.selectpicker)j.selectpicker('refresh')}catch(e){}}else{s.value=o.value;fire(s)}return 'ok '+o.text.trim()}"""
 
 OPTIONS_AFTER_JS = "(pat)=>{" + VIS_JS + r"""const t=textEl(new RegExp(pat,'i'));if(!t)return null;
   let s=selAfter(t);if(!s)s=[...document.querySelectorAll('select')].find(x=>t.compareDocumentPosition(x)&Node.DOCUMENT_POSITION_FOLLOWING);
   return s?[...s.options].map(o=>o.text.trim()):null}"""
+
+# 12 Nov 2026 (2nd Rajeswari run): survey-screen dropdowns are found by THEIR OWN label first (TNREGINET's page order can put
+# another dropdown - Layout Details' CMDA / DTCP / Local Body - between a label and its dropdown); else the old way
+LAB_JS = r"""const selLabel=x=>{if(x.labels&&x.labels[0])return x.labels[0].innerText;if(x.id){const q=document.querySelector('label[for="'+CSS.escape(x.id)+'"]');if(q)return q.innerText}
+  let p=x.parentElement;for(let i=0;i<3&&p;i++,p=p.parentElement){const ls=[...p.querySelectorAll('label')].filter(l=>l.compareDocumentPosition(x)&Node.DOCUMENT_POSITION_FOLLOWING);if(ls.length)return ls[ls.length-1].innerText}return ''};
+const shown=x=>{const w=vis(x)?x:([x.nextElementSibling,x.parentElement].find(y=>y&&vis(y))||x);const r=w.getBoundingClientRect();return r.height>4&&r.width>4};
+const selByLabel=re=>[...document.querySelectorAll('select')].find(x=>selOk(x)&&shown(x)&&re.test(selLabel(x).replace(/\s+/g,' ').trim()));"""
+
+OPTIONS_LAB_JS = "(pat)=>{" + VIS_JS + LAB_JS + r"""let s=selByLabel(new RegExp(pat,'i'));if(!s){const t=textEl(new RegExp(pat,'i'));if(!t)return null;s=selAfter(t)}
+  return s?[...s.options].map(o=>o.text.trim()):null}"""
+
+SELECT_LAB_JS = "([pat,op])=>{" + VIS_JS + LAB_JS + r"""let s=selByLabel(new RegExp(pat,'i'));if(!s){const t=textEl(new RegExp(pat,'i'));if(!t)return 'NOTEXT';s=selAfter(t)}
+  if(!s)return 'NOSEL';const ro=new RegExp(op,'i');const o=[...s.options].find(o=>ro.test(o.text.trim()));
+  if(!o)return 'NOOPT '+[...s.options].map(o=>o.text.trim()).slice(0,25).join('|');
+  if(window.jQuery){const j=jQuery(s);j.val(o.value).trigger('change').trigger('chosen:updated');try{if(j.niceSelect)j.niceSelect('update');if(j.selectpicker)j.selectpicker('refresh')}catch(e){}}else{s.value=o.value;fire(s)}return 'ok '+o.text.trim()}"""
 
 CLICK_AFTER_JS = "([pat,btn])=>{" + VIS_JS + r"""const t=textEl(new RegExp(pat,'i'));if(!t)return '';const re=new RegExp(btn,'i');
   const b=[...document.querySelectorAll('button,input[type=button],input[type=submit],a.btn')].find(x=>vis(x)&&re.test((x.value||x.innerText||'').trim())&&(t.compareDocumentPosition(x)&Node.DOCUMENT_POSITION_FOLLOWING));
@@ -2949,7 +2966,7 @@ def wait_options(P, page, pat, secs=30):
     """The real options of a dropdown (TNREGINET loads them late); [] after `secs`."""
     end, opts = time.time() + secs, []
     while time.time() < end:
-        opts = [o for o in (page.evaluate(OPTIONS_AFTER_JS, pat) or []) if o and not re.match(r"^\W*select\W*$", o, re.I)]
+        opts = [o for o in (page.evaluate(OPTIONS_LAB_JS, pat) or []) if o and not re.match(r"^\W*select\W*$", o, re.I)]
         if opts:
             return opts
         P.wait(2)
@@ -2960,7 +2977,7 @@ def pick_option(page, pat, opts, wants, starts=""):
     hit = next((o for o in opts if norm_sv(o) in wants and (not starts or re.match(r"^\D*0*" + re.escape(starts) + r"(\D|$)", o))), None) \
         or next((o for o in opts if norm_sv(o) in wants), None)
     if hit:
-        page.evaluate(SELECT_AFTER_JS, [pat, "^" + re.escape(hit) + "$"])
+        page.evaluate(SELECT_LAB_JS, [pat, "^" + re.escape(hit) + "$"])
     return hit
 
 
@@ -3037,6 +3054,25 @@ def survey_question(job, q, shot, options=None, field=None):
         log("survey question failed", e)
 
 
+# 12 Nov 2026: what TNREGINET's survey screen really has (kept with the job when the survey list is not found)
+SURVEY_DIAG_JS = "()=>{" + VIS_JS + r"""const h=textEl(/^Survey Detail$/i)||textEl(/^Property Survey Details$/i);
+  const sel=[...document.querySelectorAll('select')].filter(x=>!h||(h.compareDocumentPosition(x)&Node.DOCUMENT_POSITION_FOLLOWING)).slice(0,10).map(x=>{let l='';let p=x.parentElement;for(let i=0;i<3&&p&&!l;i++,p=p.parentElement){const q=p.querySelector('label');if(q)l=q.innerText.trim()}
+    const w=x.nextElementSibling;return {id:x.id,name:x.name,label:l.slice(0,40),vis:vis(x),display:getComputedStyle(x).display,ok:selOk(x),next:w?(w.tagName+'.'+String(w.className||'').slice(0,40)+(vis(w)?' vis':'')):'',n:x.options.length,opts:[...x.options].slice(0,8).map(o=>o.text.trim()).join('|')}});
+  const rad=[...document.querySelectorAll('input[type=radio]')].filter(e=>vis(e)||vis(e.parentElement)).map(e=>({id:e.id,name:e.name,v:e.value,c:e.checked,on:(e.getAttribute('onclick')||e.getAttribute('onchange')||'').slice(0,80),l:labelOf(e).slice(0,24)}));
+  const tb=[...document.querySelectorAll('table')].filter(x=>vis(x)&&x.rows[0]&&/Survey/i.test(x.rows[0].innerText)).map(x=>x.innerText.replace(/\s+/g,' ').slice(0,240));
+  return {sel,rad,tb}}"""
+
+
+def survey_diag(page, job):
+    try:
+        dg = page.evaluate(SURVEY_DIAG_JS)
+        kv_set("tp_diag", job.id, {"at": now(), "survey": dg})
+        return dg
+    except Exception as e:
+        log("survey diag failed", e)
+        return {}
+
+
 SURVEY_SEP_JS = "()=>[...document.querySelectorAll('label,span,div')].some(e=>e.getClientRects().length&&/^Survey No\\.?\\s*\\*?$/i.test((e.innerText||'').trim()))"
 
 
@@ -3048,11 +3084,13 @@ def pick_survey(P, job, page, d, i, s, sd):
     while time.time() < end:  # the list loads late; a list without any number (CMDA / DTCP / Local Body) is not the survey list
         sep = bool(page.evaluate(SURVEY_SEP_JS))
         pat = "^Survey No\\.?\\s*\\*?$" if sep else "^Survey No\\.?\\s*/\\s*Sub Divi?si?on"
-        opts = [o for o in (page.evaluate(OPTIONS_AFTER_JS, pat) or []) if o and not re.match(r"^\W*select\W*$", o, re.I)]
+        opts = [o for o in (page.evaluate(OPTIONS_LAB_JS, pat) or []) if o and not re.match(r"^\W*select\W*$", o, re.I)]
         if opts and any(re.search(r"\d", o) for o in opts):
             break
         P.wait(2)
     if not opts or not any(re.search(r"\d", o) for o in opts):
+        dg = survey_diag(page, job)
+        log("survey diag", json.dumps(dg)[:1500])
         shot = survey_shot(page, job, i, "nolist")
         why = "the survey list stayed empty" if not opts else f"TNREGINET's list shows {', '.join(opts[:6])} - not survey numbers"
         survey_question(job, f"Survey screen: {why} (Urban/Natham/Rural = {g(d, 'Land type') or '-'}). Check the screenshot and Drafting's Land type, then start the TP again.", shot)
@@ -3179,7 +3217,7 @@ def survey_tab(P, job, page, d, ptype, note):
             rx = LAND_CLASS.get(nz(want), re.escape(want)) if want else ""
             hit = next((o for o in lopts if rx and re.search(rx, o, re.I)), None) or (lopts[0] if len(lopts) == 1 else None)
             if hit:
-                page.evaluate(SELECT_AFTER_JS, ["^Land Type", "^" + re.escape(hit) + "$"])
+                page.evaluate(SELECT_LAB_JS, ["^Land Type", "^" + re.escape(hit) + "$"])
             else:
                 shot = survey_shot(page, job, i, "landtype")
                 survey_question(job, f"Survey screen: Land Type is mandatory - which one is this land (patta: punjai / nanjai …)? TNREGINET offers: {', '.join(lopts[:15])}",
@@ -3191,7 +3229,7 @@ def survey_tab(P, job, page, d, ptype, note):
             sopts = wait_options(P, page, "^Street Name$", 8)
             hit = street_pick(st, sopts)
             if hit:
-                page.evaluate(SELECT_AFTER_JS, ["^Street Name$", "^" + re.escape(hit) + "$"])
+                page.evaluate(SELECT_LAB_JS, ["^Street Name$", "^" + re.escape(hit) + "$"])
                 if nz(hit) != nz(st):
                     note(f"street '{st}' chosen as TNREGINET's '{hit}'")
             elif sopts:

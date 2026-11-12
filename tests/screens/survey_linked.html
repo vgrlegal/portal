@@ -1,15 +1,15 @@
 <html><body>
 <!-- mock of TNREGINET's MODT "Survey Details" screen (Rajeswari 0088, 12 Nov 2026). Dropdowns are hidden behind
      chosen boxes like TNREGINET's; a plain "Approved by" (CMDA / DTCP / Local Body) dropdown comes later on the page. -->
-<style>.chosen-container{display:inline-block;width:200px;height:20px;border:1px solid #999}</style>
+<style>.nice-select,.chosen-container{display:inline-block;width:200px;height:20px;border:1px solid #999}</style>
 <h4>Property Survey Details</h4>
 <label>Unit of Measurement*</label><select id="unit"><option>- Select -</option><option>Square Feet</option></select>
 <span><input type="radio" name="u"> Urban</span><span><input type="radio" name="u"> Natham</span><span><input type="radio" name="u"> Rural</span>
 <label><input type="radio" name="st" onclick="lay()"> Single Survey</label><label><input type="radio" name="st" onclick="lay()"> Linked Survey</label>
-<div id="combined"><label>Survey No./Sub Division N ..<span>*</span></label><select id="svc" style="display:none"><option>- Select -</option><option>20/2B2</option><option>20/2C1A</option><option>20/2C2</option></select><div class="chosen-container"></div></div>
+<div id="combined"><label>Survey No./Sub Division N ..<span>*</span></label><select id="svc" style="display:none"><option>- Select -</option><option>20/2B2</option><option>20/2C1A</option><option>20/2C2</option></select><div class="nice-select chosen-container"></div></div>
 <div id="sep" style="display:none"><div><label>Survey No.<span>*</span></label><select id="sn" style="display:none" onchange="subs()"><option>- Select -</option><option>19</option><option>20</option><option>21</option></select><div class="chosen-container"></div></div>
 <div><label>Sub Divison No.<span>*</span></label><select id="sd" style="display:none"><option>- Select -</option></select><div class="chosen-container"></div></div></div>
-<div><label>Street Name</label><select id="street" style="display:none"><option>- Select -</option><option>MAIN ROAD</option><option>KUPPUSAMY NAICKER STREET</option></select><div class="chosen-container"></div></div>
+<div><label>Street Name</label><select id="street" style="display:none"><option>- Select -</option><option>MAIN ROAD</option><option>KUPPUSAMY NAICKER STREET</option></select><div class="xyz-box" style="display:inline-block;width:200px;height:20px;border:1px solid #999"></div></div>
 <div><label>Old Survey No.</label><input type="text" id="old"><button onclick="var t=document.getElementById('ot');t.insertRow().innerHTML='<td>'+(t.rows.length-1)+'</td><td>'+old.value+'</td>';old.value=''">Add Old Survey Number</button><button>Reset</button></div>
 <table id="ot"><tr><th>Sr. No.</th><th>Old Survey No.</th></tr></table>
 <div><label>Pymash No.</label><input type="text" id="pym"><button id="addrow" onclick="addRow()">Add</button><button>Reset</button></div>
