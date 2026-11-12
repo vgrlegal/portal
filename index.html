@@ -539,7 +539,7 @@ details.fold>summary{cursor:pointer;list-style:revert;padding:4px 0}
 #acctBar button{border:1px solid var(--line,#ccc);background:transparent;color:inherit;border-radius:7px;padding:4px 8px;font:inherit;font-size:12px;cursor:pointer}
 </style>
 <div id="authGate" hidden><div class="ab">
-  <img id="agLogo" src="oo-logo-wide.png" alt="Opinion &amp; Ownership">
+  <img id="agLogo" src="logo.webp" alt="VGR Legal">
   <h1>Working Portal</h1><p>Sign in</p>
   <form id="agForm" autocomplete="on">
     <input id="agEmail" type="email" placeholder="Email" autocomplete="username" required>
@@ -1041,7 +1041,9 @@ async function clientApp(){
   try{CA.me=(await sb.rpc("client_me")).data||{};CA.key=(await sb.rpc("client_key")).data||""}catch(e){}
   CA.svcs=["Deed of Receipt"];try{const r=await sb.rpc("client_services");if(!r.error&&Array.isArray(r.data)&&r.data.length)CA.svcs=C_SVC_ALL.filter(x=>r.data.includes(x))}catch(e){}
   const me=CA.me||{};
-  root.innerHTML=`<div class="ch"><img src="oo-logo-wide.png" alt="Opinion &amp; Ownership"><span class="x"></span>${me.company?`<img src="${esc(logoUrl(me.company))}" alt="${esc(me.company)}" onerror="this.remove()">`:""}<div><div class="co">${esc(me.company||"")}</div><div class="sub">${esc(me.branch?me.branch+" branch":"All branches")} · ${esc(me.name||"")}</div></div><span class="sp"></span><span class="pw">Powered by <img src="logo.webp" alt="VGR Legal"></span><button class="btn" id="cOut">Sign out</button></div>
+  /* 12 Nov 2026: VGR Legal's clients see only the VGR Legal logo; Opinion & Ownership's own clients (org "oo", set in Clients & Staff) see theirs */
+  const ooC=me.org==="oo";
+  root.innerHTML=`<div class="ch">${ooC?`<img src="oo-logo-wide.png" alt="Opinion &amp; Ownership">`:`<img src="logo.webp" alt="VGR Legal">`}<span class="x"></span>${me.company?`<img src="${esc(logoUrl(me.company))}" alt="${esc(me.company)}" onerror="this.remove()">`:""}<div><div class="co">${esc(me.company||"")}</div><div class="sub">${esc(me.branch?me.branch+" branch":"All branches")} · ${esc(me.name||"")}</div></div><span class="sp"></span>${ooC?`<span class="pw">Powered by <img src="logo.webp" alt="VGR Legal"></span>`:""}<button class="btn" id="cOut">Sign out</button></div>
     <main><div class="band"><h1>${esc(CA.svcs.join(" · "))} · VGR Legal</h1><button class="new" id="cNew">+ New case</button></div>
     <div class="nums" id="cNums"></div>
     <div class="tools"><input id="cQ" placeholder="Search customer or loan no.">${CA.svcs.length>1?`<select id="cSv"><option value="">All services</option>${CA.svcs.map(x=>`<option>${esc(x)}</option>`).join("")}</select>`:""}<select id="cSt"><option value="">All stages</option>${[...new Set(C_STAGES.map(x=>x[1])),"Refused by SRO"].map(x=>`<option>${esc(x)}</option>`).join("")}</select>${me.branch?"":`<select id="cBr"><option value="">All branches</option></select>`}</div>
@@ -2179,16 +2181,17 @@ $("staffAdd").onclick=()=>{const s=readStaff();s.push({name:"New staff",email:""
 $("staffSave").onclick=()=>saveCfg({...cfg,staff:readStaff()});
 function branchesOf(co){return [...new Set(cases.filter(c=>c.bank===co&&c.branch).map(c=>c.branch))].sort()}
 function renderClients(ro){const t=$("clientTbl");if(!t)return;$("clientCard").hidden=!isMD;const L=cfg.clients||[];
-  t.innerHTML=`<tr><th>Name</th><th>Email</th><th>Company</th><th>Branch</th><th>Services</th><th></th></tr>`+L.map((c,i)=>`<tr data-i="${i}">
+  t.innerHTML=`<tr><th>Name</th><th>Email</th><th>Company</th><th>Branch</th><th>Services</th><th>Logo</th><th></th></tr>`+L.map((c,i)=>`<tr data-i="${i}">
     <td><input class="cl_n" value="${esc(c.name||"")}" placeholder="Name"${ro?" disabled":""}></td><td><input class="cl_e" type="email" value="${esc(c.email||"")}" placeholder="name@bank.com"${ro?" disabled":""}></td>
     <td><select class="cl_c"${ro?" disabled":""}><option value="">— company —</option>${cfg.banks.map(b=>`<option${b===c.company?" selected":""}>${esc(b)}</option>`).join("")}</select></td>
     <td><input class="cl_b" list="clBr${i}" value="${esc(c.branch||"")}" placeholder="All branches"${ro?" disabled":""}><datalist id="clBr${i}">${branchesOf(c.company).map(b=>`<option value="${esc(b)}">`).join("")}</datalist><span class="sub">Empty = all branches (in-charge)</span></td>
     <td style="white-space:nowrap">${C_SVC_ALL.map(x=>`<label style="display:flex;gap:4px;align-items:center;font-size:13px;margin:0"><input type="checkbox" class="cl_s" value="${esc(x)}" style="width:15px;height:15px;margin:0"${!(c.services||[]).length||(c.services||[]).includes(x)?" checked":""}${ro?" disabled":""}>${esc(x)}</label>`).join("")}</td>
+    <td><select class="cl_o"${ro?" disabled":""}><option value="vgr"${c.org!=="oo"?" selected":""}>VGR Legal</option><option value="oo"${c.org==="oo"?" selected":""}>Opinion &amp; Ownership</option></select><span class="sub">Logo on their login</span></td>
     <td style="white-space:nowrap">${ro?"":`${c.email?`<button class="btn sinv" type="button" data-em="${esc(c.email)}">Invite</button> `:""}<button class="btn danger cl_del" type="button">Remove</button>`}</td></tr>`).join("")+
-    (L.length?"":`<tr><td colspan="6" class="sub">No client logins yet.</td></tr>`);
+    (L.length?"":`<tr><td colspan="7" class="sub">No client logins yet.</td></tr>`);
   $("clientAdd").hidden=ro;$("clientSave").hidden=ro;
   t.querySelectorAll(".cl_del").forEach(b=>b.onclick=()=>{const cur=readClients();cur.splice(+b.closest("tr").dataset.i,1);cfg.clients=cur;renderClients(ro)})}
-function readClients(){return [...document.querySelectorAll("#clientTbl tr[data-i]")].map(r=>({name:r.querySelector(".cl_n").value.trim(),email:r.querySelector(".cl_e").value.trim().toLowerCase(),company:r.querySelector(".cl_c").value,branch:r.querySelector(".cl_b").value.trim(),services:[...r.querySelectorAll(".cl_s:checked")].map(x=>x.value)})).filter(c=>c.name||c.email)}
+function readClients(){return [...document.querySelectorAll("#clientTbl tr[data-i]")].map(r=>({name:r.querySelector(".cl_n").value.trim(),email:r.querySelector(".cl_e").value.trim().toLowerCase(),company:r.querySelector(".cl_c").value,branch:r.querySelector(".cl_b").value.trim(),services:[...r.querySelectorAll(".cl_s:checked")].map(x=>x.value),org:r.querySelector(".cl_o").value})).filter(c=>c.name||c.email)}
 $("clientAdd").onclick=()=>{cfg.clients=[...readClients(),{name:"",email:"",company:"",branch:""}];renderClients(false)};
 $("clientSave").onclick=()=>{const L=readClients();const bad=L.find(c=>!c.email||!c.company);if(bad){toast("Each client login needs an email and a company");return}
   if(L.some(c=>!c.services.length)){toast("Tick at least one service for each client login");return}
