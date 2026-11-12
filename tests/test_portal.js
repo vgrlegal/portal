@@ -6,8 +6,9 @@ let src="const isRD=t=>/receipt/i.test(t||'');const esc=x=>String(x);\n";
 src+=grab("const PART_RE=","\n")+"\n"+grab("/* 12 Nov 2026 - same reader","const PART_REASON=")+"\n";
 const extra=(globalThis.__EXTRA__||[]);
 for(const [a,b] of [["function lodBoxOf(","\nconst OFF_TA="],["const OFF_TA=","\nasync function saveReview("]])src+=grab(a,b)+"\n";
+src+=grab("const DOR_REQ=","\n")+"\n"+grab("const digits=","\n")+"\n"+grab("function dorDoneCheck(","function showDoneProblems(")+"\n";
 const MSTATES=(html.match(/MSTATES=\[[^\]]*\]/)||["MSTATES=[]"])[0];
-const T={};new Function("T",`const ${MSTATES};${src};T.parseSurvey=parseSurvey;T.partSurvey=partSurvey;T.modtCoAddr=modtCoAddr;T.lodBoxOf=lodBoxOf;`)(T);
+const T={};new Function("T",`const ${MSTATES};${src};T.parseSurvey=parseSurvey;T.partSurvey=partSurvey;T.modtCoAddr=modtCoAddr;T.lodBoxOf=lodBoxOf;T.dorDoneCheck=dorDoneCheck;`)(T);
 let fails=0;const check=(n,g,w)=>{if(JSON.stringify(g)!==JSON.stringify(w)){fails++;console.log("FAIL",n,"got",JSON.stringify(g),"want",JSON.stringify(w))}};
 for(const [text,exp] of JSON.parse(fs.readFileSync(path.join(__dirname,"survey_cases.json"),"utf8"))){const r=T.parseSurvey(text);for(const k in exp)check(`parseSurvey(${JSON.stringify(text.slice(0,40))}).${k}`,r[k],exp[k])}
 check("partSurvey part+new",T.partSurvey({type:"Deed of Receipt",tp:{"Survey number":"Old Sy.No.622/3 Part, New Survey No. 1025/12"}}),"");
@@ -19,5 +20,11 @@ check("modtCoAddr again same",T.modtCoAddr({...co},"")["Company address"],co["Co
 check("modtCoAddr pin removed",T.modtCoAddr({"Company state":"Maharashtra","Company address":"Office 3, Andheri East, Mumbai, Maharashtra - 400099"},"")["Company address"],"Having its Registered Office at Office 3, Andheri East, Mumbai");
 // LOD always boxed
 check("lodBoxOf numbered list is a table",/<table/.test(T.lodBoxOf("1. Sale deed 1945/1995\n2. Patta 327")),true);
+// Deed of Receipt Draft done (12 Nov): missing representative / witnesses must stop it (Kalaiyarasi 0087)
+const full={"SRO":"Dusi","Doc No":"2111","Year":"2024","Company name":"X","Mortgagor":"A","Rep name":"R","Rep Aadhaar":"123456789012","Witness 1 name":"W1","Witness 1 Aadhaar":"123456789012","Witness 2 name":"W2","Witness 2 Aadhaar":"123456789012","Loan Amount":"100","Survey number":"S.No.12/3"};
+check("dorDoneCheck complete",T.dorDoneCheck({type:"Deed of Receipt"},full).length,0);
+check("dorDoneCheck no rep/witness",T.dorDoneCheck({type:"Deed of Receipt"},{...full,"Rep name":"","Witness 1 name":""}).length,2);
+check("dorDoneCheck part only",T.dorDoneCheck({type:"Deed of Receipt"},{...full,"Survey number":"R.S.No.117/1 Part"}).length,1);
+check("dorDoneCheck part+new ok",T.dorDoneCheck({type:"Deed of Receipt"},{...full,"Survey number":"Old Sy.No.622/3 Part, New Survey No. 1025/12"}).length,0);
 if(globalThis.__MORE__)globalThis.__MORE__(T,check,html);
 console.log("portal tests:",fails?fails+" FAILED":"OK");process.exit(fails?1:0);

@@ -1754,6 +1754,13 @@ async function readCaseWitnesses(c){const ks=witUnread(c);if(!ks.length){toast("
     await patch(c,{caseWit:cw,draft:d},`Customer's witnesses read from the Aadhaar uploaded in this case: ${ks.map(k=>cw[k].name).join(", ")} (this case only)`);
     pg.done("✓ Witnesses: "+ks.map(k=>cw[k].name).join(", "));const f2=cases.find(x=>x._doc===c._doc);if(f2&&rv.c&&rv.c._doc===c._doc)openReview(f2,rv.gen)}
   catch(e){pg.fail("Could not read the witness Aadhaar: "+(e.message||e))}}
+/* 12 Nov 2026: Deed of Receipt "Draft done" checks like MODT does - every required field (representative and witnesses
+   too), 12-digit Aadhaar numbers, and a Part survey with no new number. Same check on Approve for TP. */
+function dorDoneCheck(c,d){const P=[],v=k=>String(d[k]??"").trim();
+  DOR_REQ.forEach(k=>{if(!v(k))P.push(k+(/^Rep /.test(k)?" (save the company's representative in Clients & Staff, or fill it here)":""))});
+  ["Rep Aadhaar","Witness 1 Aadhaar","Witness 2 Aadhaar","Mortgagor Aadhaar"].forEach(k=>{if(v(k)&&digits(v(k)).length!==12)P.push(k+": must be 12 digits")});
+  const ps=partSurvey({...c,tp:d});if(ps)P.push(`Survey number "${ps}" is Part and has no new sub-divided number - ask the bank for the patta / TSLR`);
+  return P}
 function showDoneProblems(P){ask(`Draft not complete (${P.length})`,`<p class="sf-note">Fix these, then press Draft done again. Saved as a draft for now.</p><ul style="margin:6px 0 0 18px;color:#8a1c1c">${P.map(x=>`<li>${esc(x)}</li>`).join("")}</ul>`,()=>{},"OK")}
 function readReview(){const c=rv.c,dor=isRD(c.type),sections=dor?DOR_PAGES:MODT_FIELDS,out={...(dor?c.tp:c.draft)||{}};
   sections.forEach(([,fields])=>fields.forEach(ff=>{const f=Array.isArray(ff)?ff[0]:ff,el=$("rv_"+f.replace(/\W+/g,"_"));if(el)out[f]=/^Boundary (North|South|East|West)( Tamil)?$/.test(f)&&el.value!==""&&!el.value.trim()?" ":el.value.trim()}));
@@ -1803,14 +1810,13 @@ async function saveReview(done){
   const c=rv.c,dor=isRD(c.type),data=readReview(),ch=dor?{tp:data,...witPicks()}:{draft:data};if(!dor)modtCoAddr(data,c.draftText||"");
   if(c.tpAuto){const fx=fixesOf(c,data);if(fx.length!==(c.fixes||[]).length||JSON.stringify(fx)!==JSON.stringify(c.fixes||[]))ch.fixes=fx}
   if(!dor&&data.SRO)ch.sro=data.SRO;if(dor&&data.SRO)ch.sro=data.SRO;
-  if(done&&!dor){const P=modtDoneCheck({...c,...ch},data);if(P.length){await patch(c,ch,"Draft saved (Draft done refused: "+P.length+" item(s) missing)");showDoneProblems(P);return}}
+  if(done){const P=dor?dorDoneCheck(c,data):modtDoneCheck({...c,...ch},data);if(P.length){await patch(c,ch,"Draft saved (Draft done refused: "+P.length+" item(s) missing)");showDoneProblems(P);return}}
   if(done)ch.stage="TP Creation";
   if(await patch(c,ch,done?"Draft done":"Draft saved")){if(done)closeReview()}
 }
 async function approveReview(){
   const c=rv.c,dor=isRD(c.type),data=readReview();if(!dor)modtCoAddr(data,c.draftText||"");
-  if(dor){const miss=DOR_REQ.filter(k=>!String(data[k]||"").trim());if(miss.length){toast("Fill these first: "+miss.join(", "));return}
-    const bad=["Rep Aadhaar","Witness 1 Aadhaar","Witness 2 Aadhaar","Mortgagor Aadhaar"].filter(k=>data[k]&&digits(data[k]).length!==12);if(bad.length){toast("Check: "+bad.join(", ")+" (12 digits)");return}}
+  if(dor){const P=dorDoneCheck(c,data);if(P.length){showDoneProblems(P);return}}
   if(!dor){const P=modtDoneCheck(c,data);if(P.length){showDoneProblems(P);return}}
   await patch(c,dor?{tp:data,...witPicks()}:{draft:data},"Draft approved for TP");
   if(!dor){cloudTp(c);return}
