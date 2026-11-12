@@ -168,5 +168,8 @@ check("area from the kind when no case",[T.claudeAreaOf({kind:"modt_case"}),T.cl
 T.cfg.claudeOff={modt:true,dor:true};check("both off blocks everything",T.claudeOn("any"),false);T.cfg.claudeOff={};
 check("Claude plan tab: Admin only, switch checked in the reading wrapper and the mail reads",/if\(t==="__claude"\)return isMD;/.test(html)&&/if\(!claudeOn\(a\)\)return Promise\.resolve/.test(html)&&(html.match(/claudeOn\(areaOfCase\(x\)/g)||[]).length===2,true);
 check("Claude plan: old days show about how many cases were made (~)",/const MADE=\{\};cases\.forEach/.test(html)&&/cpN\(d,v,"modt"\)/.test(html)&&/cpN\(d,v,"dor"\)/.test(html),true);
+check("TP jobs carry the organisation (partner laptops take only their own)",(html.match(/status:"queued",org:myOrg\(\),/g)||[]).length,4);
+{const f=new Function("myOrg",html.match(/const tpOnline=[^\n]*/)[0].replace("const tpOnline=","return ")).call(null,()=>"");const n=Date.parse("2026-11-13T00:00:00Z");
+ check("Dashboard counts TP computers that are on (VGR view hides partner laptops)",f([{at:"2026-11-12T23:59:00Z",org:"vgr"},{at:"2026-11-12T23:59:30Z",org:"oo"},{at:"2026-11-12T23:00:00Z",org:"vgr"},{at:"2026-11-12T23:58:00Z"}],n).length,2)}
 check("Clean-up never touches cases or documents",/async function cleanPlan\(/.test(html)&&!/from\("kv"\)\.delete\(\)\.eq\("collection","cases"\)/.test(html),true);
 

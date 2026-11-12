@@ -100,5 +100,19 @@ check("same question waiting -> not added", ns["survey_qs_keep"](Q, "Survey  scr
 check("new run replaces old unanswered survey qs, keeps answered + others", [x["q"] for x in ns["survey_qs_keep"](Q, "Other", "j2")], ["Old", "D"])
 check("same run keeps its own questions", len(ns["survey_qs_keep"](Q, "Other", "j1")), 3)
 check("live / latest screen is the whole page, not only the top", src.count("full_page=False"), 0)
+# 13 Nov 2026: staff Windows laptops - a VGR computer takes every TP, a partner laptop only its own
+a = src.index("def job_for_me("); 
+for org, data, want in (("vgr", {}, True), ("vgr", {"org": "oo"}, True), ("oo", {}, False), ("oo", {"org": ""}, False), ("oo", {"org": "oo"}, True)):
+    ns["ORG"] = org; exec(src[a:src.index("\n\n\n", a)], ns)
+    check(f"job_for_me {org} {data}", ns["job_for_me"](data), want)
+check("startup never closes another computer's job", '((row["data"] or {}).get("host") or HOST) == HOST' in src, True)
+check("backup only on the main computer", 'if ROLE == "main" and time.time() - BAK["at"] > 600' in src, True)
+check("one heartbeat row per computer", 'kv_set("tp_jobs", "_w_" +' in src, True)
+win = os.path.join(ROOT, "worker", "windows")
+nsi = open(os.path.join(win, "installer.nsi"), encoding="utf-8").read()
+check("installer: two brands, brand.txt, both exes built", ("!ifdef OO" in nsi, "brand.txt" in nsi, os.path.exists(os.path.join(win, "VGR-Legal-TP-Robot-Setup.exe")), os.path.exists(os.path.join(win, "Opinion-and-Ownership-TP-Robot-Setup.exe"))), (True, True, True, True))
+for f in ("setup.ps1", "status.ps1", "uninstall.ps1"):
+    t = open(os.path.join(win, f), encoding="utf-8").read()
+    check(f"{f}: brand-aware, no fixed VGR path/task", ('brand.ps1' in t, 'LOCALAPPDATA "VGRLegal' in t, '-TaskName "VGR Legal TP Robot"' in t), (True, False, False))
 print("worker tests:", "OK" if not fails else f"{fails} FAILED")
 sys.exit(1 if fails else 0)

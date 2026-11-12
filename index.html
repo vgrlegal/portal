@@ -493,6 +493,9 @@ tr.hf input,tr.hf select{font-size:12.5px;padding:5px 7px;margin:2px 0}
       <div style="display:flex;gap:8px;margin-top:10px"><button class="btn" id="clientAdd" type="button">+ Add client login</button><button class="btn primary" id="clientSave" type="button">Save client logins</button></div></details>
     <div class="card" style="margin-top:16px" id="stageCard" data-part="tools"><h2>Change a case's stage</h2><p>Search by VGR number, loan number, customer name or company, then move that one case to any stage. It is recorded in the case history.</p>
       <input id="stQ" class="fq" placeholder="VGR number, loan number, name or company…"><div id="stList"></div></div>
+    <div class="card" style="margin-top:16px" id="robotDlCard" data-part="tools"><h2>TP robot for staff laptops (Windows)</h2><p>Install on a Windows laptop to make it a TP computer: it starts by itself when the laptop is switched on, updates itself, and takes TPs one by one (two laptops never take the same TP). Setup asks once for the robot key - type it yourself on that laptop. The Dashboard shows how many TP computers are on.</p>
+      <p style="display:flex;gap:8px;flex-wrap:wrap"><a class="btn primary" href="worker/windows/VGR-Legal-TP-Robot-Setup.exe" download>VGR Legal TP Robot</a><a class="btn" href="worker/windows/Opinion-and-Ownership-TP-Robot-Setup.exe" download>Opinion and Ownership TP Robot</a></p>
+      <p class="sf-note">The Opinion and Ownership laptop takes only Opinion and Ownership TPs. VGR laptops take every TP. Keep laptops on, plugged in and on the internet.</p></div>
     <div class="card" style="margin-top:16px" id="bakCard" data-part="tools"><h2>Backup</h2><p>One file with everything: settings (staff, companies, witnesses, client profiles, rules) and all cases. The Mac also saves this file every night to the VGR-Backup folder (one file, replaced each day). Restore puts the settings back from a backup file; cases are not touched.</p>
       <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn primary" id="bakDown" type="button">⬇ Download backup</button><label class="btn" for="bakIn">Restore settings from a backup…</label><input type="file" id="bakIn" accept=".json,application/json" hidden></div></div>
   </section>
@@ -1011,7 +1014,7 @@ $("bulkRun").onclick=async()=>{const cs=selCases().filter(c=>isRD(c.type));
     const b="B"+Date.now().toString(36),w1=$("bvW1").value,w2=$("bvW2").value;$("bvStart").disabled=true;
     for(const [i,tr] of rows.entries()){const c=cases.find(x=>x._doc===tr.dataset.doc);if(!c)continue;const lid=tr.querySelector(".bvSel").value,l=logins.find(x=>x.id===lid)||{};
       {const tp={...(c.tp||{})};[1,2].forEach(n=>{const w=n===1?w1:w2;if(w)WPF(n).forEach(([k])=>delete tp[k])});const c2={...c,w1:w1||c.w1,w2:w2||c.w2,tp};await patch(c,{w1:c2.w1||"",w2:c2.w2||"",tp:await prepTp(c2)},null)}
-      const id=crypto.randomUUID();await db.doc("tp_jobs/"+id).set({kind:"dor",batch:b,seq:i,case:c._doc,caseId:c.id,login:lid,loginUser:l.username||"",status:"queued",by:who(),at:nowISO(),log:[]});
+      const id=crypto.randomUUID();await db.doc("tp_jobs/"+id).set({kind:"dor",batch:b,seq:i,case:c._doc,caseId:c.id,login:lid,loginUser:l.username||"",status:"queued",org:myOrg(),by:who(),at:nowISO(),log:[]});
       await patch(c,{tpJob:id,tpLogin:l.username||""},`Bulk Run queued (${l.username||""})`);tr.dataset.job=id}
     BV.batch=b;bulkWatch(b);["bvPause","bvStop"].forEach(x=>$(x).hidden=false);toast("Bulk Run started")};
   $("bvPause").onclick=()=>bulkSet("queued","paused",true);$("bvResume").onclick=()=>bulkSet("paused","queued",false);
@@ -1038,7 +1041,7 @@ function bulkWatch(b){if(BV.unsub)BV.unsub();
       bx.querySelector("button").onclick=go;bx.querySelector("input").onkeydown=e=>{if(e.key==="Enter"){e.preventDefault();go()}}});
     v.querySelectorAll("[data-retry]").forEach(btn=>btn.onclick=async()=>{const j=jobs.find(x=>x._id===btn.dataset.retry);if(!j)return;const c=cases.find(x=>x._doc===j.case);
       if(c&&/^TP\//.test(c.tpNo||"")){toast("This case already has "+c.tpNo+" - use Upload documents only in Drafting");return}
-      const id=crypto.randomUUID(),tr=btn.closest("tr");await db.doc("tp_jobs/"+id).set({kind:"dor",batch:b,seq:999+Math.random(),case:j.case,caseId:j.caseId,login:tr.querySelector(".bvSel").value,loginUser:j.loginUser,status:"queued",by:who(),at:nowISO(),log:[]});
+      const id=crypto.randomUUID(),tr=btn.closest("tr");await db.doc("tp_jobs/"+id).set({kind:"dor",batch:b,seq:999+Math.random(),case:j.case,caseId:j.caseId,login:tr.querySelector(".bvSel").value,loginUser:j.loginUser,status:"queued",org:myOrg(),by:who(),at:nowISO(),log:[]});
       tr.dataset.job=id;if(c)await patch(c,{tpJob:id},null)});
     const done=jobs.filter(j=>j.status==="done").length;v.querySelector(".bh h2").textContent=`⚡ Bulk Run TP · ${done}/${jobs.length} TP created`;
   },()=>{})}
@@ -2123,6 +2126,7 @@ function partSurvey(c){if(!isRD(c.type)||c.partOk||/^TP\//.test(c.tpNo||""))retu
 const PART_REASON=sv=>`Survey number is "${sv}" (Part). TNREGINET will not make a TP with a Part survey number. Revenue document (patta / TSLR with the sub-divided survey number) asked from the bank.`;
 /* "Busy · case · status" while the TP computer is working (its heartbeat carries the jobs it is on) */
 const BUSY_ST={starting:"starting",captcha:"waiting for the captcha",captcha_new:"getting a new captcha",captcha_sent:"signing in",filling:"filling",uploading:"uploading",translate:"waiting for English names"};
+const tpOnline=(rows,now=Date.now())=>rows.filter(w=>w&&w.at&&now-new Date(w.at).getTime()<180000&&(!w.org||w.org==="vgr"||w.org===myOrg()));
 function busyText(b){b=(b||[])[0];if(!b)return"";const c=cases.find(x=>x.id===b.case),nm=c?c.applicant:b.case||"";return`TP Computer Busy · ${nm}${b.kind==="dor_upload"?" (upload)":""} · ${BUSY_ST[b.status]||b.status||""}`}
 const MODT_POOL="MODT · all companies";const isPool=l=>l.client===MODT_POOL;
 async function tnLogins(){let r=await window.__sb.from("tn_logins").select("id,client,username,created_by,created_at").order("client");if(r.error)r=await window.__sb.from("tn_logins").select("id,client,username,created_at").order("client");if(r.error)r=await window.__sb.from("tn_logins").select("id,client,username").order("client");if(r.error)throw r.error;return r.data||[]}
@@ -2134,7 +2138,7 @@ async function recRender(l){const box=$("recBox");if(!box)return;if(!isMD){box.i
     <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:flex-end"><label>Login ID<select id="recLogin">${L.map(x=>`<option value="${esc(x.id)}">${esc(x.username)} · ${esc(x.client)}</option>`).join("")}</select></label><button class="btn primary" type="button" id="recStart"${L.length?"":" disabled"}>Start recording</button></div><div id="recJob" style="margin-top:8px"></div>`;
   const last=(lsGet("vgr.rec")||"");if(last)recWatch(last);
   $("recStart").onclick=async()=>{const sel=$("recLogin"),id=crypto.randomUUID();
-    await db.doc("tp_jobs/"+id).set({kind:"record",what:"MODT",login:sel.value,loginUser:sel.options[sel.selectedIndex].text.split(" · ")[0],status:"queued",by:who(),at:nowISO(),log:[]});lsSet("vgr.rec",id);recWatch(id)}}
+    await db.doc("tp_jobs/"+id).set({kind:"record",what:"MODT",login:sel.value,loginUser:sel.options[sel.selectedIndex].text.split(" · ")[0],status:"queued",org:myOrg(),by:who(),at:nowISO(),log:[]});lsSet("vgr.rec",id);recWatch(id)}}
 function recWatch(id,boxId="recJob"){if(REC.unsub)REC.unsub();REC.unsub=db.doc("tp_jobs/"+id).onSnapshot(s=>{const j=s.exists?s.data():null,b=$(boxId);if(!b||!j)return;
   const live=!["done","error","cancelled"].includes(j.status);
   b.innerHTML=`<div class="kv"><span>Status</span><b>${esc(j.status)}${j.recPages?` · ${j.recPages} page(s) saved`:""}</b></div>${j.step?`<p class="sf-note">${esc(j.step)}</p>`:""}${j.message?`<p class="banner">${esc(j.message)}</p>`:""}
@@ -2217,7 +2221,7 @@ async function cloudTp(c,fresh){const box=$("rvLogin");box.innerHTML=`<div class
       if(kind==="modt"&&$("rvDraftNo")){const v=$("rvDraftNo").value.trim();if(v&&!/\d{5,}/.test(v)){toast("Draft number looks wrong - copy it from TNREGINET's Draft Listing");btn.disabled=false;return}
         if(v)await patch(c,{tpDraft:v,tpDraftStage:c.tpDraftStage&&c.tpDraftStage!=="start"?c.tpDraftStage:"parties",tpDraftResume:true},`Continue saved TNREGINET draft: ${v}`);
         else if(c.tpDraftResume)await patch(c,{tpDraftResume:false},null)}
-      await db.doc("tp_jobs/"+id).set({kind,case:c._doc,caseId:c.id,login:sel.value,loginUser:u,status:"queued",by:who(),at:nowISO(),log:[]});
+      await db.doc("tp_jobs/"+id).set({kind,case:c._doc,caseId:c.id,login:sel.value,loginUser:u,status:"queued",org:myOrg(),by:who(),at:nowISO(),log:[]});
       await patch(c,kind==="dor_upload"||kind==="ec"?{tpJob:id}:{tpJob:id,tpLogin:u},kind==="dor_upload"?`Upload documents started (${u})`:kind==="ec"?`EC request started (${u})`:`TP Generate started (${u})`);watchJob(c,id)}catch(e){fail(e);btn.disabled=false}};
   if($("rvStart"))$("rvStart").onclick=()=>{const ps=partSurvey(c);if(ps){toast(`Not started: survey number "${ps}" is Part. TNREGINET will refuse it. Put the sub-divided survey number from the revenue document in Drafting first.`);return}go(isRD(c.type)?"dor":"modt",$("rvStart"))};
   if($("rvUpOnly"))$("rvUpOnly").onclick=()=>go("dor_upload",$("rvUpOnly"));
@@ -2431,6 +2435,9 @@ function renderDash(){if(Date.now()-BIOJ.t>20000){BIOJ.t=Date.now();setTimeout(b
   if(!cases.length)h+=`<div class="card empty"><h2>No cases yet</h2>Open MODT, Deed of Receipt or Legal Report and click “+ New Case”.</div>`;
   $("dash").innerHTML=h;
   if(db)db.doc("tp_jobs/_worker").get().then(s=>{const w=s.exists?s.data():null,on=w&&Date.now()-new Date(w.at).getTime()<180000,el=$("dashRobot");if(el){el.classList.toggle("on",!!on);el.lastChild.textContent=on?(busyText(w.busy)||(w.tnOk===false?"TP Computer on · TNREGINET slow":"TP Computer Ready")):"TP Computer Not ready"}}).catch(()=>{});
+  /* 13 Nov 2026: staff laptops are TP computers too - count the ones that are on (one heartbeat row each) */
+  if(window.__sb)window.__sb.from("kv").select("id,data").eq("collection","tp_jobs").like("id","_w_%").neq("id","_worker").then(({data})=>{const el=$("dashRobot");if(!el||!data)return;const on=tpOnline(data.map(r=>r.data||{}));if(on.length<2)return;
+    const busy=on.filter(w=>(w.busy||[]).length).length;el.classList.add("on");el.title=on.map(w=>`${w.name||w.host}${w.host&&w.name?" ("+w.host+")":""}: ${(w.busy||[]).length?"busy":"ready"}`).join("\n");el.lastChild.textContent=`${on.length} TP Computers on · ${on.length-busy} ready${busy?` · ${busy} busy`:""}`}).catch(()=>{});
 }
 $("dash").addEventListener("click",e=>{const o=e.target.closest("[data-open]");if(o){const c=cases.find(x=>x._doc===o.dataset.open);if(c)openInfo(c);return}
   const j=e.target.closest("[data-jump]");if(j){tab=j.dataset.jump;page=0;render()}});
@@ -2458,7 +2465,7 @@ function renderSettings(){
   if($("showMoney")){$("moneyRow").hidden=!isMD;$("showMoney").checked=MONEY();$("showMoney").onchange=async e=>{await saveCfg({...cfg,showMoney:e.target.checked});toast(e.target.checked?"Money is shown on screens":"Money is hidden on screens")}}
   tnRender(ro);renderStageTool();
   const PART=tab==="__reg"?"reg":tab==="__tools"?"tools":"set",onlyStage=isPartner()&&!isMD&&!isAdmin;
-  const roleHide={clientCard:!isMD,rulesCard:!(isMD||isAdmin),bakCard:!isMD,stageCard:false};
+  const roleHide={robotDlCard:!isMD,clientCard:!isMD,rulesCard:!(isMD||isAdmin),bakCard:!isMD,stageCard:false};
   document.querySelectorAll("#v-set [data-part]").forEach(e=>{e.hidden=e.dataset.part!==PART||!!roleHide[e.id]||(onlyStage&&PART!=="reg"&&e.id!=="stageCard")});
   $("setNote").hidden=!ro||PART==="tools";
 }

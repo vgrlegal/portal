@@ -81,6 +81,16 @@ def kv_list(col, **where):
 
 
 HOST = platform.node() or "tp-computer"
+# 13 Nov 2026: many TP computers (the MD's Mac + staff Windows laptops). worker.env on a staff laptop says
+# VGR_ROLE=staff (no daily backup there) and VGR_ORG (an Opinion and Ownership laptop takes only their TPs).
+ORG = (os.environ.get("VGR_ORG") or "vgr").strip().lower()
+ROLE = (os.environ.get("VGR_ROLE") or "main").strip().lower()
+NAME = os.environ.get("VGR_NAME") or ("Opinion and Ownership TP Robot" if ORG == "oo" else "VGR Legal TP Robot")
+
+
+def job_for_me(data):
+    """A VGR computer takes every TP; a partner's (Opinion and Ownership) laptop takes only that partner's TPs."""
+    return ORG == "vgr" or str((data or {}).get("org") or "vgr").lower() == ORG
 
 
 def claim_job(jid):
@@ -4576,7 +4586,10 @@ def beat():
         if time.time() - v.get("t", 0) > 3 * 3600:
             BUSY.pop(k, None)
     busy = [{x: v.get(x, "") for x in ("job", "case", "kind", "login", "status", "step", "since")} for v in list(BUSY.values())]
-    kv_set("tp_jobs", "_worker", {"at": now(), "host": HOST, "probe": PROBE["res"], "busy": busy, "ver": CODE_VER, "tnOk": bool(PROBE.get("ok"))})
+    hb = {"at": now(), "host": HOST, "probe": PROBE["res"], "busy": busy, "ver": CODE_VER, "tnOk": bool(PROBE.get("ok")), "org": ORG, "role": ROLE, "name": NAME}
+    kv_set("tp_jobs", "_worker", hb)
+    # one row per computer, so the Dashboard can count the TP computers that are on
+    kv_set("tp_jobs", "_w_" + re.sub(r"[^A-Za-z0-9-]+", "-", HOST)[:60], hb)
 
 
 def beat_loop():
@@ -4599,7 +4612,7 @@ def main():
                 last_upd = time.time()
                 self_update()
             try:
-                if time.time() - BAK["at"] > 600:
+                if ROLE == "main" and time.time() - BAK["at"] > 600:
                     BAK["at"] = time.time()
                     try:
                         daily_backup()
@@ -4616,20 +4629,24 @@ def main():
                     # jobs left half-way by an earlier run of this worker can never continue: close them
                     for row in kv_list("tp_jobs"):
                         st = (row["data"] or {}).get("status")
-                        if not row["id"].startswith("_") and st in ("starting", "captcha", "captcha_new", "captcha_sent", "filling", "uploading", "cancel"):
+                        mine = ((row["data"] or {}).get("host") or HOST) == HOST  # never close a job another TP computer is running
+                        if not row["id"].startswith("_") and mine and st in ("starting", "captcha", "captcha_new", "captcha_sent", "filling", "uploading", "cancel"):
                             kv_merge("tp_jobs", row["id"], {"status": "cancelled", "message": "Stopped (the TP computer restarted). Start again.", "at": now()})
                     PROBE["cleaned"] = True
                 if time.time() - last_beat > 30:
                     beat()
                     last_beat = time.time()
                 try:
-                    schedule_bio()
+                    if ORG == "vgr":  # the 7 am biometric check is VGR's; a partner's laptop never makes it
+                        schedule_bio()
                 except Exception as e:
                     log("biometric schedule failed", e)
                 for row in kv_list("tp_jobs", status="queued"):
                     if row["id"].startswith("_") or (row["data"] or {}).get("status") != "queued":
                         continue
                     jid, data = row["id"], row["data"]
+                    if not job_for_me(data):
+                        continue  # another organisation's TP - its own laptops take it
                     if data.get("kind") == "record":
                         key = ("record", data.get("login", ""))
                         with ACTIVE_LOCK:
