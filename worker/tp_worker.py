@@ -3470,7 +3470,12 @@ def run_bio(page, job, data):
         ch = {"bioCheck": {"at": now(), "found": True, "status": st[:200], "row": info.get("row", "")[:400], "head": head[:15], "done": done, "by": "TP robot · daily check"}}
         if done:
             b = dict(c.get("bio") or {})
-            for k in ("rep", "w1", "w2"):
+            if re.search(r"receipt", c.get("type") or "", re.I):
+                who = ("rep", "w1", "w2")
+            else:  # MODT: every title holder + 2 witnesses (no company rep)
+                nh = min(4, max(1, int(re.sub(r"\D", "", str((c.get("draft") or {}).get("Title holders") or "1")) or "1")))
+                who = tuple(f"th{i}" for i in range(1, nh + 1)) + ("w1", "w2")
+            for k in who:
                 b.setdefault(k, {"at": now(), "by": "TNREGINET (daily check)"})
             ch.update(bio=b, stage="Payment", stageAt=now(), updatedAt=now(),
                       stageLog=(c.get("stageLog") or [])[-39:] + [{"s": "Payment", "at": now(), "by": "TP robot · daily check"}],

@@ -1138,6 +1138,11 @@ const fv=id=>($(id)?$(id).value.trim():"");
 
 /* biometric per person: Company rep, Witness 1, Witness 2. All done → Payment */
 const BIO_P=[["rep","Company rep"],["w1","Witness 1"],["w2","Witness 2"]];
+/* 12 Nov 2026: who gives photo + fingerprint depends on the work type - Deed of Receipt: company rep + 2 witnesses;
+   MODT: every title holder (mortgagor) + 2 witnesses (no company rep) - shown with their names */
+function bioP(c){if(isRD(c.type))return BIO_P;const d=c.draft||{},n=Math.min(4,Math.max(1,parseInt(d["Title holders"])||1)),cw=c.caseWit||{};
+  const out=[];for(let i=1;i<=n;i++)out.push(["th"+i,`Title holder ${n>1?i:""}${d[`Mortgagor ${i} name`]?" · "+d[`Mortgagor ${i} name`]:""}`.replace("holder  ","holder ")]);
+  [1,2].forEach(i=>{const nm=d[`Witness ${i} name`]||(cw[i]||cw[String(i)]||{}).name||"";out.push(["w"+i,`Witness ${i}${nm?" · "+nm:""}`])});return out}
 /* fees to collect: TNREGINET's fees (read by the robot before Create Document) + ₹100 a page above 10 pages of the print + service charge */
 function feesHtml(c){const f=c.fees||{},it=f.items||{},r=(l,v,b)=>`<div class="kv"><span>${esc(l)}</span>${b?`<b>${esc(v)}</b>`:`<span>${esc(v)}</span>`}</div>`,m=v=>"₹"+Number(v||0).toLocaleString("en-IN");
   const ck=Object.keys(it).find(k=>/computer/i.test(k));
@@ -1145,11 +1150,11 @@ function feesHtml(c){const f=c.fees||{},it=f.items||{},r=(l,v,b)=>`<div class="k
     (!ck&&f.extraFee?r("Computer fee · extra pages",`${m(f.extraFee)} (${f.pages} pages, ${f.extraPages} above 10 × ₹100)`):"")+
     r("Print pages",f.pages?String(f.pages):"not counted")+r("TNREGINET total",m(f.govTotal))+r("Service charge",m(f.service))+r("Total to collect",m(f.total),1)+
     `</div><p class="sf-note">From the TNREGINET fee page and the TP print${f.tnTotal?` · TNREGINET's own total before uploads: ${m(f.tnTotal)}`:""}. Payment request uses these amounts.</p>`}
-function bioHtml(c){if(c.stage!=="Photo/Biometric")return"";const b=c.bio||{};return`<span class="pill ${BIO_P.every(([k])=>b[k])?"p-ok":"p-warn"}" style="margin-top:4px;white-space:normal">Biometric: ${BIO_P.map(([k,l])=>`${l} ${b[k]?"✓":"⏳"}`).join(" · ")}</span> `}
-function bioAsk(c){const b=c.bio||{};ask("Biometric done for",`<p class="sf-note">${esc(c.tpNo||"")} · tick each person whose photo and fingerprint are done. When all are ticked the case moves to Payment.</p>`+
-    BIO_P.map(([k,l])=>`<div style="display:flex;gap:10px;align-items:center;margin:8px 0;font-size:15px"><input type="checkbox" id="bio_${k}" style="width:20px;height:20px;margin:0;flex:none"${b[k]?" checked":""}><span style="cursor:pointer" onclick="$('bio_${k}').click()">${esc(l)}${b[k]?` <span class="sf-note">(${esc(fmtD(b[k].at||b[k]))}${b[k].by?" · "+esc(b[k].by):""})</span>`:""}</span></div>`).join(""),
-  ()=>{const nb={};BIO_P.forEach(([k])=>{if($("bio_"+k).checked)nb[k]=b[k]||{at:nowISO(),by:who()}});const all=BIO_P.every(([k])=>nb[k]);
-    const done=BIO_P.filter(([k])=>nb[k]).map(([,l])=>l).join(", ")||"none";
+function bioHtml(c){if(c.stage!=="Photo/Biometric")return"";const b=c.bio||{},BP=bioP(c);return`<span class="pill ${BP.every(([k])=>b[k])?"p-ok":"p-warn"}" style="margin-top:4px;white-space:normal">Biometric: ${BP.map(([k,l])=>`${l} ${b[k]?"✓":"⏳"}`).join(" · ")}</span> `}
+function bioAsk(c){const b=c.bio||{},BP=bioP(c);ask("Biometric done for",`<p class="sf-note">${esc(c.tpNo||"")} · tick each person whose photo and fingerprint are done. When all are ticked the case moves to Payment.</p>`+
+    BP.map(([k,l])=>`<div style="display:flex;gap:10px;align-items:center;margin:8px 0;font-size:15px"><input type="checkbox" id="bio_${k}" style="width:20px;height:20px;margin:0;flex:none"${b[k]?" checked":""}><span style="cursor:pointer" onclick="$('bio_${k}').click()">${esc(l)}${b[k]?` <span class="sf-note">(${esc(fmtD(b[k].at||b[k]))}${b[k].by?" · "+esc(b[k].by):""})</span>`:""}</span></div>`).join(""),
+  ()=>{const nb={};BP.forEach(([k])=>{if($("bio_"+k).checked)nb[k]=b[k]||{at:nowISO(),by:who()}});const all=BP.every(([k])=>nb[k]);
+    const done=BP.filter(([k])=>nb[k]).map(([,l])=>l).join(", ")||"none";
     return patch(c,all?{bio:nb,stage:"Payment"}:{bio:nb},all?"Biometric complete (all) → Payment":`Biometric done: ${done}`)},"Save")}
 function removedList(rm){ask(`Removed mails (${rm.length})`,rm.slice().sort((a,b)=>String(b.notCase.at).localeCompare(String(a.notCase.at))).map(c=>`<div class="mrow"><b>${esc(c.applicant||c.mailSubject||c.id)}</b><span>${canWrite?`<button class="btn" type="button" data-rest="${esc(c._doc)}">Restore</button>`:""}</span><div class="mf">${esc(c.id)} · ${esc(c.bank||"company not known")} · removed ${esc(fmtD(c.notCase.at))} by ${esc(c.notCase.by||"")}${c.notCase.why?" · "+esc(c.notCase.why):""}</div></div>`).join(""),null,"Close");
   document.querySelectorAll("[data-rest]").forEach(b=>b.onclick=async()=>{const c=REMOVED.find(x=>x._doc===b.dataset.rest);if(!c)return;await patch(c,{notCase:null},"Restored: this mail is a case");b.closest(".mrow").remove();toast(c.id+" is back in the list")})}
