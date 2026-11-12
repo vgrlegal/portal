@@ -714,7 +714,7 @@ const MODT_FIELDS=[
   ["4 · Company representative",[["Representative","note","Skipped for MODT. Needed only when the property belongs to a company."]]],
   ["5 · Witnesses",[["Witness 1","wsel"],["Witness 2","wsel"]]],
   ["6 · Presenter",[["Presenter","s",["Title holder 1","Title holder 2","Title holder 3","Title holder 4"]]]],
-  ["7 · Property",[["Property type","s",PTYPES],["Building type","s",["RCC house","Tiled house","Sheet roof house","No building"]],["Property SRO","sro"],["Village","vil"],"Patta No",["Land type","s",["Urban","Natham","Rural"]],["Land classification","s",["Punjai","Nanjai","Manavari","Natham"]],"Ward","Block","Street name","Street name Tamil",["Unit","s",["Sq.ft","Sq.m","Cent","Acre","Hectare"]],["Survey rows","svrows"],["New survey no","hid"],["Subdivision","hid"],["Linked survey numbers","hid"],"Sheet name",["Old survey numbers","hid"],"Extent","Total survey extent","Plot No"]],
+  ["7 · Property",[["Property type","s",PTYPES],["Building type","s",["RCC house","Tiled house","Sheet roof house","No building"]],["Property SRO","sro"],["Village","vil"],"Patta No",["Land type","s",["Urban","Natham","Rural"]],["Land classification","s",["Punjai","Nanjai","Manavari","Natham"]],"Ward","Block","Street name","Street name Tamil",["Unit","s",["Sq.ft","Sq.m","Cent","Acre","Hectare"]],["Survey rows","svrows"],["New survey no","hid"],["Subdivision","hid"],["Linked survey numbers","hid"],["Old survey numbers","hid"],"Extent","Total survey extent","Plot No"]],
   ["8 · Boundaries",[["Boundary type","s",["Regular","Irregular"]],"Boundary North","Boundary South","Boundary East","Boundary West","Boundary North Tamil","Boundary South Tamil","Boundary East Tamil","Boundary West Tamil"]],
   ["9 · Building details",[["Building","note","The robot deletes anything copied here from the old deed and leaves this page empty. The building (RCC / tiled house) goes into the property remarks."]]],
   ["10 · Linear measurement",["North length","South length","East length","West length"]],
@@ -869,8 +869,17 @@ function statusCell(c){
     <div>${done?"Done":`In stage ${inStage} · <span class="${late?"late":""}">Overall ${bucketLabel[bucket(c)]}</span>`}</div>${extra.join("")}</span>`;
 }
 function docCount(c){const list=docsFor(c.type).filter(d=>!d.auto);const n=list.filter(d=>(c.docs||{})[d.k]&&(c.docs[d.k].length)).length;return`${n}/${list.length}`}
-function missingReq(type,docs){
+/* 12 Nov 2026: MODT upload documents per bank - the Admin ticks each one Mandatory or Optional once (Clients & Staff →
+   the company → MODT documents). A bank with nothing ticked keeps the office rule below. */
+const MODT_DOC_ROWS=[["title","Title deed (or bank letter)"],["th_kyc","Title holder Aadhaar + signature"],["revenue","Patta / TSLR"],["ec","EC"],["photos","Property image"],["mdraft","MODT draft (Word copy)"],["legal","Legal report"],["sanction","Sanction letter"],["other","Other certificates"]];
+const MODT_DEF={title:"m",th_kyc:"m",revenue:"m",ec:"o",photos:"o",mdraft:"o",legal:"o",sanction:"o",other:"o"};
+const modtSet=bank=>{const m=((typeof profOf==="function"&&profOf(bank))||{}).modtDocs;return m&&Object.keys(m).length?m:null};
+const modtRule=bank=>({...MODT_DEF,...(modtSet(bank)||{})});
+const modtHas=(D,k)=>k==="title"?!!((D.deed||[]).length||(D.letter||[]).length):!!(D[k]||[]).length;
+function missingReq(type,docs,bank){
   const list=docsFor(type),miss=[];docs=docs||{};
+  if(!isRD(type)&&flowOf(type)!=="legal"&&modtSet(bank)){const R=modtRule(bank);MODT_DOC_ROWS.forEach(([k,l])=>{if(R[k]==="m"&&!modtHas(docs,k))miss.push(l)});
+    list.filter(d=>d.req&&/^w\d_kyc$/.test(d.k)).forEach(d=>{if(!(docs[d.k]||[]).length)miss.push(d.l)});return miss}
   list.filter(d=>d.req).forEach(d=>{if(!(docs[d.k]||[]).length)miss.push(d.l)});
   const g=list.filter(d=>d.grp==="title");if(g.length&&!g.some(d=>(docs[d.k]||[]).length))miss.push(g.map(d=>d.l).join(" or "));
   return miss;
@@ -1002,13 +1011,13 @@ $("bulkRun").onclick=async()=>{const cs=selCases().filter(c=>isRD(c.type));
     BV.batch=b;bulkWatch(b);["bvPause","bvStop"].forEach(x=>$(x).hidden=false);toast("Bulk Run started")};
   $("bvPause").onclick=()=>bulkSet("queued","paused",true);$("bvResume").onclick=()=>bulkSet("paused","queued",false);
   $("bvStop").onclick=()=>ask("Stop the whole Bulk Run?",`<p class="sf-note">Cases waiting will not start; the running ones stop at the next step. TPs already created stay.</p>`,async()=>{await bulkSet("queued","cancelled");await bulkSet("paused","cancelled");
-    for(const j of BV.jobs||[])if(["starting","captcha","captcha_sent","filling","translate","uploading"].includes(j.status))await db.doc("tp_jobs/"+j._id).update({status:"cancel",at:nowISO()}).catch(()=>{})},"Stop all");
+    for(const j of BV.jobs||[])if(["starting","captcha","captcha_new","captcha_sent","filling","translate","uploading"].includes(j.status))await db.doc("tp_jobs/"+j._id).update({status:"cancel",at:nowISO()}).catch(()=>{})},"Stop all");
 };
 async function bulkSet(from,to,pause){for(const j of BV.jobs||[])if(j.status===from)await db.doc("tp_jobs/"+j._id).update({status:to,at:nowISO()}).catch(()=>{});
   if(pause!==undefined){$("bvPause").hidden=pause;$("bvResume").hidden=!pause}}
 function bulkWatch(b){if(BV.unsub)BV.unsub();
   BV.unsub=db.collection("tp_jobs").onSnapshot(snap=>{const jobs=snap.docs.map(d=>({...d.data(),_id:d.id})).filter(j=>j.batch===b);BV.jobs=jobs;const v=$("bulkView");if(v.hidden)return;
-    const lbl={queued:["Waiting","wait"],paused:["Paused","wait"],starting:["Opening","run"],captcha:["Captcha","wait"],captcha_sent:["Signing in","run"],filling:["Filling","run"],translate:["Tamil→English","run"],uploading:["Uploading","run"],done:["TP created ✓","ok"],review:["Check","wait"],error:["Failed","bad"],cancelled:["Stopped","bad"],cancel:["Stopping","bad"]};
+    const lbl={queued:["Waiting","wait"],paused:["Paused","wait"],starting:["Opening","run"],captcha:["Captcha","wait"],captcha_new:["New captcha","run"],captcha_sent:["Signing in","run"],filling:["Filling","run"],translate:["Tamil→English","run"],uploading:["Uploading","run"],done:["TP created ✓","ok"],review:["Check","wait"],error:["Failed","bad"],cancelled:["Stopped","bad"],cancel:["Stopping","bad"]};
     jobs.forEach(j=>{const tr=v.querySelector(`#bvRows tr[data-job="${j._id}"]`)||[...v.querySelectorAll("#bvRows tr")].find(t=>t.dataset.doc===j.case&&!t.dataset.job);if(!tr)return;tr.dataset.job=j._id;
       const [t,cl]=lbl[j.status]||[j.status,"wait"];tr.cells[4].innerHTML=`<span class="st ${cl}">${esc(t)}</span>`;
       tr.cells[5].innerHTML=j.tpNo?`<b class="mono">${esc(j.tpNo)}</b>${j.message?`<div class="msg">${esc(noMoney(j.message))}</div>`:""}`:`<div class="msg">${esc(j.message||j.step||"")}</div>`;
@@ -1019,7 +1028,7 @@ function bulkWatch(b){if(BV.unsub)BV.unsub();
         window.__sb.functions.invoke("read-aadhaar",{body:{kind:j.trKind||"english",texts:j.toEnglish,hints}}).then(({data,error})=>db.doc("tp_jobs/"+j._id).update({english:!error&&data&&data.fields?data.fields:{},status:"filling"}).catch(()=>{}))}});
     const caps=jobs.filter(j=>j.status==="captcha"&&j.captchaImg);$("bvCapsCard").hidden=!caps.length;
     const cur=[...$("bvCaps").querySelectorAll("[data-cap]")].map(x=>x.dataset.cap).join();if(cur!==caps.map(j=>j._id).join())
-      $("bvCaps").innerHTML=caps.map(j=>`<div class="capbox" data-cap="${esc(j._id)}"><b>${esc(j.loginUser||"")}</b><img src="${j.captchaImg}" alt="Captcha"><input placeholder="Type the code" autocomplete="off"> <button type="button" class="btn primary">Sign in</button></div>`).join("");
+      $("bvCaps").innerHTML=caps.map(j=>`<div class="capbox" data-cap="${esc(j._id)}"><b>${esc(j.loginUser||"")}</b><img src="${j.captchaImg}" alt="Captcha"><input placeholder="Type the code" autocomplete="off"> <button type="button" class="btn primary">Sign in</button>${capNewBtn(j._id)}</div>`).join("");
     $("bvCaps").querySelectorAll("[data-cap]").forEach(bx=>{const go=async()=>{const t=bx.querySelector("input").value.trim();if(!t)return;bx.querySelector("button").disabled=true;await db.doc("tp_jobs/"+bx.dataset.cap).update({captcha:t,status:"captcha_sent"})};
       bx.querySelector("button").onclick=go;bx.querySelector("input").onkeydown=e=>{if(e.key==="Enter"){e.preventDefault();go()}}});
     v.querySelectorAll("[data-retry]").forEach(btn=>btn.onclick=async()=>{const j=jobs.find(x=>x._id===btn.dataset.retry);if(!j)return;const c=cases.find(x=>x._doc===j.case);
@@ -1225,6 +1234,10 @@ function ask(title,html,onOk,okLabel){
   $("modal").hidden=false;$("mscrim").hidden=false;const first=$("mbody").querySelector("input,textarea,select");first&&first.focus();
   $("mform").onsubmit=async e=>{e.preventDefault();if(!onOk)return;$("mOk").disabled=true;try{const r=await onOk();if(r!==false)closeModal()}finally{$("mOk").disabled=false}};
 }
+/* 12 Nov 2026: "New captcha" next to every captcha box - the robot presses TNREGINET's refresh-captcha and sends the new picture */
+const capNewBtn=id=>id?`<button type="button" class="btn" data-capnew="${esc(id)}" title="Can't read it? Get a new captcha picture from TNREGINET">New captcha</button>`:"";
+document.addEventListener("click",async e=>{const b=e.target.closest&&e.target.closest("[data-capnew]");if(!b)return;e.preventDefault();b.disabled=true;b.textContent="Getting a new one…";
+  try{await db.doc("tp_jobs/"+b.dataset.capnew).update({status:"captcha_new",captcha:"",at:nowISO()})}catch(err){b.disabled=false;b.textContent="New captcha";toast("Could not ask for a new captcha: "+(err.message||err))}});
 function closeModal(){$("modal").hidden=true;$("mscrim").hidden=true}
 $("mCancel").onclick=closeModal;$("mscrim").onclick=closeModal;
 const fv=id=>($(id)?$(id).value.trim():"");
@@ -1473,7 +1486,7 @@ async function saveCase(){
   if(!db)return err("Sign in to save.");
   const b={};FF.forEach(k=>b[k]=fv("f_"+k));b.loanAmount=b.loanAmount?Number(b.loanAmount):"";
   if(!b.bank)return err("Choose the company.");if(!b.branch)return err("Enter the branch.");if(!b.applicant)return err("Enter the customer name.");
-  const miss=missingReq(b.type,draftDocs);if(miss.length&&!editing)return err("Needed to create the case: "+miss.join(", "));
+  const miss=missingReq(b.type,draftDocs,b.bank);if(miss.length&&!editing)return err("Needed to create the case: "+miss.join(", "));
   b.requestedAt=new Date($("f_requestedAt").value).toISOString();b.docs=draftDocs;b.updatedAt=nowISO();b.state="Tamil Nadu";
   $("saveBtn").disabled=true;
   try{
@@ -1814,13 +1827,14 @@ function closeDocPane(){$("rvDocPane").hidden=true;$("rvDocPane").classList.remo
 function closeReview(){closeDocPane();$("review").classList.remove("wide");$("review").hidden=true;$("rvscrim").hidden=true;rv={c:null,gen:false}}
 $("rvscrim").onclick=closeReview;
 /* MODT: exactly what the robot uploads on TNREGINET (the Word draft, sanction letter etc. are only for reading) */
-function modtUploads(c,d){const D=c.docs||{},n=Math.max(1,Math.min(4,+String(d["Title holders"]||"1").replace(/\D/g,"")||1)),out=[];
-  for(let i=1;i<=n;i++){const f=(D.th_kyc||[])[i-1];out.push({l:`Title holder ${i} ID (Aadhaar)`,v:f?f.name:"",need:1})}
+function modtUploads(c,d){const D=c.docs||{},n=Math.max(1,Math.min(4,+String(d["Title holders"]||"1").replace(/\D/g,"")||1)),out=[],R=modtRule(c.bank),M=k=>R[k]==="m";
+  for(let i=1;i<=n;i++){const f=(D.th_kyc||[])[i-1];out.push({l:`Title holder ${i} ID (Aadhaar)${M("th_kyc")?"":" (optional)"}`,v:f?f.name:"",need:M("th_kyc")?1:0})}
   for(const k of [1,2]){const own=(c.caseWit||{})[k],nm=(own||{}).name||d["Witness "+k]||c["w"+k]||"",tok=(nm.toLowerCase().match(/[a-z]{3,}/g)||[])[0]||"",cf0=(D[`w${k}_kyc`]||[])[0],cf=cf0&&(own||(tok&&String(cf0.name||"").toLowerCase().includes(tok)))?cf0:null,w=(cfg.wit||[]).find(x=>x.name===nm),mf=w&&(w.kyc||[])[0];
     out.push({l:`Witness ${k} ID${nm?" · "+nm:""}`,v:cf?cf.name:mf?(mf.name||"from KYC Master")+" (KYC Master)":"",need:1,miss:cf0&&!cf?[`the case's witness file "${cf0.name}" is someone else - not used`]:[]})}
-  out.push({l:"Property image (optional)",v:((D.photos||[])[0]||{}).name||"",need:0});/* 12 Nov 2026: optional for MODT */
-  out.push((D.deed||[]).length||!(D.letter||[]).length?{l:"Title deed (colour copy, all files joined)",v:(D.deed||[]).map(f=>f.name).join(", "),need:1}:{l:"Bank letter (no title deed copy; uploaded in the title deed slot)",v:(D.letter||[]).map(f=>f.name).join(", "),need:1});
-  const ep=["ec","revenue","other"].flatMap(k=>(D[k]||[]).map(f=>f.name));out.push({l:"EC + patta + others (joined; EC optional)",v:ep.join(", "),need:1,miss:[!(D.revenue||[]).length&&"patta"].filter(Boolean)});/* 12 Nov 2026: EC optional, patta still needed */
+  out.push({l:`Property image${M("photos")?"":" (optional)"}`,v:((D.photos||[])[0]||{}).name||"",need:M("photos")?1:0});/* 12 Nov 2026: optional for MODT unless the bank's setting says mandatory */
+  out.push((D.deed||[]).length||!(D.letter||[]).length?{l:`Title deed (colour copy, all files joined)${M("title")?"":" (optional)"}`,v:(D.deed||[]).map(f=>f.name).join(", "),need:M("title")?1:0}:{l:"Bank letter (no title deed copy; uploaded in the title deed slot)",v:(D.letter||[]).map(f=>f.name).join(", "),need:M("title")?1:0});
+  const ep=["ec","revenue","other"].flatMap(k=>(D[k]||[]).map(f=>f.name));{const opt=[["ec","EC"],["revenue","patta"],["other","others"]].filter(([k])=>!M(k)).map(x=>x[1]);
+    out.push({l:`EC + patta + others (joined${opt.length?"; "+opt.join(", ")+" optional":""})`,v:ep.join(", "),need:["ec","revenue","other"].some(M)?1:0,miss:[M("revenue")&&!(D.revenue||[]).length&&"patta",M("ec")&&!(D.ec||[]).length&&"EC",M("other")&&!(D.other||[]).length&&"other certificates"].filter(Boolean)})}/* 12 Nov 2026: EC optional, patta still needed */
   return out}
 /* "Draft done" for a MODT: everything the robot needs, or a list of what is missing */
 function modtDoneCheck(c,d){const P=[],v=k=>String(d[k]??"").trim(),n=Math.max(1,+v("Title holders").replace(/\D/g,"")||1);
@@ -1844,6 +1858,7 @@ function modtDoneCheck(c,d){const P=[],v=k=>String(d[k]??"").trim(),n=Math.max(1
   if(!v("Loan amount"))P.push("Loan amount");
   if(!c.lodHtml&&!v("List of documents deposited"))P.push("List of documents deposited (LOD table)");
   modtUploads(c,d).forEach(x=>{if(x.need&&!x.v)P.push(`Upload: ${x.l} - file missing`);(x.miss||[]).forEach(m=>P.push(`Upload: ${m} missing (mandatory for MODT)`))});
+  {const R=modtRule(c.bank);[["mdraft","MODT draft (Word copy)"],["legal","Legal report"],["sanction","Sanction letter"]].forEach(([k,l])=>{if(R[k]==="m"&&!((c.docs||{})[k]||[]).length)P.push(`Upload: ${l} missing (mandatory for ${c.bank} - Clients & Staff)`)})}
   if((c.robotQs||[]).some(q=>!q.answer))P.push(`Robot questions not answered: ${(c.robotQs||[]).filter(q=>!q.answer).length}`);
   return P}
 /* customer's own witnesses: read their Aadhaar uploaded in this case (case-only witness; KYC Master untouched) */
@@ -2030,7 +2045,7 @@ function partSurvey(c){if(!isRD(c.type)||c.partOk||/^TP\//.test(c.tpNo||""))retu
   const part=sv.find(x=>PART_RE.test(x));return part&&!sv.some(x=>parseSurvey(x).new)?part:""}
 const PART_REASON=sv=>`Survey number is "${sv}" (Part). TNREGINET will not make a TP with a Part survey number. Revenue document (patta / TSLR with the sub-divided survey number) asked from the bank.`;
 /* "Busy · case · status" while the TP computer is working (its heartbeat carries the jobs it is on) */
-const BUSY_ST={starting:"starting",captcha:"waiting for the captcha",captcha_sent:"signing in",filling:"filling",uploading:"uploading",translate:"waiting for English names"};
+const BUSY_ST={starting:"starting",captcha:"waiting for the captcha",captcha_new:"getting a new captcha",captcha_sent:"signing in",filling:"filling",uploading:"uploading",translate:"waiting for English names"};
 function busyText(b){b=(b||[])[0];if(!b)return"";const c=cases.find(x=>x.id===b.case),nm=c?c.applicant:b.case||"";return`TP Computer Busy · ${nm}${b.kind==="dor_upload"?" (upload)":""} · ${BUSY_ST[b.status]||b.status||""}`}
 const MODT_POOL="MODT · all companies";const isPool=l=>l.client===MODT_POOL;
 async function tnLogins(){let r=await window.__sb.from("tn_logins").select("id,client,username,created_by,created_at").order("client");if(r.error)r=await window.__sb.from("tn_logins").select("id,client,username,created_at").order("client");if(r.error)r=await window.__sb.from("tn_logins").select("id,client,username").order("client");if(r.error)throw r.error;return r.data||[]}
@@ -2046,7 +2061,7 @@ async function recRender(l){const box=$("recBox");if(!box)return;if(!isMD){box.i
 function recWatch(id,boxId="recJob"){if(REC.unsub)REC.unsub();REC.unsub=db.doc("tp_jobs/"+id).onSnapshot(s=>{const j=s.exists?s.data():null,b=$(boxId);if(!b||!j)return;
   const live=!["done","error","cancelled"].includes(j.status);
   b.innerHTML=`<div class="kv"><span>Status</span><b>${esc(j.status)}${j.recPages?` · ${j.recPages} page(s) saved`:""}</b></div>${j.step?`<p class="sf-note">${esc(j.step)}</p>`:""}${j.message?`<p class="banner">${esc(j.message)}</p>`:""}
-    ${j.status==="captcha"&&j.captchaImg?`<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap"><img src="${esc(j.captchaImg)}" alt="captcha" style="height:44px;border:1px solid var(--line);border-radius:6px"><input id="recCap" placeholder="Type the captcha" style="width:160px"><button class="btn primary" type="button" id="recCapGo">Send</button></div>`:""}
+    ${j.status==="captcha"&&j.captchaImg?`<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap"><img src="${esc(j.captchaImg)}" alt="captcha" style="height:44px;border:1px solid var(--line);border-radius:6px"><input id="recCap" placeholder="Type the captcha" style="width:160px"><button class="btn primary" type="button" id="recCapGo">Send</button>${capNewBtn(id)}</div>`:""}
     ${live?`<button class="btn danger" type="button" id="recStop" style="margin-top:6px">${j.status==="recording"?"Stop recording &amp; save":"Cancel"}</button>`:""}`;
   if($("recCapGo"))$("recCapGo").onclick=async()=>{const t=$("recCap").value.trim();if(!t)return;$("recCapGo").disabled=true;await db.doc("tp_jobs/"+id).update({captcha:t,status:"captcha_sent"})};
   if($("recStop"))$("recStop").onclick=()=>db.doc("tp_jobs/"+id).update({status:j.status==="recording"?"stop_rec":"cancel",at:nowISO()})},()=>{})}
@@ -2147,12 +2162,12 @@ function watchJob(c,id){if(W.unsub)W.unsub();const box=$("rvJob")||$("rvLogin");
       const T=c.tp||{},hints=Object.entries(T).filter(([k,v])=>v&&/name|address|village|taluk|district|survey|north|south|east|west|relative/i.test(k)&&!/tamil|aadhaar|mobile/i.test(k)&&!/[\u0B80-\u0BFF]/.test(String(v))).map(([k,v])=>k+": "+v).slice(0,30);
       window.__sb.functions.invoke("read-aadhaar",{body:{kind:j.trKind||"english",texts:j.toEnglish,hints}}).then(({data,error})=>{
         const f=!error&&data&&data.fields?data.fields:{};db.doc("tp_jobs/"+id).update({english:f,trErr:error?String(error.message||error):"",status:"filling"}).catch(()=>{})})}
-    const tgt=$("rvJob")||$("rvLogin"),lbl={translate:"Turning Tamil into English…",queued:"Waiting for the TP computer…",starting:"Opening TNREGINET…",captcha:"Type the captcha",captcha_sent:"Signing in…",filling:"Filling TNREGINET",uploading:"Uploading documents",review:"Stopped for your check",done:"TP created",error:"Stopped with a problem",cancelled:"Stopped",cancel:"Stopping…"}[j.status]||j.status;
+    const tgt=$("rvJob")||$("rvLogin"),lbl={translate:"Turning Tamil into English…",queued:"Waiting for the TP computer…",starting:"Opening TNREGINET…",captcha:"Type the captcha",captcha_new:"Getting a new captcha…",captcha_sent:"Signing in…",filling:"Filling TNREGINET",uploading:"Uploading documents",review:"Stopped for your check",done:"TP created",error:"Stopped with a problem",cancelled:"Stopped",cancel:"Stopping…"}[j.status]||j.status;
     const stale=j.at&&Date.now()-new Date(j.at).getTime()>(j.status==="captcha"?11*60000:180000),ended=["done","error","cancelled","review"].includes(j.status)||(j.status==="cancel"&&j.at&&Date.now()-new Date(j.at).getTime()>15000)||stale;
     let h=`<div class="kv"><span>Status</span><b>${esc(lbl||"")}</b></div>${j.step?`<div class="kv"><span>Step</span><b>${esc(j.step)}</b></div>`:""}${j.message?`<p class="${j.status==="error"?"banner":"sf-note"}">${esc(noMoney(j.message))}</p>`:""}${j.tpNo?`<div class="kv"><span>TP number</span><b>${esc(j.tpNo)}</b></div>`:""}${j.pickedAt&&/^(filling|starting|translate|captcha)$/i.test(j.status||"")?`<div class="kv"><span>Time</span><b>⏱ ${mmss(Math.round((Date.now()-new Date(j.pickedAt).getTime())/1000))} so far${j.at?` · this step ${mmss(Math.round((Date.now()-new Date(j.at).getTime())/1000))}`:""}</b></div>`:""}${tmHtml(j.timing)}`;
     {const run=/^(filling|starting|translate)$/i.test(j.status||""),age=j.at?(Date.now()-new Date(j.at).getTime())/1000:0;
       if(run&&age>120)h+=`<p class="banner" style="background:#fff4e5;color:#7a4a00">⏳ No progress for ${Math.round(age/60)} min at “${esc(j.step||"?")}”. The robot may be stuck on this TNREGINET screen — open “Latest TNREGINET screen” below. If nothing moves, press Stop this TP and send the screen to Claude.</p>`}
-    if(j.status==="captcha"&&j.captchaImg)h+=`<div class="capt"><img src="${j.captchaImg}" alt="Captcha from TNREGINET"><input id="rvCapIn" placeholder="Type the code" autocomplete="off"><button type="button" class="btn primary" id="rvCapGo">Sign in</button></div>`;
+    if(j.status==="captcha"&&j.captchaImg)h+=`<div class="capt"><img src="${j.captchaImg}" alt="Captcha from TNREGINET"><input id="rvCapIn" placeholder="Type the code" autocomplete="off"><button type="button" class="btn primary" id="rvCapGo">Sign in</button>${capNewBtn(id)}</div>`;
     if(j.shotAt||j.shot)h+=`<details style="margin-top:8px" data-shot="${esc(id)}"><summary style="cursor:pointer;font-size:13px">Latest TNREGINET screen</summary><img src="${j.shot||""}" alt="TNREGINET screen" style="width:100%;border:1px solid var(--line);border-radius:8px;margin-top:6px"></details>`;
     if(stale&&!["done","error","cancelled","review"].includes(j.status))h+=`<p class="banner">No news from the TP computer for a while. Check that the Mac is on, then start again.</p>`;
     h+=`<div style="margin-top:8px;display:flex;gap:6px">${!ended&&j.status!=="cancel"?`<button type="button" class="btn danger" id="rvCancelJob">Stop this TP</button>`:""}${ended||j.status==="cancel"?`<button type="button" class="btn primary" id="rvRetry">${/^TP\//.test(j.tpNo||c.tpNo||"")?"Upload documents again":"Start TP again"}</button>`:""}</div>`;
@@ -2259,11 +2274,11 @@ async function bioPoll(){if(!window.__sb||!canTp())return;const{data}=await wind
   BIOJ.list=(data||[]).map(r=>({_id:r.id,...r.data}));renderBioBox()}
 function renderBioBox(){const box=$("bioBox");if(!box)return;const waiting=cases.filter(c=>c.stage==="Photo/Biometric"&&/^TP\//.test(c.tpNo||""));
   if(!canTp()||(!waiting.length&&!BIOJ.list.length)){box.innerHTML="";return}
-  const L={queued:"waiting for the TP computer",starting:"opening TNREGINET",captcha:"type the captcha",captcha_sent:"signing in",done:"done",error:"stopped",cancelled:"stopped"};
+  const L={queued:"waiting for the TP computer",starting:"opening TNREGINET",captcha:"type the captcha",captcha_new:"getting a new captcha",captcha_sent:"signing in",done:"done",error:"stopped",cancelled:"stopped"};
   box.innerHTML=`<div class="card" style="margin:0 0 12px;padding:14px 16px"><div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><b>Biometric check · TNREGINET</b><span class="sf-note">${waiting.length} TP(s) waiting for biometric · press Check now, then type the captcha here (daily automatic check is off for now)</span>
     <span style="flex:1"></span><button type="button" class="btn" id="bioNow">Check now</button></div>
     ${BIOJ.list.map(j=>`<div class="mrow" data-bio="${esc(j._id)}" style="align-items:center"><b>${esc(j.loginUser||"")}</b><span class="sf-note">${(j.cases||[]).length} TP(s) · ${esc(L[j.status]||j.status||"")}</span>
-      ${j.status==="captcha"&&j.captchaImg?`<span style="display:flex;gap:6px;align-items:center"><img src="${j.captchaImg}" alt="Captcha" style="height:40px;border:1px solid var(--line);border-radius:6px"><input placeholder="Type the code" autocomplete="off" style="width:130px"><button type="button" class="btn primary">Sign in</button></span>`:""}
+      ${j.status==="captcha"&&j.captchaImg?`<span style="display:flex;gap:6px;align-items:center"><img src="${j.captchaImg}" alt="Captcha" style="height:40px;border:1px solid var(--line);border-radius:6px"><input placeholder="Type the code" autocomplete="off" style="width:130px"><button type="button" class="btn primary">Sign in</button>${capNewBtn(j._id)}</span>`:""}
       ${j.message?`<div class="mf">${esc(noMoney(j.message))}</div>`:""}</div>`).join("")}</div>`;
   box.querySelectorAll("[data-bio]").forEach(r=>{const b=r.querySelector("button"),i=r.querySelector("input");if(!b)return;const go=async()=>{const t=i.value.trim();if(!t)return;b.disabled=true;await db.doc("tp_jobs/"+r.dataset.bio).update({captcha:t,status:"captcha_sent"});bioPoll()};b.onclick=go;i.onkeydown=e=>{if(e.key==="Enter"){e.preventDefault();go()}}});
   if($("bioNow"))$("bioNow").onclick=bioNow;
@@ -2824,9 +2839,17 @@ function paintProfile(){
   p.reps.forEach((r,i)=>{h+=`<div class="rvsec"><div class="sect">Company representative ${i+1}${p.reps.length>1?` <button type="button" class="btn danger" data-rx="${i}" style="float:right">Remove</button>`:""}</div><div class="fgrid">${PERSON_F.map(f=>fld(`r${i}_`,f,r[f[0]])).join("")}</div>
     <div class="mf" style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">${upBtn("rk_"+i,(r.kyc||[]).length?"Replace Aadhaar (fills details)":"Upload Aadhaar · fills the details",false,1)}${upBtn("ri_"+i,(r.idcard||[]).length?"Replace ID":"Upload bank ID card")}${fileLinks(r.kyc)} ${fileLinks(r.idcard)}</div></div>`});
   h+=`<button type="button" class="btn" id="repAdd">+ Add another representative</button>`;
+  /* 12 Nov 2026: MODT upload documents for this bank - Mandatory / Optional, set once (Admin) */
+  if(isMD){const R=modtRule(bank),set=!!(p.modtDocs&&Object.keys(p.modtDocs).length);
+    h+=`<div class="rvsec" style="margin-top:14px" id="mdocSec"><div class="sect">MODT documents for ${esc(bank)}</div>
+      <p class="sf-note" style="margin:0 0 6px">${set?"Set for this company.":"Not set yet - the office rule is used (title deed or bank letter, Aadhaar and patta mandatory; the rest optional)."} New case, Draft done and the robot follow this. Witnesses come from KYC Master as before.</p>
+      <table style="border-collapse:collapse;width:100%">${MODT_DOC_ROWS.map(([k,l])=>`<tr><td style="padding:3px 6px">${esc(l)}</td>${["m","o"].map(v=>`<td style="padding:3px 6px;white-space:nowrap"><label style="display:inline-flex;gap:4px;align-items:center;margin:0"><input type="radio" name="md_${k}" value="${v}"${R[k]===v?" checked":""}> ${v==="m"?"Mandatory":"Optional"}</label></td>`).join("")}</tr>`).join("")}</table>
+      ${set?`<button type="button" class="btn" id="mdocReset" style="margin-top:6px">Use the office rule again</button>`:""}</div>`}
   if(false)h+=`<div class="rvsec" style="margin-top:14px"><div class="sect">Default witnesses for ${esc(bank)}</div><div class="fgrid">${[1,2].map(n=>`<label>Witness ${n}<select id="pw${n}"><option value="">Use the office default</option>${W.map(w=>`<option${p["w"+n]===w.name?" selected":""}>${esc(w.name)}</option>`).join("")}</select></label>`).join("")}</div></div>`;
   openPE(bank,h,saveProfile);
   const keep=()=>{pe.p=collectProfile()};
+  document.querySelectorAll('#mdocSec input[type=radio]').forEach(r=>r.onchange=()=>{pe.mdocTouched=true;pe.mdocReset=false});
+  if($("mdocReset"))$("mdocReset").onclick=()=>{pe.mdocReset=true;pe.mdocTouched=false;keep();pe.mdocReset=false;paintProfile();toast("This company now uses the office rule - press Save")};
   p.reps.forEach((r,i)=>{
     $("rk_"+i).onchange=async e=>{const fs=[...e.target.files];if(!fs.length)return;keep();let o=null;try{o=await readAadhaar(fs,toast)}catch(err){console.warn(err)}
       if(o&&o.name)pe.p.reps[i]={...pe.p.reps[i],...aadhaarToPerson(o,"id_no")};else toast("Could not read this Aadhaar; fill the details by hand.");
@@ -2836,7 +2859,9 @@ function paintProfile(){
   document.querySelectorAll("[data-rx]").forEach(el=>el.onclick=()=>{keep();pe.p.reps.splice(+el.dataset.rx,1);paintProfile()});
   $("repAdd").onclick=()=>{keep();pe.p.reps.push({sal:"Mr",state:"Tamil Nadu"});paintProfile()};
 }
-function collectProfile(){const p=pe.p;return{...p,company:readF("co_",CO_F,p.company),reps:p.reps.map((r,i)=>readF(`r${i}_`,PERSON_F,r)),w1:$("pw1")?$("pw1").value:p.w1,w2:$("pw2")?$("pw2").value:p.w2}}
+function collectProfile(){const p=pe.p;
+  if(isMD&&$("mdocSec")){if(pe.mdocReset)p.modtDocs=null;else if(pe.mdocTouched||(p.modtDocs&&Object.keys(p.modtDocs).length)){const o={};MODT_DOC_ROWS.forEach(([k])=>{const r=document.querySelector(`input[name="md_${k}"]:checked`);if(r)o[k]=r.value});p.modtDocs=o}}
+  return{...p,company:readF("co_",CO_F,p.company),reps:p.reps.map((r,i)=>readF(`r${i}_`,PERSON_F,r)),w1:$("pw1")?$("pw1").value:p.w1,w2:$("pw2")?$("pw2").value:p.w2}}
 function saveProfile(){const p=collectProfile();p.reps=p.reps.filter(r=>r.name||(r.kyc||[]).length);
   const bad=p.reps.find(r=>r.id_no&&digits(r.id_no).length!==12);if(bad){toast(`Aadhaar for ${bad.name||"the rep"} should be 12 digits`);return}
   p.reps.forEach(r=>{r.rel_type=relFix(r.rel_type,r.gender)});

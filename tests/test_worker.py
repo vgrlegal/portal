@@ -70,5 +70,27 @@ dd = {"Street name": "Kuppusamy Nayakkar Street", "Village": "Porur", "Boundary 
 check("remarks_street", ns["remarks_street"](dd, "Porur Village, New Survey No. 20/2B2", "போரூர் கிராமம், புதிய சர்வே எண் 20/2B2"),
       ("Kuppusamy Nayakkar Street, Porur Village, New Survey No. 20/2B2", "குப்புசாமி நாயக்கர் தெரு, போரூர் கிராமம், புதிய சர்வே எண் 20/2B2"))
 check("remarks_street no street", ns["remarks_street"]({"Village": "Porur"}, "Porur Village, x", "y"), ("Porur Village, x", "y"))
+
+# 12 Nov 2026: MODT documents per bank; waits look every 2 s and stop as soon as the step is done
+a = src.index("MODT_DEF = {"); exec(src[a:src.index("def modt_problems(", a)], ns)
+L = {"profiles": {"Bank B": {"modtDocs": {"revenue": "o", "ec": "m"}}}}
+r, set_ = ns["modt_rule"]({"bank": "Bank A"}, L)
+check("office rule when not set", (r["revenue"], r["ec"], set_), ("m", "o", False))
+r, set_ = ns["modt_rule"]({"bank": "Bank B"}, L)
+check("bank rule", (r["revenue"], r["ec"], set_), ("o", "m", True))
+check("missing mandatory", ns["modt_doc_missing"]({"docs": {"deed": [1], "th_kyc": [1]}}, r), ["EC"])
+a = src.index("def until("); exec(src[a:src.index("\n\n\ndef radio_click(", a)], ns)
+import time as _t
+ns["time"] = _t
+class _P:
+    waited = 0
+    def wait(self, s): self.waited += s
+P_ = _P(); n = {"i": 0}
+def _fn():
+    n["i"] += 1
+    return n["i"] >= 2
+check("until stops as soon as done", (ns["until"](P_, _fn, 10), P_.waited), (True, 2))
+P2 = _P()
+check("until gives up after the longest wait", ns["until"](P2, lambda: False, 0.3, 0.1), False)
 print("worker tests:", "OK" if not fails else f"{fails} FAILED")
 sys.exit(1 if fails else 0)

@@ -2,13 +2,13 @@
 const fs=require("fs"),path=require("path"),ROOT=path.join(__dirname,"..");
 const html=fs.readFileSync(path.join(ROOT,"index.html"),"utf8");
 const grab=(start,end)=>{const a=html.indexOf(start);if(a<0)throw new Error("not found: "+start);const b=html.indexOf(end,a+start.length);return html.slice(a,b)};
-let src="const isRD=t=>/receipt/i.test(t||'');const esc=x=>String(x);const cfg={wit:[],banks:[],profiles:{}};\n";
+let src="const isRD=t=>/receipt/i.test(t||'');const esc=x=>String(x);const cfg={wit:[],banks:[],profiles:{}};var profOf=b=>(cfg.profiles||{})[b]||null;\n";
 src+=grab("const PART_RE=","\n")+"\n"+grab("/* 12 Nov 2026 - same reader","const PART_REASON=")+"\n";
 const extra=(globalThis.__EXTRA__||[]);
 for(const [a,b] of [["function lodBoxOf(","\nconst OFF_TA="],["const OFF_TA=","\nasync function saveReview("]])src+=grab(a,b)+"\n";
 src+=grab("const DOR_REQ=","\n")+"\n"+grab("const digits=","\n")+"\n"+grab("function dorDoneCheck(","function showDoneProblems(")+"\n";
 src+=grab("const NOT_DOR_RE=","async function bankReads(){")+"\n";
-src+=grab("const DOCS={","\nconst docsFor=")+"\n"+grab("const docsFor=","\n")+"\n"+grab("function missingReq(","\n}\n")+"\n}\n";
+src+=grab("const DOCS={","\nconst docsFor=")+"\n"+grab("const docsFor=","\n")+"\n"+grab("const MODT_DOC_ROWS=","function missingReq(")+"\n"+grab("function missingReq(","\n}\n")+"\n}\n";
 src="const flowOf=t=>/legal/i.test(t||'')?'legal':'modt';\n"+src;
 src+=grab("function modtUploads(","\n  return out}")+"\n  return out}\n";
 src+=grab("const DOC_NAME=","async function addDocs(")+"\n";
@@ -17,7 +17,7 @@ src+=grab("function surveyClean(","\nasync function readModtCase(")+"\n";
 src+="const nowISO=()=>'2026-11-12T00:00:00Z',who=()=>'Test';\n"+grab("function settleQs(","\nfunction ")+"\n";
 src+=grab("async function doubtQs(","\n/* files are kept")+"\n";
 const MSTATES=(html.match(/MSTATES=\[[^\]]*\]/)||["MSTATES=[]"])[0];
-const T={};new Function("T",`const ${MSTATES};${src};T.parseSurvey=parseSurvey;T.partSurvey=partSurvey;T.modtCoAddr=modtCoAddr;T.lodBoxOf=lodBoxOf;T.dorDoneCheck=dorDoneCheck;T.custFromSubject=custFromSubject;T.NOT_DOR_RE=NOT_DOR_RE;T.dupPlan=dupPlan;T.missingReq=missingReq;T.modtUploads=modtUploads;T.surveyClean=surveyClean;T.settleQs=settleQs;T.doubtQs=doubtQs;T.svRowsOf=svRowsOf;T.svFix=svFix;T.legalSecurity=legalSecurity;T.secText=secText;T.deedProblems=deedProblems;T.applySecurity=applySecurity;T.legalBlock=legalBlock;T.lodParse=lodParse;T.lodSplit=lodSplit;T.lodRowsFromText=lodRowsFromText;T.lodBuild=lodBuild;T.lodSync=lodSync;T.lodTextOf=lodTextOf;T.docNames=docNames;T.remarksStreet=remarksStreet;T.extNum=extNum;T.extFull=extFull;`)(T);
+const T={};new Function("T",`const ${MSTATES};${src};T.parseSurvey=parseSurvey;T.partSurvey=partSurvey;T.modtCoAddr=modtCoAddr;T.lodBoxOf=lodBoxOf;T.dorDoneCheck=dorDoneCheck;T.custFromSubject=custFromSubject;T.NOT_DOR_RE=NOT_DOR_RE;T.dupPlan=dupPlan;T.missingReq=missingReq;T.modtUploads=modtUploads;T.surveyClean=surveyClean;T.settleQs=settleQs;T.doubtQs=doubtQs;T.svRowsOf=svRowsOf;T.svFix=svFix;T.legalSecurity=legalSecurity;T.secText=secText;T.deedProblems=deedProblems;T.applySecurity=applySecurity;T.legalBlock=legalBlock;T.lodParse=lodParse;T.lodSplit=lodSplit;T.lodRowsFromText=lodRowsFromText;T.lodBuild=lodBuild;T.lodSync=lodSync;T.lodTextOf=lodTextOf;T.docNames=docNames;T.remarksStreet=remarksStreet;T.extNum=extNum;T.extFull=extFull;T.cfg=cfg;T.modtRule=modtRule;`)(T);
 let fails=0;const check=(n,g,w)=>{if(JSON.stringify(g)!==JSON.stringify(w)){fails++;console.log("FAIL",n,"got",JSON.stringify(g),"want",JSON.stringify(w))}};
 for(const [text,exp] of JSON.parse(fs.readFileSync(path.join(__dirname,"survey_cases.json"),"utf8"))){const r=T.parseSurvey(text);for(const k in exp)check(`parseSurvey(${JSON.stringify(text.slice(0,40))}).${k}`,r[k],exp[k])}
 check("partSurvey part+new",T.partSurvey({type:"Deed of Receipt",tp:{"Survey number":"Old Sy.No.622/3 Part, New Survey No. 1025/12"}}),"");
@@ -144,4 +144,16 @@ check("extFull adds the unit back for checks",T.extFull({Extent:"2499",Unit:"Sq.
 check("surveyClean stores the number",T.surveyClean({"New survey no":"20",Extent:"2499 Sq.Ft.",Unit:"Sq.ft"}).Extent,"2499");
 check("login IDs: Edit finds MODT logins too",/tnEdit\(\[\.\.\.pool,\.\.\.all\]\.find/.test(html),true);
 check("login IDs: added date, newest first, Duplicate mark",/created_at/.test(html)&&/function tnDups\(/.test(html)&&/Duplicate\$\{/.test(html),true);
+
+// 12 Nov 2026: MODT documents per bank (Mandatory / Optional); a bank not set keeps the office rule
+{const docs={th_kyc:[{name:"a"}],deed:[{name:"d"}],w1_kyc:[{name:"w"}],w2_kyc:[{name:"w"}]};
+ check("office rule: New case as before",T.missingReq("MODT",docs,"Bank A"),[]);
+ check("office rule: Draft done still wants patta",T.modtUploads({bank:"Bank A",docs},{}).some(x=>(x.miss||[]).includes("patta")),true);
+ T.cfg.profiles["Bank B"]={modtDocs:{revenue:"o",ec:"m",photos:"m"}};
+ check("bank set: New case asks for EC and property image, not patta",T.missingReq("MODT",docs,"Bank B"),["EC","Property image"]);
+ const up=T.modtUploads({bank:"Bank B",docs},{});check("bank set: Draft done follows it",[up.find(x=>/Property image/.test(x.l)).need,up.find(x=>/EC \+ patta/.test(x.l)).miss],[1,["EC"]]);
+ check("Deed of Receipt not touched by the MODT rule",T.missingReq("Deed of Receipt",{},"Bank B").length>0,true);
+ delete T.cfg.profiles["Bank B"];}
+check("Sheet name box removed from Drafting",/"Sheet name"/.test(html),false);
+check("New captcha button next to every captcha box",(html.match(/\$\{capNewBtn\(/g)||[]).length,4);
 
