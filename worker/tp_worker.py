@@ -1340,12 +1340,20 @@ def open_my_docs_row(P, job, page, tp):
     page.evaluate("""()=>{const a=[...document.querySelectorAll('a,[title]')].find(e=>/^My Documents?$/i.test((e.title||e.textContent||'').trim()));if(a)a.click()}""")
     wait_loader(page); P.wait(3)
     no = tp.split("/")[1] if "/" in tp else tp
-    for _ in range(3):
+    # 12 Nov 2026: a TP made a moment ago can take a while to appear (Manikandan, B.Iyyappan stopped here) - search the
+    # list for the TP number and reload My Documents between tries, about a minute in all
+    for attempt in range(8):
+        page.evaluate("""(no)=>{const s=[...document.querySelectorAll('input[type=search],input[aria-controls],input[placeholder*="earch" i]')].find(e=>e.offsetParent);
+            if(s&&s.value!==no){s.value=no;s.dispatchEvent(new Event('input',{bubbles:true}));s.dispatchEvent(new KeyboardEvent('keyup',{bubbles:true,key:'Enter'}))}}""", no)
+        P.wait(1.5)
         ok = page.evaluate("""(no)=>{const tr=[...document.querySelectorAll('tr')].find(r=>r.offsetParent&&r.innerText.includes(no));
             if(!tr)return false;const i=tr.querySelector('input[type=checkbox],input[type=radio]');if(!i)return false;if(!i.checked)i.click();return true}""", no)
         if ok:
             return True
-        P.wait(3)
+        P.wait(5)
+        if attempt % 2 == 1:  # reload the list
+            page.evaluate("""()=>{const a=[...document.querySelectorAll('a,[title]')].find(e=>/^My Documents?$/i.test((e.title||e.textContent||'').trim()));if(a)a.click()}""")
+            wait_loader(page); P.wait(3)
     job.step(f"{tp} not found in My Documents", page)
     raise Stop(f"{tp} was created but not found in My Documents. Upload the documents by hand.")
 
@@ -3456,7 +3464,7 @@ def modt_second_half(P, job, page, d, case, comments):
         comments.append("Stays at TP Creation, missing: " + ", ".join(miss))
     note = f"MODT TP created: {tp}. Uploaded: {', '.join(done) or 'none'}" + ("" if err else ". Print saved in the case")
     if f:
-        note += f". To collect: ₹{f['total']:,.0f} (TNREGINET ₹{f['govTotal']:,.0f} incl. {f['extraPages']} extra page(s) × ₹100, service ₹{f['service']:,.0f})"
+        pass  # 12 Nov 2026: the amount to collect is shown only in the case's fees box (Admin switch), not in the robot's message
     note += ". Do biometric + payment yourself. "
     if comments:
         note += "CHECK: " + " · ".join(comments) + ". "
