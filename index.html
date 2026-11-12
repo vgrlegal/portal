@@ -1160,7 +1160,7 @@ async function autoMergeDups(){if(!(isMD||isAdmin))return;const rd=cases.filter(
     const {keep,drop,how}=p;if(BR.has("m"+drop._doc))continue;BR.add("m"+drop._doc);if(!await claimRead(drop,"lockMerge"))continue;
     const docs=JSON.parse(JSON.stringify(keep.docs||{})),have=new Set(Object.values(docs).flat().map(f=>f&&f.name));
     if(how==="supp"){const m=(drop.docs||{}).modt||[];if(m.length&&!(docs.modt2||[]).length)docs.modt2=m}
-    for(const [k,a] of Object.entries(drop.docs||{})){if(how==="supp"&&k==="modt")continue;for(const f of a||[])if(f&&!have.has(f.name)){(docs[k]=docs[k]||[]).push(f);have.add(f.name)}}
+    for(const [k,a] of Object.entries(drop.docs||{})){if(k==="modt"&&(how==="supp"||(docs.modt||[]).length))continue;/* the same MODT is not added twice */for(const f of a||[])if(f&&!have.has(f.name)){(docs[k]=docs[k]||[]).push(f);have.add(f.name)}}
     const note=how==="same"?`${drop.id} merged here: the bank sent the same MODT (${modtNoKey(drop)}) twice`:`${drop.id} merged here: its MODT ${modtNoKey(drop)} is linked as the supplementary MODT (same owner, same loan)`;
     const ch={docs,comments:[...(keep.comments||[]),...(drop.comments||[]).filter(x=>x.internal===false)].slice(-80)};if(how==="supp")ch.needsRead="modt2";
     if(await patch(keep,ch,note)){await db.collection("cases").doc(drop._doc).update({mergedInto:keep._doc,lockMerge:null,log:[...(drop.log||[]),{at:nowISO(),by:"Portal",text:`Merged into ${keep.id} (${how==="same"?"same MODT sent twice":"supplementary MODT"})`}].slice(-80)})}}}
