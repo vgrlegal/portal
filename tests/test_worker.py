@@ -92,5 +92,6 @@ def _fn():
 check("until stops as soon as done", (ns["until"](P_, _fn, 10), P_.waited), (True, 2))
 P2 = _P()
 check("until gives up after the longest wait", ns["until"](P2, lambda: False, 0.3, 0.1), False)
+check("watch: live screen only while watched, nothing clicked", 'getattr(self.job, "watching", False)' in src and '"select": "st:data->>status,w:data->>watch"' in src, True)
 print("worker tests:", "OK" if not fails else f"{fails} FAILED")
 sys.exit(1 if fails else 0)
