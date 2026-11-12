@@ -3163,7 +3163,24 @@ def lod_html(case, d, comments):
             pre = [l for l in rows if "|" not in l]
             html = "".join(f"<p>{x}</p>" for x in pre[:2]) + html
         else:
-            html = "".join(f"<p>{re.sub(r'[<>&]', ' ', l)}</p>" for l in rows)
+            # 12 Nov 2026: LOD always goes in WITH a box. A draft that has only a numbered list (no Word table, e.g. Veritas)
+            # gets a bordered table: No. | Document
+            esc = lambda x: re.sub(r"[<>&]", " ", x)
+            td = "<td style='border:1px solid #000;padding:2px 4px'>{}</td>"
+            lmatch = [re.match(r"\s*(\d+)\s*[.)\-:]\s*(.+)$", l) for l in rows]
+            if sum(1 for m in lmatch if m) >= 1:
+                pre = [esc(l) for l, m in zip(rows, lmatch) if not m and rows.index(l) < 2]
+                body, last = [], None
+                for l, m in zip(rows, lmatch):
+                    if m:
+                        body.append([m.group(1), esc(m.group(2))]); last = body[-1]
+                    elif last is not None:
+                        last[1] += " " + esc(l)  # a wrapped line belongs to the item above
+                html = "".join(f"<p>{x}</p>" for x in pre) + "<table style='border-collapse:collapse' border='1'>" + \
+                    "<tr>" + td.format("<b>No.</b>") + td.format("<b>Documents deposited</b>") + "</tr>" + \
+                    "".join("<tr>" + td.format(a) + td.format(b) + "</tr>" for a, b in body) + "</table>"
+            else:
+                html = "<table style='border-collapse:collapse' border='1'>" + "".join("<tr>" + td.format(esc(l)) + "</tr>" for l in rows) + "</table>"
     fixed = []
     for line in g(d, "LOD corrections").split("\n"):
         m = re.match(r"\s*(.+?)\s*(?:->|→|=>)\s*(.+?)\s*(?:\((.*)\))?\s*$", line)
