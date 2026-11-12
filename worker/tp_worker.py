@@ -12,6 +12,7 @@ Never clicks E-Payment or final Submit.
 Config: /opt/vgr/worker.env  (SUPABASE_URL, SUPABASE_SERVICE_KEY)
 """
 import base64, datetime, json, os, platform, re, sys, time, traceback
+import math
 import requests
 import uuid
 from playwright.sync_api import sync_playwright
@@ -3901,6 +3902,66 @@ def pdf_pages(path):
             return 0
 
 
+# 13 Nov 2026 - the MD's fee rules (same as the portal's feeCalc; tests check both give the same totals)
+FEE_RULE = {"dor": 3000, "dorGov": 211, "supp": 500, "modtSvc": 2500, "modtSvcLk": 3000, "page": 100, "freePages": 10,
+            "stampPct": 0.005, "stampMax": 40000, "regPct": 0.01, "regMax": 8000, "computer": 200, "welfare": 10}
+
+
+def _num(v):
+    try:
+        return float(re.sub(r"[^\d.]", "", str(v if v is not None else "")) or 0)
+    except ValueError:
+        return 0.0
+
+
+def _jsround(x):
+    return int(math.floor(x + 0.5))
+
+
+def fee_calc(c, prof, supp=None):
+    """Total to collect for a case - Deed of Receipt all-in package, MODT government fees by the loan + service charge."""
+    R, f = FEE_RULE, (c.get("fees") or {})
+    pf = (prof or {}).get("fees") or {}
+    has = lambda k: pf.get(k) is not None and str(pf.get(k)).strip() != ""
+    bank = c.get("bank") or ""
+    S = {"dor": _num(pf["dor"]) if has("dor") else R["dor"],
+         "modt": _num(pf["modt"]) if has("modt") else (R["modtSvcLk"] if re.search(r"lendingkart", bank, re.I) else R["modtSvc"]),
+         "supp": _num(pf["supp"]) if has("supp") else R["supp"]}
+    rd = bool(re.search(r"receipt", c.get("type") or "", re.I))
+    if supp is None:
+        p = c.get("payment") or {}
+        supp = bool(p["supp"]) if p.get("supp") is not None else bool(rd and (((c.get("docs") or {}).get("modt2") or []) or (c.get("tp") or {}).get("Supp MODT Doc No")))
+    read = bool(f.get("items"))
+    pages = int(_num(f.get("pages"))) if f.get("pages") else 0
+    xp = max(0, pages - R["freePages"])
+    page_fee = xp * R["page"]
+    gov_read = max(0.0, _num(f.get("govTotal")) - _num(f.get("extraFee"))) if read else 0.0
+    lines = []
+    add = lambda l, v: v and lines.append([l, v])
+    if rd:
+        usual = R["dorGov"] * (2 if supp else 1)
+        add("Deed of Receipt (all-in)", S["dor"])
+        if supp:
+            add("Supplementary MODT", S["supp"])
+        add(f"Pages above {R['freePages']} ({xp} × ₹{R['page']})", page_fee)
+        if read and gov_read > usual:
+            add(f"TNREGINET fees above the usual ₹{usual}", _jsround(gov_read - usual))
+    else:
+        loan = _num((c.get("draft") or {}).get("Loan amount") or c.get("loanAmount") or "")
+        # TNREGINET's fee page on the TP shows only the computer fee + welfare; stamp duty and registration come from the loan
+        add("Stamp duty (0.5% of loan, max ₹40,000)", min(_jsround(loan * R["stampPct"]), R["stampMax"]))
+        add("Registration fee (1% of loan, max ₹8,000)", min(_jsround(loan * R["regPct"]), R["regMax"]))
+        add("Computer charges", R["computer"])
+        add("Document writers welfare", R["welfare"])
+        if read and gov_read > R["computer"] + R["welfare"] + 1:
+            add("Other TNREGINET fees (read on the TP)", _jsround(gov_read - R["computer"] - R["welfare"]))
+        add(f"Pages above {R['freePages']} ({xp} × ₹{R['page']})", page_fee)
+        add("Service charge", S["modt"])
+        if supp:
+            add("Supplementary MODT", S["supp"])
+    return {"lines": lines, "total": sum(v for _, v in lines), "supp": supp}
+
+
 def save_fees(job, case_id, tp, fees, comments):
     """Fees to collect: TNREGINET's fees (read before Create) + ₹100 a page above 10 pages of the print (computer fee) + service charge."""
     try:
@@ -3927,8 +3988,11 @@ def save_fees(job, case_id, tp, fees, comments):
         f = {"items": items, "tnTotal": tn_total,
              "pages": pages, "extraPages": max(0, pages - 10), "extraFee": extra, "computerKey": comp_key or "Computer fee",
              "govTotal": gov + extra, "service": float(svc or 0), "total": gov + extra + float(svc or 0), "at": now(), "tp": tp}
+        calc = fee_calc({**c, "fees": f}, prof)
+        f["total"] = calc["total"]  # 13 Nov 2026: the MD's rules (Deed of Receipt package / MODT by loan + service)
         pay = dict(c.get("payment") or {})
-        pay.update(regFee=f["govTotal"], service=f["service"], total=f["total"])
+        if not pay.get("fixed"):
+            pay.update(total=calc["total"], lines=calc["lines"])
         kv_merge("cases", case_id, {"fees": f, "payment": pay})
         if not items:
             comments.append("fees could not be read from TNREGINET's valuation page - enter them in Payment by hand")

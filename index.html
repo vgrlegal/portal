@@ -465,9 +465,9 @@ tr.hf input,tr.hf select{font-size:12.5px;padding:5px 7px;margin:2px 0}
     <div class="grid2">
       <div class="card" data-part="set"><h2>Clients · Banks &amp; NBFCs</h2><p>Companies that send work.</p><details class="fold"><summary id="banksSum">Companies</summary><input id="bankQ" class="fq" placeholder="Search company…"><div class="chips" id="ch-banks"></div></details><form class="addline" data-k="banks"><input placeholder="e.g. Lendingkart Finance"><button class="btn primary">Add</button></form></div>
       <div class="card" data-part="tools"><h2>Payment details</h2><p>Used in the WhatsApp payment message to customers.</p>
-        <div class="fgrid"><label class="full">Account details<textarea id="pay_account" placeholder="Account name, number, IFSC, bank"></textarea></label><label>UPI ID<input id="pay_upi"></label><label>Default service charge (₹)<input id="pay_service" type="number" min="0"></label><label class="full">Payment link (optional)<input id="pay_link" placeholder="https://"></label></div>
+        <div class="fgrid"><label class="full">Account details<textarea id="pay_account" placeholder="Account name, number, IFSC, bank"></textarea></label><label>UPI ID<input id="pay_upi"></label><label>VGR Legal WhatsApp number (payments)<input id="pay_wa" inputmode="numeric" placeholder="10-digit mobile"></label><label>Opinion and Ownership WhatsApp number<input id="pay_waOo" inputmode="numeric" placeholder="10-digit mobile"></label><label class="full">Payment link (optional)<input id="pay_link" placeholder="https://"></label></div>
         <div style="margin-top:10px"><button class="btn primary" id="paySave" type="button">Save payment details</button></div>
-        <label style="display:flex;gap:8px;align-items:center;margin-top:14px;font-size:14px" id="moneyRow"><input type="checkbox" id="showMoney" style="width:18px;height:18px;margin:0"> Show money on screens: fees to collect, service charge and Claude cost (Admin switch; when off they are hidden, nothing is deleted)</label></div>
+        <p class="sf-note" style="margin-top:10px">Fees and service charges are set per company: Clients &amp; Staff → company → Edit → Fees. A company can also have its own WhatsApp number there.</p></div>
       <div class="card" data-part="reg" style="grid-column:1/-1"><h2>TNREGINET login IDs</h2><p>The password is saved but can never be shown again, not even to the Admin; only the TP computer uses it. MODT IDs are used for any company; Receipt IDs belong to one company and are never used for MODT.</p>
         <div class="grid2" style="gap:14px"><div><h3 style="margin:4px 0">MODT logins</h3><div id="tnListM"></div></div><div><h3 style="margin:4px 0">Receipt logins</h3><input id="tnQ" class="fq" placeholder="Type a company name to see its login IDs…"><div id="tnList"></div></div></div>
         <div id="tnImp" style="margin-top:10px"><label class="btn" for="tnCsv">⬆ Import from Chrome passwords (CSV)</label><input type="file" id="tnCsv" accept=".csv,text/csv" hidden>
@@ -910,7 +910,7 @@ function actionsFor0(c){
   }
   if(s==="Draft Pending")a.push(["draft","Drafting"]);
   if(s==="TP Creation"||s==="TP On Hold"){if(canTp())a.push(["tpgen",s==="TP On Hold"?"Retry TP Generate":"TP Generate"]);a.push(["draft","Edit Draft"],["tpno","Enter TP No."]);if(c.createPressedAt&&!c.tpNo&&(isMD||isPartner()))a.push(["allowtp","Allow a new TP"])}
-  if(s==="Photo/Biometric")a.push(["bio","Biometric ✓ (per person)"]);
+  if(s==="Photo/Biometric"){a.push(["bio","Biometric ✓ (per person)"]);if(c.tpNo)a.push(["paylink","Send Payment"])}
   if(s==="Payment"){a.push(["paylink","Send Payment"]);if(!c.paid)a.push(["paid","Payment Received"]);else a.push(["sropaid","SRO Payment Done"])}
   if(TRACKED.has(s)){if(isMD&&H.ok&&c.tpNo)a.push(["check","Check Status"]);a.push(["setst","Update Status"])}
   if(s==="Returned")a.push(["mv:Submitted Online","Resubmitted"]);
@@ -1258,15 +1258,39 @@ function bioP(c){if(isRD(c.type))return BIO_P;const d=c.draft||{},n=Math.min(4,M
   const out=[];for(let i=1;i<=n;i++)out.push(["th"+i,`Title holder ${n>1?i:""}${d[`Mortgagor ${i} name`]?" · "+d[`Mortgagor ${i} name`]:""}`.replace("holder  ","holder ")]);
   [1,2].forEach(i=>{const nm=d[`Witness ${i} name`]||(cw[i]||cw[String(i)]||{}).name||"";out.push(["w"+i,`Witness ${i}${nm?" · "+nm:""}`])});return out}
 /* fees to collect: TNREGINET's fees (read by the TP Desk before Create Document) + ₹100 a page above 10 pages of the print + service charge */
-/* 12 Nov 2026: money on screens (fees to collect, service charge, Claude cost) only when the Admin turns it on in Settings (off for now); data is kept */
+/* MONEY(): the old Show-money switch - only the Reports Claude-cost card still reads it (left as it was; the switch is gone, so it stays hidden there).
+   13 Nov 2026: fees, the service charge and the breakdown are shown to the Admin and the partner (Raja) only - FEES_OK(). */
 const MONEY=()=>!!(cfg&&cfg.showMoney);
-const noMoney=t=>MONEY()?String(t||""):String(t||"").replace(/\.?\s*To collect: ₹[\d,]+(\s*\(TNREGINET.*?service ₹[\d,]+\))?/g,"");
-function feesHtml(c){if(!MONEY())return"";const f=c.fees||{},it=f.items||{},r=(l,v,b)=>`<div class="kv"><span>${esc(l)}</span>${b?`<b>${esc(v)}</b>`:`<span>${esc(v)}</span>`}</div>`,m=v=>"₹"+Number(v||0).toLocaleString("en-IN");
-  const ck=Object.keys(it).find(k=>/computer/i.test(k));
-  return `<div class="sect">Fees to collect${f.tp?" · "+esc(f.tp):""}</div><div class="kvs">`+Object.entries(it).map(([k,v])=>r(k,m(+v+(k===ck?f.extraFee||0:0))+(k===ck&&f.extraFee?` (incl. ${f.extraPages} page(s) above 10 × ₹100)`:""))).join("")+
-    (!ck&&f.extraFee?r("Computer fee · extra pages",`${m(f.extraFee)} (${f.pages} pages, ${f.extraPages} above 10 × ₹100)`):"")+
-    r("Print pages",f.pages?String(f.pages):"not counted")+r("TNREGINET total",m(f.govTotal))+r("Service charge",m(f.service))+r("Total to collect",m(f.total),1)+
-    `</div><p class="sf-note">From the TNREGINET fee page and the TP print${f.tnTotal?` · TNREGINET's own total before uploads: ${m(f.tnTotal)}`:""}. Payment request uses these amounts.</p>`}
+const FEES_OK=()=>!!(isMD||isPartner());
+const noMoney=t=>FEES_OK()?String(t||""):String(t||"").replace(/\.?\s*To collect: ₹[\d,]+(\s*\(TNREGINET.*?service ₹[\d,]+\))?/g,"");
+/* 13 Nov 2026 - the MD's fee rules.
+   Deed of Receipt: one all-in amount (₹3,000 - covers TNREGINET's usual ₹200 + ₹1 + ₹10), + ₹100 a page above 10 pages,
+     + ₹500 when a supplementary MODT is cancelled too, + any TNREGINET fee above the usual.
+   MODT: stamp duty 0.5% of the loan (max ₹40,000) + registration 1% (max ₹8,000) + computer ₹200 + welfare ₹10
+     (TNREGINET's own figures when the TP Desk read them) + ₹100 a page above 10 + service charge (Lendingkart ₹3,000, others ₹2,500)
+     + ₹500 for a supplementary. Every amount can be changed per company (Admin / partner). */
+const FEE_RULE={dor:3000,dorGov:211,supp:500,modtSvc:2500,modtSvcLk:3000,page:100,freePages:10,stampPct:.005,stampMax:40000,regPct:.01,regMax:8000,computer:200,welfare:10};
+const numOf=v=>Number(String(v??"").replace(/[^\d.]/g,""))||0;
+function feeSet(bank){const f=((typeof profOf==="function"&&profOf(bank))||{}).fees||{},has=k=>f[k]!==undefined&&f[k]!==null&&String(f[k]).trim()!=="";
+  return{dor:has("dor")?numOf(f.dor):FEE_RULE.dor,modt:has("modt")?numOf(f.modt):(/lendingkart/i.test(bank||"")?FEE_RULE.modtSvcLk:FEE_RULE.modtSvc),supp:has("supp")?numOf(f.supp):FEE_RULE.supp,wa:String(f.wa||"").replace(/\D/g,"").slice(-10)}}
+function suppOf(c){const p=c.payment||{};if(p.supp!==undefined&&p.supp!==null)return !!p.supp;return !!(isRD(c.type)&&(((c.docs||{}).modt2||[]).length||(c.tp||{})["Supp MODT Doc No"]))}
+const loanOf=c=>numOf((c.draft||{})["Loan amount"]||c.loanAmount||"");
+function feeCalc(c,suppOverride){const R=FEE_RULE,S=feeSet(c.bank),f=c.fees||{},supp=suppOverride===undefined?suppOf(c):!!suppOverride;
+  const read=Object.keys(f.items||{}).length>0,pages=+f.pages||0,xp=Math.max(0,pages-R.freePages),pageFee=xp*R.page;
+  const govRead=read?Math.max(0,numOf(f.govTotal)-numOf(f.extraFee)):0,L=[],warn=[];let total=0;const add=(l,v)=>{if(v){L.push([l,v]);total+=v}};
+  if(isRD(c.type)){const usual=R.dorGov*(supp?2:1);add("Deed of Receipt (all-in)",S.dor);if(supp)add("Supplementary MODT",S.supp);
+    if(pageFee)add(`Pages above ${R.freePages} (${xp} × ₹${R.page})`,pageFee);if(read&&govRead>usual)add(`TNREGINET fees above the usual ₹${usual}`,Math.round(govRead-usual));}
+  else{const loan=loanOf(c),stamp=Math.min(Math.round(loan*R.stampPct),R.stampMax),reg=Math.min(Math.round(loan*R.regPct),R.regMax),rule=stamp+reg+R.computer+R.welfare;
+    /* TNREGINET's fee page on the TP shows only the computer fee + welfare (stamp duty and registration come from the loan) */
+    if(!loan)warn.push("Loan amount not in the draft - stamp duty and registration fee are 0. Add the loan amount.");
+    add("Stamp duty (0.5% of loan, max ₹40,000)",stamp);add("Registration fee (1% of loan, max ₹8,000)",reg);add("Computer charges",R.computer);add("Document writers welfare",R.welfare);
+    if(read&&govRead>R.computer+R.welfare+1)add("Other TNREGINET fees (read on the TP)",Math.round(govRead-R.computer-R.welfare));
+    if(pageFee)add(`Pages above ${R.freePages} (${xp} × ₹${R.page})`,pageFee);add("Service charge",S.modt);if(supp)add("Supplementary MODT",S.supp)}
+  if(read&&!pages)warn.push("Print page count not known - pages above 10 not added.");
+  return{lines:L,total,warn,supp,pages,read}}
+function feesHtml(c){if(!FEES_OK())return"";const F=feeCalc(c),m=v=>"₹"+Number(v||0).toLocaleString("en-IN"),r=(l,v,b)=>`<div class="kv"><span>${esc(l)}</span>${b?`<b>${esc(v)}</b>`:`<span>${esc(v)}</span>`}</div>`;
+  return `<div class="sect">Fees to collect${(c.fees||{}).tp?" · "+esc(c.fees.tp):""} <span class="sub">(Admin and partner only)</span></div><div class="kvs">`+F.lines.map(([l,v])=>r(l,m(v))).join("")+r("Total to collect",m(F.total),1)+`</div>`+
+    (F.warn.length?`<p class="sf-note" style="color:var(--warn,#8a4f00)">${F.warn.map(esc).join("<br>")}</p>`:"")+`<p class="sf-note">The customer's WhatsApp message shows only the total.</p>`}
 function bioHtml(c){if(c.stage!=="Photo/Biometric")return"";const b=c.bio||{},BP=bioP(c);return`<span class="pill ${BP.every(([k])=>b[k])?"p-ok":"p-warn"}" style="margin-top:4px;white-space:normal">Biometric: ${BP.map(([k,l])=>`${l} ${b[k]?"✓":"⏳"}`).join(" · ")}</span> `}
 function bioAsk(c){const b=c.bio||{},BP=bioP(c);ask("Biometric done for",`<p class="sf-note">${esc(c.tpNo||"")} · tick each person whose photo and fingerprint are done. When all are ticked the case moves to Payment.</p>`+
     BP.map(([k,l])=>`<div style="display:flex;gap:10px;align-items:center;margin:8px 0;font-size:15px"><input type="checkbox" id="bio_${k}" style="width:20px;height:20px;margin:0;flex:none"${b[k]?" checked":""}><span style="cursor:pointer" onclick="$('bio_${k}').click()">${esc(l)}${b[k]?` <span class="sf-note">(${esc(fmtD(b[k].at||b[k]))}${b[k].by?" · "+esc(b[k].by):""})</span>`:""}</span></div>`).join(""),
@@ -1295,7 +1319,7 @@ function runAction(c,k){
   if(k==="tpno")return ask("Enter TP number",`<label>TP number<input id="m_tp" required placeholder="TP/…/2026" value="${esc(c.tpNo||"")}"></label><label>TNREGINET login used<input id="m_login" value="${esc(c.tpLogin||"")}"></label>`,
     ()=>patch(c,{tpNo:fv("m_tp"),tpLogin:fv("m_login"),stage:"Photo/Biometric"},`TP entered: ${fv("m_tp")}`));
   if(k==="paylink")return openPayment(c);
-  if(k==="paid")return ask("Payment received from customer",`<label>Amount received (₹)<input id="m_amt" type="number" min="0" step="1" value="${MONEY()?esc((c.payment||{}).total||""):""}"></label><label>Payment screenshot (optional)<input id="m_shot" type="file" accept="image/*,application/pdf"></label>`,
+  if(k==="paid")return ask("Payment received from customer",`<label>Amount received (₹)<input id="m_amt" type="number" min="0" step="1" value="${esc((c.payment||{}).total||feeCalc(c).total||"")}"></label><label>Payment screenshot (optional)<input id="m_shot" type="file" accept="image/*,application/pdf"></label>`,
     async()=>{const f=$("m_shot").files[0];const docs={...(c.docs||{})};if(f){const r=await uploadFile(f);if(!r)return false;docs.payshot=[...(docs.payshot||[]),r]}
       return patch(c,{paid:true,docs,payment:{...(c.payment||{}),received:Number(fv("m_amt"))||"",receivedAt:nowISO()}},"Customer payment received")});
   if(k==="sropaid")return ask("SRO payment done",`<p class="sf-note">Confirm you paid the registration fee on TNREGINET for ${esc(c.tpNo||"this TP")}. The case moves to Submitted Online and the status is then tracked automatically.</p>`,
@@ -1308,22 +1332,32 @@ function runAction(c,k){
 }
 
 /* ================= payment via WhatsApp ================= */
+function payWa(c){const S=feeSet(c.bank),p=cfg.pay||{};return S.wa||(myOrg()==="oo"?p.waOo:p.wa)||""}
+function payMsg(c,total,wa){const p=cfg.pay||{},name=c.applicant||"Customer",m="₹"+Number(total||0).toLocaleString("en-IN"),rd=isRD(c.type),brand=(ORGS[myOrg()]||{}).name||"VGR Legal";
+  const taT=rd?"ரசீது ஆவணம் (Deed of Receipt)":"MODT (அடமான ஆவணம்)",acc=`${p.account?`\n${p.account}`:""}${p.upi?`\nUPI: ${p.upi}`:""}${p.link?`\n${p.link}`:""}`;
+  return `அன்புள்ள ${name},\nஉங்கள் ${taT} பதிவு கட்டணம் செலுத்த தயாராக உள்ளது.\nமொத்தம்: ${m}\nபணம் செலுத்திய பின் screenshot-ஐ ${wa?wa+" என்ற எண்ணுக்கு":"இந்த எண்ணுக்கு"} அனுப்பவும்.\n\n`+
+    `Dear ${name},\nYour ${rd?"Deed of Receipt":"MODT"} registration${c.bank?` for ${c.bank}`:""}${c.loanNo?` (Loan ${c.loanNo})`:""} is ready for payment.\nTotal: ${m}\nPlease send the payment screenshot to ${wa||"this number"} after paying.\n`+
+    (acc?`\nPayment details / பணம் செலுத்த:${acc}\n`:"")+`\nRef: ${c.id}\n${brand}`}
 function openPayment(c){
-  const p=cfg.pay||{},cp=c.payment||{};
-  const html=`<div class="fgrid"><label>Registration fee (₹)<input id="m_reg" type="number" min="0" value="${esc(cp.regFee??"")}"></label><label>Service charge (₹)<input id="m_svc" type="number" min="0" value="${esc(cp.service??p.service??"")}"></label></div>
-    <label>Customer WhatsApp number<input id="m_ph" value="${esc(c.phone||"")}" placeholder="10-digit mobile"></label>
-    <label>Message<textarea id="m_msg" style="min-height:170px"></textarea></label>
-    <p class="sf-note">Opens WhatsApp with this message ready. Press Send there.</p>`;
+  const cp=c.payment||{},full=FEES_OK();let F=feeCalc(c);const wa=payWa(c),m=v=>"₹"+Number(v||0).toLocaleString("en-IN");
+  const brk=()=>F.lines.map(([l,v])=>`<div class="kv"><span>${esc(l)}</span><span>${m(v)}</span></div>`).join("")+(F.warn.length?`<p class="sf-note">${F.warn.map(esc).join("<br>")}</p>`:"");
+  const html=(full?`<div class="kvs" id="m_brk">${brk()}</div><div style="display:flex;gap:10px;align-items:center;margin:10px 0"><input type="checkbox" id="m_supp" style="width:20px;height:20px;margin:0;flex:none"${F.supp?" checked":""}><span style="cursor:pointer" onclick="$('m_supp').click()">Supplementary MODT (+${m(feeSet(c.bank).supp)})</span></div>
+      <label>Total to collect (₹)<input id="m_tot" type="number" min="0" value="${esc(cp.total&&cp.fixed?cp.total:F.total)}"></label><p class="sf-note">Only this total goes to the customer. The breakdown above is seen by the Admin and the partner only.</p>`
+    :`<div class="kv"><span>Total to collect</span><b>${m(cp.total||F.total)}</b></div>`)+
+    `<label>Customer WhatsApp number<input id="m_ph" value="${esc(c.phone||"")}" placeholder="10-digit mobile"></label>
+    <label>Message (Tamil + English)<textarea id="m_msg" style="min-height:240px"></textarea></label>
+    <p class="sf-note">Opens WhatsApp with this message ready${wa?` - send it from ${esc(wa)}`:""}. Press Send there.</p>`;
+  const tot=()=>full?Number(fv("m_tot"))||0:Number(cp.total||F.total)||0;
   ask("Send payment request",html,async()=>{
     const ph=fv("m_ph").replace(/\D/g,"").slice(-10);if(ph.length!==10){toast("Enter a 10-digit mobile number");return false}
-    const reg=Number(fv("m_reg"))||0,svc=Number(fv("m_svc"))||0;
+    const t=tot();if(!t){toast("The total is 0 - check the fees");return false}
     const url=`https://wa.me/91${ph}?text=${encodeURIComponent($("m_msg").value)}`;
     const a=document.createElement("a");a.href=url;a.target="_blank";a.rel="noopener";document.body.appendChild(a);a.click();a.remove();
-    return patch(c,{phone:c.phone||ph,payment:{...cp,regFee:reg,service:svc,total:reg+svc,requestedAt:nowISO()}},"Payment request opened in WhatsApp");
+    const pay={...cp,total:t,requestedAt:nowISO()};if(full){pay.supp=!!$("m_supp").checked;pay.lines=F.lines;pay.fixed=t!==F.total}
+    return patch(c,{phone:c.phone||ph,payment:pay},"Payment request opened in WhatsApp");
   },"Open WhatsApp");
-  const build=()=>{const reg=Number(fv("m_reg"))||0,svc=Number(fv("m_svc"))||0;
-    $("m_msg").value=`Dear ${c.applicant||"Customer"},\n\nYour ${c.type} registration for ${c.bank||""}${c.loanNo?` (Loan ${c.loanNo})`:""} is ready for payment.\n\nRegistration fee: ₹${reg.toLocaleString("en-IN")}\nService charge: ₹${svc.toLocaleString("en-IN")}\nTotal: ₹${(reg+svc).toLocaleString("en-IN")}\n\n${p.account?`Account details:\n${p.account}\n\n`:""}${p.upi?`UPI ID: ${p.upi}\n`:""}${p.link?`Pay online: ${p.link}\n`:""}\nPlease share the payment screenshot on this number after paying.\n\nRef: ${c.id}\nVGR Legal`};
-  build();["m_reg","m_svc"].forEach(id=>$(id).addEventListener("input",build));
+  const build=()=>{$("m_msg").value=payMsg(c,tot(),wa)};build();
+  if(full){$("m_tot").addEventListener("input",build);$("m_supp").onchange=()=>{F=feeCalc(c,$("m_supp").checked);$("m_brk").innerHTML=brk();$("m_tot").value=F.total;build()}}
 }
 
 /* ================= uploads & KYC ================= */
@@ -1382,7 +1416,7 @@ function paintInfo(){
     h+=`<div class="kvs">${row("Application No.",c.id)}${row("Work type",c.type)}${row("Company",c.bank)}${row("Branch",c.branch)}${row("Customer",c.applicant)}${row("Phone",c.phone)}${row("Loan number",c.loanNo)}${row("Loan amount",money(c.loanAmount))}${row("Request date",fmtD(c.requestedAt)+" "+fmtT(c.requestedAt))}${row("Assigned to",c.assignee)}${row("Witness 1",c.w1)}${row("Witness 2",c.w2)}${row("Stage",c.stage)}${row("TP number",c.tpNo)}${row("TNREGINET login",c.tpLogin)}${row("Document number",c.docNo)}</div>
       ${canWrite?`<button type="button" class="btn" id="editInfo">Edit details</button>`:""}`;
   }
-  if(c&&!edit&&c.fees)h+=feesHtml(c);
+  if(c&&!edit&&(c.fees||c.tpNo))h+=feesHtml(c);
   h+=`<div class="sect">Documents ${edit?`<span class="sf-note">· * needed to create the case. The rest can be added before TP Generate.</span>`:""}</div><div class="docs" id="docList"></div>`;
   if(c&&isRD(c.type)){const Q=c.queries||[];h+=`<div class="sect">Queries to the bank</div>${Q.length?Q.map(q=>`<div class="ev ${q.status==="open"?"cm":""}" style="margin-bottom:6px"><small>${fmtD(q.at)} · ${esc(q.by)} · <b>${q.status==="open"?"Open":q.status==="answered"?"Answered":"Closed"}</b></small>${esc(q.text)}${q.answer?`<div style="margin-top:4px"><b>Bank:</b> ${esc(q.answer)}</div>`:""}${q.status!=="closed"&&canWrite?`<button type="button" class="btn" data-qclose="${esc(q.id)}" style="margin-top:4px">Close query</button>`:""}</div>`).join(""):`<p class="sub">No queries.</p>`}
     ${canWrite?`<button type="button" class="btn" id="qRaise" style="margin-bottom:12px">+ Raise query to the bank</button>`:""}`}
@@ -2465,8 +2499,7 @@ function renderSettings(){
       <td style="white-space:nowrap">${s.partner||s.team?`<span class="pill p-info" title="Partner organisation">${s.partner?"Partner · ":""}${esc((ORGS[s.partner||s.team]||{}).name||s.partner||s.team)}</span> `:""}${ro||s.name===MD_NAME?"":`${s.email?`<button class="btn sinv" type="button" data-em="${esc(s.email)}">Invite</button> <button class="btn slink" type="button" data-em="${esc(s.email)}">Copy link</button> `:""}<button class="btn danger sdel" type="button">Remove</button>`}</td></tr>`).join("");
   $("staffAdd").hidden=ro;$("staffSave").hidden=ro;renderMasters(ro);loginStatus();$("bakCard").hidden=!isMD;$("bankQ").dispatchEvent(new Event("input"));if($("rulesSum"))$("rulesSum").textContent=`${(cfg.rules||[]).length} rules · tap to open`;
   renderClients(ro);renderRules(ro);
-  const p=cfg.pay||{};["account","upi","link","service"].forEach(k=>{$("pay_"+k).value=p[k]||"";$("pay_"+k).disabled=ro});$("paySave").hidden=ro;
-  if($("showMoney")){$("moneyRow").hidden=!isMD;$("showMoney").checked=MONEY();$("showMoney").onchange=async e=>{await saveCfg({...cfg,showMoney:e.target.checked});toast(e.target.checked?"Money is shown on screens":"Money is hidden on screens")}}
+  const p=cfg.pay||{};["account","upi","link","wa","waOo"].forEach(k=>{$("pay_"+k).value=p[k]||"";$("pay_"+k).disabled=ro});$("paySave").hidden=ro;
   tnRender(ro);renderStageTool();
   const PART=tab==="__reg"?"reg":tab==="__tools"?"tools":"set",onlyStage=isPartner()&&!isMD&&!isAdmin;
   const roleHide={robotDlCard:!isMD,clientCard:!isMD,rulesCard:!(isMD||isAdmin),bakCard:!isMD,stageCard:false};
@@ -2526,7 +2559,8 @@ $("clientSave").onclick=()=>{const L=readClients();const bad=L.find(c=>!c.email|
   if(L.some(c=>!c.services.length)){toast("Tick at least one service for each client login");return}
   const staffEm=new Set(cfg.staff.map(x=>(staffObj(x).email||"").toLowerCase()));if(L.some(c=>staffEm.has(c.email))){toast("That email is already a staff login");return}
   saveCfg({...cfg,clients:L})};
-$("paySave").onclick=()=>saveCfg({...cfg,pay:{account:$("pay_account").value.trim(),upi:fv("pay_upi"),link:fv("pay_link"),service:fv("pay_service")}});
+$("paySave").onclick=()=>{const w=id=>fv(id).replace(/\D/g,"").slice(-10);if([w("pay_wa"),w("pay_waOo")].some(x=>x&&x.length!==10)){toast("WhatsApp numbers should be 10 digits");return}
+  saveCfg({...cfg,pay:{...(cfg.pay||{}),account:$("pay_account").value.trim(),upi:fv("pay_upi"),link:fv("pay_link"),wa:w("pay_wa"),waOo:w("pay_waOo")}})};
 let CFG_OK=false;
 /* 13 Nov 2026: settings saved and read as a WHOLE - before, only the old fields were written, so the Claude plan
    switches (claudeOff), payments (claudePay), clean-up date (cleanAt) and Show money were lost and came back ON. */
@@ -2946,6 +2980,11 @@ function paintProfile(){
       <p class="sf-note" style="margin:0 0 6px">${set?"Set for this company.":"Not set yet - the office rule is used (title deed or bank letter, Aadhaar and patta mandatory; the rest optional)."} New case, Draft done and the TP Desk follow this. Witnesses come from KYC Master as before.</p>
       <div class="fgrid">${MODT_DOC_ROWS.map(([k,l])=>`<label>${esc(l)}<select id="md_${k}" data-md="${k}"><option value="m"${R[k]==="m"?" selected":""}>Mandatory</option><option value="o"${R[k]==="o"?" selected":""}>Optional</option></select></label>`).join("")}</div>
       ${set?`<button type="button" class="btn" id="mdocReset" style="margin-top:6px">Use the office rule again</button>`:""}</div>`}
+  /* 13 Nov 2026: fees for this company - Admin and partner only */
+  if(FEES_OK()){const f=p.fees||{},S=feeSet(bank);
+    h+=`<div class="rvsec" style="margin-top:14px" id="feeSec"><div class="sect">Fees for ${esc(bank)}</div><p class="sf-note" style="margin:0 0 6px">Leave a box empty to use the office amount (shown in grey). Only the Admin and the partner see this.</p>
+      <div class="fgrid"><label>Deed of Receipt, all-in (₹)<input id="fe_dor" type="number" min="0" value="${esc(f.dor??"")}" placeholder="${S.dor}"></label><label>MODT service charge (₹)<input id="fe_modt" type="number" min="0" value="${esc(f.modt??"")}" placeholder="${S.modt}"></label>
+      <label>Supplementary MODT, extra (₹)<input id="fe_supp" type="number" min="0" value="${esc(f.supp??"")}" placeholder="${S.supp}"></label><label>WhatsApp number for this company (optional)<input id="fe_wa" inputmode="numeric" value="${esc(f.wa??"")}" placeholder="office number"></label></div></div>`}
   if(false)h+=`<div class="rvsec" style="margin-top:14px"><div class="sect">Default witnesses for ${esc(bank)}</div><div class="fgrid">${[1,2].map(n=>`<label>Witness ${n}<select id="pw${n}"><option value="">Use the office default</option>${W.map(w=>`<option${p["w"+n]===w.name?" selected":""}>${esc(w.name)}</option>`).join("")}</select></label>`).join("")}</div></div>`;
   openPE(bank,h,saveProfile);
   const keep=()=>{pe.p=collectProfile()};
@@ -2962,10 +3001,11 @@ function paintProfile(){
 }
 function collectProfile(){const p=pe.p;
   if(isMD&&$("mdocSec")){if(pe.mdocReset)p.modtDocs=null;else if(pe.mdocTouched||(p.modtDocs&&Object.keys(p.modtDocs).length)){const o={};MODT_DOC_ROWS.forEach(([k])=>{const r=$("md_"+k);if(r&&r.value)o[k]=r.value});p.modtDocs=o}}
+  if($("feeSec")){const g=id=>$(id).value.trim(),o={};[["dor","fe_dor"],["modt","fe_modt"],["supp","fe_supp"]].forEach(([k,id])=>{if(g(id)!=="")o[k]=numOf(g(id))});const w=g("fe_wa").replace(/\D/g,"");if(w)o.wa=w.slice(-10);p.fees=Object.keys(o).length?o:undefined}
   return{...p,company:readF("co_",CO_F,p.company),reps:p.reps.map((r,i)=>readF(`r${i}_`,PERSON_F,r)),w1:$("pw1")?$("pw1").value:p.w1,w2:$("pw2")?$("pw2").value:p.w2}}
 function saveProfile(){const p=collectProfile();p.reps=p.reps.filter(r=>r.name||(r.kyc||[]).length);
   const bad=p.reps.find(r=>r.id_no&&digits(r.id_no).length!==12);if(bad){toast(`Aadhaar for ${bad.name||"the rep"} should be 12 digits`);return}
-  p.reps.forEach(r=>{r.rel_type=relFix(r.rel_type,r.gender)});
+  p.reps.forEach(r=>{r.rel_type=relFix(r.rel_type,r.gender)});if(p.fees&&p.fees.wa&&p.fees.wa.length!==10){toast("The company WhatsApp number should be 10 digits");return}if(p.fees===undefined)delete p.fees;
   const bank=pe.bank;Promise.resolve(saveCfg({...cfg,profiles:{...(cfg.profiles||{}),[bank]:p}})).then(()=>syncSoon(bank));closePE()}
 function openWitness(i){const w={...cfg.wit[i]};pe={kind:"w",i,w};paintWitness()}
 function paintWitness(){const{w,i}=pe;
