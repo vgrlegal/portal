@@ -386,16 +386,21 @@ def open_login_form(page):
     if ok:
         uncover(page)
         # ask TNREGINET for a new login captcha so it is the one the server expects
-        page.evaluate("""()=>{const i=document.getElementById('captcha_login'); if(!i) return;
-            const box=i.closest('div,td,form')||i.parentElement;
-            const r=[...box.parentElement.querySelectorAll('*')].find(e=>e!==i&&e.offsetParent&&/refresh|reload|captcha/i.test((e.getAttribute('onclick')||'')+' '+e.className+' '+e.id+' '+(e.getAttribute('src')||'')+' '+(e.getAttribute('title')||''))&&e.tagName!=='INPUT');
-            if(r) r.click(); else i.src=i.src.split('?')[0]+'?'+Date.now()}""")
-        page.wait_for_timeout(1500)
-        try:
-            page.wait_for_function("()=>{const i=document.getElementById('captcha_login');return i&&i.complete&&i.naturalWidth>0}", timeout=15000)
-        except Exception:
-            pass
+        refresh_login_captcha(page)
     return ok
+
+
+def refresh_login_captcha(page):
+    """TNREGINET's own 'refresh captcha' on the login box (else reload the picture); waits for the new picture."""
+    page.evaluate("""()=>{const i=document.getElementById('captcha_login'); if(!i) return;
+        const box=i.closest('div,td,form')||i.parentElement;
+        const r=[...box.parentElement.querySelectorAll('*')].find(e=>e!==i&&e.offsetParent&&/refresh|reload|captcha/i.test((e.getAttribute('onclick')||'')+' '+e.className+' '+e.id+' '+(e.getAttribute('src')||'')+' '+(e.getAttribute('title')||''))&&e.tagName!=='INPUT');
+        if(r) r.click(); else i.src=i.src.split('?')[0]+'?'+Date.now()}""")
+    page.wait_for_timeout(1500)
+    try:
+        page.wait_for_function("()=>{const i=document.getElementById('captcha_login');return i&&i.complete&&i.naturalWidth>0}", timeout=15000)
+    except Exception:
+        pass
 
 
 def uncover(page):
@@ -450,6 +455,11 @@ def do_login(page, job, acc):
                 raise Stop("Stopped from the portal")
             if d.get("status") == "captcha_sent" and d.get("captcha"):
                 break
+            if d.get("status") == "captcha_new":  # 12 Nov 2026: 'New captcha' pressed in the portal
+                refresh_login_captcha(page)
+                job.upd(status="captcha", captchaImg=captcha_png(page), captcha="", step="Waiting for the captcha (new picture)", at=now())
+                t0 = time.time()
+                continue
             if time.time() - t0 > CAPTCHA_WAIT:
                 raise Stop("Nobody typed the captcha for 10 minutes")
             time.sleep(1.5)
@@ -1824,6 +1834,11 @@ def ask_captcha(page, job, img_sel, label):
         if d.get("status") == "captcha_sent" and d.get("captcha"):
             job.upd(status="filling", captchaImg="")
             return d["captcha"].strip()
+        if d.get("status") == "captcha_new":  # 12 Nov 2026: 'New captcha' pressed in the portal
+            page.evaluate("()=>{const r=document.getElementById('refresh');if(r)r.click();else{const i=document.querySelector(" + json.dumps(img_sel) + ");if(i)i.src=i.src.split('?')[0]+'?'+Date.now()}}")
+            page.wait_for_timeout(2500)
+            job.upd(status="captcha", captchaImg="data:image/png;base64," + base64.b64encode(page.locator(img_sel).first.screenshot()).decode(), captcha="", step=label + " (new picture)", at=now())
+            t0 = time.time()
         if time.time() - t0 > CAPTCHA_WAIT:
             raise Stop("Nobody typed the captcha for 10 minutes")
         time.sleep(1.5)
@@ -2083,6 +2098,29 @@ def deed_problems(d):
     return out
 
 
+# 12 Nov 2026: MODT upload documents per bank, Mandatory / Optional, set by the Admin in Clients & Staff (portal: MODT_DEF)
+MODT_DEF = {"title": "m", "th_kyc": "m", "revenue": "m", "ec": "o", "photos": "o", "mdraft": "o", "legal": "o", "sanction": "o", "other": "o"}
+MODT_DOC_LABEL = {"title": "Title deed (or bank letter)", "th_kyc": "Title holder Aadhaar", "revenue": "Patta / TSLR", "ec": "EC", "photos": "Property image",
+                  "mdraft": "MODT draft (Word copy)", "legal": "Legal report", "sanction": "Sanction letter", "other": "Other certificates"}
+
+
+def modt_rule(case, lists=None):
+    """(rule, set_for_this_bank) - a bank with nothing set keeps the office rule (MODT_DEF)."""
+    if lists is None:
+        try:
+            lists = kv_get("config", "lists") or {}
+        except Exception:
+            lists = {}
+    m = ((lists.get("profiles") or {}).get(case.get("bank") or "") or {}).get("modtDocs") or {}
+    return {**MODT_DEF, **{k: v for k, v in m.items() if v in ("m", "o")}}, bool(m)
+
+
+def modt_doc_missing(case, rule):
+    docs = case.get("docs") or {}
+    has = lambda k: bool(docs.get("deed") or docs.get("letter")) if k == "title" else bool(docs.get(k))
+    return [MODT_DOC_LABEL[k] for k, v in rule.items() if v == "m" and k in MODT_DOC_LABEL and not has(k)]
+
+
 def modt_problems(case):
     """MODT checks before login: all four boundaries (English and Tamil), and the MODT extent not more than the patta's total."""
     d, out = case.get("draft") or {}, []
@@ -2096,6 +2134,10 @@ def modt_problems(case):
     if not (case.get("lodHtml") or g(d, "List of documents deposited")):
         out.append("List of documents deposited (LOD) is empty in Drafting - it is compulsory for every MODT (read the MODT draft again or type it)")
     out += deed_problems(d)
+    rule, set_ = modt_rule(case)
+    if set_:  # only when the Admin has set this bank's documents; otherwise today's checks stay as they were
+        for lab in modt_doc_missing(case, rule):
+            out.append(f"{lab} is mandatory for {case.get('bank')} (Clients & Staff → MODT documents) but is not uploaded in the case")
     for i, r in enumerate(survey_rows(d)):
         if PART_WORD.search(r[1] or ""):
             out.append(f"survey row {i + 1}: sub-division '{r[1]}' has 'Part' - put the new sub-division number from the patta")
@@ -3169,6 +3211,17 @@ RADIO_ON_JS = "(pat)=>{" + VIS_JS + r"""const re=new RegExp(pat,'i');const r=[..
 RADIO_IDX_JS = "(pat)=>{" + VIS_JS + r"""const re=new RegExp(pat,'i');return [...document.querySelectorAll('input[type=radio]')].findIndex(e=>(vis(e)||vis(e.parentElement))&&re.test(labelOf(e)))}"""
 
 
+def until(P, fn, secs=10, step=2):
+    """True as soon as fn() is true - looked at now and then every `step` s, for at most `secs` s."""
+    end = time.time() + secs
+    while True:
+        if fn():
+            return True
+        if time.time() >= end:
+            return False
+        P.wait(min(step, max(0.2, end - time.time())))
+
+
 def radio_click(page, pat):
     """Click a radio like a person does (TNREGINET loads the next boxes on that click); the old JS click when that fails."""
     i = page.evaluate(RADIO_IDX_JS, pat)
@@ -3193,9 +3246,13 @@ def survey_tab(P, job, page, d, ptype, note):
         first = rows_now[0]
         for tri in range(4):
             page.evaluate(DEL_TABLE_ROW_JS, "Mortgaged Survey Extent|Survey No")
-            P.wait(1.5); P.popup_ok(); wait_loader(page); P.wait(10); P.popup_ok()
-            after = page.evaluate(SURVEY_ROWS_JS, "Mortgaged Survey Extent|Survey No") or []
-            if first not in after or len(after) < len(rows_now):
+
+            def gone():
+                P.popup_ok()
+                after = page.evaluate(SURVEY_ROWS_JS, "Mortgaged Survey Extent|Survey No") or []
+                return first not in after or len(after) < len(rows_now)
+            # look every 2 s, go on as soon as the row is gone; 10 s is only the longest wait (TNREGINET can be slow)
+            if until(P, gone, 10):
                 note(f"old survey row from the linked deed deleted ({first[:70]})" + (f" - on try {tri + 1}" if tri else ""))
                 break
         else:
@@ -3220,7 +3277,7 @@ def survey_tab(P, job, page, d, ptype, note):
         if not page.evaluate(RADIO_ON_JS, "^" + lt + "$"):
             if not radio_click(page, "^" + lt + "$"):
                 note(f"'{lt}' button not found")
-            P.wait(3); wait_loader(page)
+            P.wait(1); wait_loader(page)
         if lt.lower() == "urban":
             for k in ("Ward", "Block"):
                 v = g(d, k)
@@ -3233,12 +3290,18 @@ def survey_tab(P, job, page, d, ptype, note):
             want = "^Linked Survey$" if linked else "^Single Survey$"
             if not page.evaluate(RADIO_ON_JS, want):
                 radio_click(page, want)
-                P.wait(3); wait_loader(page)
-        P.wait(2 if tri == 0 else 10)
-        ok_lt = bool(page.evaluate(RADIO_ON_JS, "^" + lt + "$"))
-        ok_st = not rows or bool(page.evaluate(RADIO_ON_JS, "^Linked Survey$" if linked else "^Single Survey$"))
-        ok_sep = not (rows and linked) or bool(page.evaluate(SURVEY_SEP_JS))
-        if ok_lt and ok_st and ok_sep:
+                P.wait(1); wait_loader(page)
+
+        def all_ok():
+            st["lt"] = bool(page.evaluate(RADIO_ON_JS, "^" + lt + "$"))
+            st["st"] = not rows or bool(page.evaluate(RADIO_ON_JS, "^Linked Survey$" if linked else "^Single Survey$"))
+            st["sep"] = not (rows and linked) or bool(page.evaluate(SURVEY_SEP_JS))
+            return st["lt"] and st["st"] and st["sep"]
+        st = {}
+        # look every 2 s and go on as soon as all three are right; 10 s is only the longest wait
+        done = until(P, all_ok, 10)
+        ok_lt, ok_st, ok_sep = st["lt"], st["st"], st["sep"]
+        if done:
             break
     if now_u and now_u[0] and unit_key(now_u[0]) and unit_key(now_u[0]) != unit_key(u):
         note(f"TNREGINET's unit is '{now_u[0]}'{' (locked)' if now_u[1] else ''} - our unit is {u or '-'}; every extent typed in {now_u[0]}")
@@ -3676,10 +3739,11 @@ def modt_plan(case, d, folder, P, comments):
     plan.append(("Reference", "re:original", deed, "Title deed (colour copy)" if docs.get("deed") else "Bank letter (no title deed)", "TITLE_DEED"))
     rest = [fetch(x, f"OTHER_{k}_{i + 1}") for k in ("ec", "revenue", "other") for i, x in enumerate(docs.get(k) or [])]
     rest = [x for x in rest if x]
+    rule = modt_rule(case, lists)[0]
     if not (docs.get("ec") or []):
-        comments.append("EC not in the case (optional for MODT) - the other documents were uploaded")
+        comments.append(f"EC not in the case ({'mandatory' if rule['ec'] == 'm' else 'optional'} for this bank's MODT) - the other documents were uploaded")
     if not (docs.get("revenue") or []):
-        comments.append("Patta not in the case (mandatory for MODT)")
+        comments.append(f"Patta not in the case ({'mandatory' if rule['revenue'] == 'm' else 'optional'} for this bank's MODT)")
     other = None
     if rest:
         try:
@@ -4427,7 +4491,7 @@ def main():
                     # jobs left half-way by an earlier run of this worker can never continue: close them
                     for row in kv_list("tp_jobs"):
                         st = (row["data"] or {}).get("status")
-                        if not row["id"].startswith("_") and st in ("starting", "captcha", "captcha_sent", "filling", "uploading", "cancel"):
+                        if not row["id"].startswith("_") and st in ("starting", "captcha", "captcha_new", "captcha_sent", "filling", "uploading", "cancel"):
                             kv_merge("tp_jobs", row["id"], {"status": "cancelled", "message": "Stopped (the TP computer restarted). Start again.", "at": now()})
                     PROBE["cleaned"] = True
                 if time.time() - last_beat > 30:
