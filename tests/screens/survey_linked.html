@@ -13,7 +13,8 @@
 <div><label>Old Survey No.</label><input type="text" id="old"><button onclick="var t=document.getElementById('ot');t.insertRow().innerHTML='<td>'+(t.rows.length-1)+'</td><td>'+old.value+'</td>';old.value=''">Add Old Survey Number</button><button>Reset</button></div>
 <table id="ot"><tr><th>Sr. No.</th><th>Old Survey No.</th></tr></table>
 <div><label>Pymash No.</label><input type="text" id="pym"><button id="addrow" onclick="addRow()">Add</button><button>Reset</button></div>
-<table id="lt"><tr><th>Sr. No.</th><th>Survey No./Sub Division No.</th><th>Street</th><th>Old Survey No.</th></tr></table>
+<table id="lt"><tr><th>Sr. No.</th><th>Survey No./Sub Division No.</th><th>Street</th><th>Old Survey No.</th></tr><tr id="copied"><td>1</td><td>Single Survey 20/2C1 2499.0 Sq.Ft</td><td></td><td><i class="fa fa-trash" onclick="askDel()">🗑</i></td></tr></table>
+<div class="modal" id="dm" style="display:none;position:fixed;top:40%;left:40%;background:#fff;border:1px solid #000;padding:10px;z-index:999">Are you sure to delete? <button onclick="dm.style.display='none';setTimeout(()=>{const r=document.getElementById('copied');if(r)r.remove()},3000)">OK</button></div>
 <label>Total Survey Extent(of Su ..</label><span>Square Feet</span><input type="text" id="tot">
 <label>Mortgaged Survey Extent<span>*</span></label><span>Square Feet</span><input type="text" id="mort">
 <label>Market Value of Mortgaged ..</label><input type="text" id="mv"><button id="addext" onclick="addExt()">Add</button><button>Reset</button>
@@ -21,7 +22,10 @@
 <div><label>Approved by</label><select id="appr"><option>- Select -</option><option>CMDA</option><option>DTCP</option><option>Local Body</option></select></div>
 <script>
 const SEP=location.hash==='#sep';
-function lay(){combined.style.display=SEP?'none':'';sep.style.display=SEP?'':'none'}lay();
+/* TNREGINET (#sep): separate Survey No. / Sub Division boxes come only once Rural and Linked Survey are both really clicked */
+function lay(){const on=SEP&&document.querySelectorAll('input[name=st]')[1].checked&&document.querySelectorAll('input[name=u]')[2].checked;combined.style.display=on?'none':'';sep.style.display=on?'':'none'}lay();
+document.querySelectorAll('input[name=u]').forEach(r=>r.addEventListener('click',lay));
+function askDel(){dm.style.display='block'}
 function subs(){sd.innerHTML='<option>- Select -</option>'+(sn.value==='20'?'<option>2B2</option><option>2C1A</option><option>2C2</option>':'<option>1</option>')}
 window.rowsAdded=[];
 function addRow(){const s=SEP?(sn.value+'/'+sd.value):svc.value;if(!s||/Select/.test(s)){return}

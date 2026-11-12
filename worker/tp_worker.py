@@ -3160,52 +3160,111 @@ def survey_extent(P, job, page, d, i, s, sd, src, ptype, u, cu, note, linked=Fal
         raise Stop(f"Survey screen did not match ({why}). Screenshots and a question are on the case; the draft is saved - answer the robot question, then start again.")
 
 
+# 12 Nov 2026: copied survey rows (to check a delete really happened), radio really on, and a real (trusted) radio click
+SURVEY_ROWS_JS = "(head)=>{" + VIS_JS + r"""const hr=new RegExp(head,'i');return [...document.querySelectorAll('table')].filter(x=>vis(x)&&x.rows.length>1&&hr.test(x.rows[0].innerText))
+  .flatMap(x=>[...x.rows].slice(1).map(r=>r.innerText.replace(/\s+/g,' ').trim()).filter(Boolean))}"""
+
+RADIO_ON_JS = "(pat)=>{" + VIS_JS + r"""const re=new RegExp(pat,'i');const r=[...document.querySelectorAll('input[type=radio]')].find(e=>(vis(e)||vis(e.parentElement))&&re.test(labelOf(e)));return !!(r&&r.checked)}"""
+
+RADIO_IDX_JS = "(pat)=>{" + VIS_JS + r"""const re=new RegExp(pat,'i');return [...document.querySelectorAll('input[type=radio]')].findIndex(e=>(vis(e)||vis(e.parentElement))&&re.test(labelOf(e)))}"""
+
+
+def radio_click(page, pat):
+    """Click a radio like a person does (TNREGINET loads the next boxes on that click); the old JS click when that fails."""
+    i = page.evaluate(RADIO_IDX_JS, pat)
+    if i is None or i < 0:
+        return False
+    try:
+        page.locator("input[type=radio]").nth(i).click(force=True, timeout=5000)
+    except Exception:
+        page.evaluate(RADIO_JS, pat)
+    if not page.evaluate(RADIO_ON_JS, pat):
+        page.evaluate(RADIO_JS, pat)
+    return True
+
+
 def survey_tab(P, job, page, d, ptype, note):
-    for _ in range(6):  # old survey / old survey number rows copied from the linked deed: delete, then add as per the current patta
-        gone = page.evaluate(DEL_TABLE_ROW_JS, "Mortgaged Survey Extent|Survey No")
-        if not gone:
+    # 12 Nov 2026 (Rajeswari, the office's order): (1) delete each survey row copied from the linked deed - OK on the pop-up,
+    # wait 10 s (TNREGINET is slow), check the row is really gone; up to 4 tries a row, else stop and ask.
+    for _ in range(6):
+        rows_now = page.evaluate(SURVEY_ROWS_JS, "Mortgaged Survey Extent|Survey No") or []
+        if not rows_now:
             break
-        P.wait(1.5); P.popup_ok(); wait_loader(page); P.wait(1.5)
-        note(f"old survey row from the linked deed deleted ({gone[:70]})")
+        first = rows_now[0]
+        for tri in range(4):
+            page.evaluate(DEL_TABLE_ROW_JS, "Mortgaged Survey Extent|Survey No")
+            P.wait(1.5); P.popup_ok(); wait_loader(page); P.wait(10); P.popup_ok()
+            after = page.evaluate(SURVEY_ROWS_JS, "Mortgaged Survey Extent|Survey No") or []
+            if first not in after or len(after) < len(rows_now):
+                note(f"old survey row from the linked deed deleted ({first[:70]})" + (f" - on try {tri + 1}" if tri else ""))
+                break
+        else:
+            shot = survey_shot(page, job, 0, "nodelete")
+            survey_question(job, f"Survey screen: the old survey row copied from the title deed ({first[:90]}) did not go after 4 delete tries (10 seconds each). Please delete it by hand in My Documents, or tell me what TNREGINET shows.", shot,
+                            options=["I deleted it by hand - start again", "Something else - I will check"])
+            raise Stop(f"The old survey row ({first[:70]}) could not be deleted after 4 tries. A robot question with the screenshot is on the case; the draft is saved.")
     cu = u = case_unit(d)
-    r = label_select(page, r"Unit of Measurement", unit_re(u)) if u else "skip"
-    P.wait(1)
-    now_u = page.evaluate(UNIT_NOW_JS) or None
+    lt = g(d, "Land type") or ("Rural" if "Agri" in ptype else "")
+    if not lt:
+        lt = "Natham"
+        note("Urban/Natham/Rural empty in Drafting - Natham used; check")
+    rows = survey_rows(d)
+    linked = len(rows) > 1
+    pre = page.evaluate(TABLE_TEXT_JS, "Survey No|Extent")
+    # (2) after the delete, before any survey number: Unit right, Urban/Natham/Rural really selected, Linked / Single really
+    # on (Linked = separate 'Survey No.' and 'Sub Divison No.' boxes). Anything changed is selected again with a real click.
+    for tri in range(3):
+        r = label_select(page, r"Unit of Measurement", unit_re(u)) if u else "skip"
+        P.wait(1)
+        now_u = page.evaluate(UNIT_NOW_JS) or None
+        if not page.evaluate(RADIO_ON_JS, "^" + lt + "$"):
+            if not radio_click(page, "^" + lt + "$"):
+                note(f"'{lt}' button not found")
+            P.wait(3); wait_loader(page)
+        if lt.lower() == "urban":
+            for k in ("Ward", "Block"):
+                v = g(d, k)
+                if v:
+                    rr = page.evaluate(SELECT_AFTER_JS, [f"^{k}\\b", f"^0*{re.escape(v)}\\b|\\b{re.escape(v)}$"])
+                    if not str(rr).startswith("ok") and tri == 2:
+                        note(f"{k} {v} not set ({str(rr)[:80]})")
+                    P.wait(2)
+        if rows:
+            want = "^Linked Survey$" if linked else "^Single Survey$"
+            if not page.evaluate(RADIO_ON_JS, want):
+                radio_click(page, want)
+                P.wait(3); wait_loader(page)
+        P.wait(2 if tri == 0 else 10)
+        ok_lt = bool(page.evaluate(RADIO_ON_JS, "^" + lt + "$"))
+        ok_st = not rows or bool(page.evaluate(RADIO_ON_JS, "^Linked Survey$" if linked else "^Single Survey$"))
+        ok_sep = not (rows and linked) or bool(page.evaluate(SURVEY_SEP_JS))
+        if ok_lt and ok_st and ok_sep:
+            break
     if now_u and now_u[0] and unit_key(now_u[0]) and unit_key(now_u[0]) != unit_key(u):
         note(f"TNREGINET's unit is '{now_u[0]}'{' (locked)' if now_u[1] else ''} - our unit is {u or '-'}; every extent typed in {now_u[0]}")
         u = UNIT_LABEL.get(unit_key(now_u[0]), now_u[0])
     elif u and not str(r).startswith("ok"):
         note(f"unit '{u}' not set ({str(r)[:60]})")
-    P.wait(1.5)
-    pre = page.evaluate(TABLE_TEXT_JS, "Survey No|Extent")
-    lt = g(d, "Land type") or ("Rural" if "Agri" in ptype else "")
-    if not lt:
-        lt = "Natham"
-        note("Urban/Natham/Rural empty in Drafting - Natham used; check")
-    if not page.evaluate(RADIO_JS, "^" + lt + "$"):
-        note(f"'{lt}' button not found")
-    P.wait(2.5); wait_loader(page)
-    chosen = page.evaluate("""(want)=>{const r=[...document.querySelectorAll('input[type=radio]')].filter(e=>e.getClientRects().length&&e.checked);
-      const lab=e=>((e.labels&&e.labels[0]&&e.labels[0].innerText)||(e.nextSibling&&e.nextSibling.textContent)||(e.parentElement&&e.parentElement.innerText)||e.value||'').trim();
-      return r.map(lab).find(t=>/^(urban|natham|rural)$/i.test(t))||''}""", lt)
-    if chosen.lower() != lt.lower():
-        page.evaluate(RADIO_JS, "^" + lt + "$"); P.wait(2.5); wait_loader(page)
-        note(f"Urban/Natham/Rural: TNREGINET showed '{chosen or 'none'}', set to {lt} from Drafting")
-    if lt.lower() == "urban":
-        for k in ("Ward", "Block"):
-            v = g(d, k)
-            if v:
-                r = page.evaluate(SELECT_AFTER_JS, [f"^{k}\\b", f"^0*{re.escape(v)}\\b|\\b{re.escape(v)}$"])
-                if not str(r).startswith("ok"):
-                    note(f"{k} {v} not set ({str(r)[:80]})")
-                P.wait(2)
-    rows = survey_rows(d)
     if not rows:
         note("no new survey number in Drafting - survey left for you")
         return
-    linked = len(rows) > 1
-    page.evaluate(RADIO_JS, "^Linked Survey$" if linked else "^Single Survey$")
-    P.wait(2.5); wait_loader(page)
+    if not (ok_lt and ok_st):
+        shot = survey_shot(page, job, 0, "radios")
+        why = f"'{lt}' is not selected" if not ok_lt else f"'{'Linked' if linked else 'Single'} Survey' is not selected"
+        survey_question(job, f"Survey screen: {why} even after 3 tries. What does TNREGINET show? (screenshot)", shot, options=["Fixed by hand - start again", "Something else - I will check"])
+        raise Stop(f"Survey screen: {why} after 3 tries. A robot question with the screenshot is on the case; the draft is saved.")
+    if not ok_sep:
+        # Linked Survey on, but one joined 'Survey No./Sub Division' box: go on only when every row is in that list exactly
+        jl = [o for o in (page.evaluate(OPTIONS_LAB_JS, "^Survey No\\.?\\s*/\\s*Sub Divi?si?on") or []) if re.search(r"\d", o)]
+        if not jl or not all(any(sv_norm(o) == sv_norm(f"{a}/{b}" if b else a) for o in jl) for a, b, _, _ in rows):
+            dg = survey_diag(page, job)
+            log("survey diag", json.dumps(dg)[:1500])
+            shot = survey_shot(page, job, 0, "nosep")
+            survey_question(job, "Survey screen: Linked Survey is selected, but TNREGINET shows one joined 'Survey No./Sub Division' box, not separate 'Survey No.' and 'Sub Divison No.' boxes"
+                            + (f" (its list: {', '.join(jl[:10])})" if jl else " (and its list is empty)") + ". What should be done here? (screenshot)", shot,
+                            options=["Fixed by hand - start again", "Something else - I will check"])
+            raise Stop("Survey screen: Linked Survey did not show separate Survey No. / Sub Division boxes after 3 tries. A robot question with the screenshot is on the case; the draft is saved.")
+        note("Linked Survey shows one joined Survey No./Sub Division list - every row was in it, so it was used")
     for i, (s, sd, olds, ext) in enumerate(rows):
         job.step(f"7 · Survey row {i + 1}/{len(rows)}: {s} + {sd or '-'}", page)
         pick_survey(P, job, page, d, i, s, sd)

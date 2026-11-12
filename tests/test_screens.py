@@ -40,6 +40,9 @@ with sync_playwright() as pw:
         check(f"{layout}: one common extent after the rows", p.evaluate("()=>window.extAdded"), "2499")
         check(f"{layout}: Linked Survey chosen", p.evaluate("()=>document.querySelectorAll('input[name=st]')[1].checked"), True)
         check(f"{layout}: CMDA list never touched", p.evaluate("()=>appr.selectedIndex"), 0)
+        check(f"{layout}: copied row deleted (slow OK pop-up) before the survey rows", p.evaluate("()=>!document.getElementById('copied')"), True)
+        if layout == "sep":
+            check("sep: separate boxes used after Rural + Linked", p.evaluate("()=>sep.style.display"), "")
         p.close()
     # single survey still works: survey + sub-division, extent and Add
     p = b.new_page(); p.goto(URL + "#sep"); P = W.Portal(p, job)
@@ -50,6 +53,15 @@ with sync_playwright() as pw:
         err = str(e)
     check("single: Single Survey chosen", p.evaluate("()=>document.querySelectorAll('input[name=st]')[0].checked"), True)
     check("single: extent added", p.evaluate("()=>window.extAdded"), "555")
+    p.close()
+    # row that never deletes: 4 tries, then stop and ask
+    p = b.new_page(); p.goto(URL + "#sep"); P = W.Portal(p, job); asked.clear()
+    p.evaluate("()=>{window.askDel=()=>{}}")
+    try:
+        W.survey_tab(P, job, p, dict(D88), "Plot", lambda x: None); err = ""
+    except W.Stop as e:
+        err = str(e)
+    check("undeletable row stops with a question", ("could not be deleted" in err, bool(asked)), (True, True))
     p.close()
     # wrong sub-division: a clear stop + question, never a guess
     p = b.new_page(); p.goto(URL + "#sep"); P = W.Portal(p, job); asked.clear()
