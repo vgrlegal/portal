@@ -740,6 +740,10 @@ function triRemarks(en,ta){en=String(en||"");ta=String(ta||"");
 const lodFit=h=>String(h||"").replace(/<(?!\/?(table|tr|td|th|br)\b)[^>]*>/gi,"").replace(/<table[^>]*>/i,'<table border="1" cellpadding="3" style="border-collapse:collapse;width:100%;min-width:0;max-width:100%;table-layout:auto;font-size:12.5px;color:#111;background:#fff">').replace(/<td([^>]*)>/gi,(m,a)=>`<td${a.replace(/style="[^"]*"/,"")} style="border:1px solid #000;padding:3px 5px;vertical-align:top;word-break:break-word">`);
 const legalParas=t=>String(t||"").trim().split(/\n\s*\n/).map(x=>x.replace(/^\s*(?:[-–•]|\d+[.)])\s*/,"").replace(/\s+/g," ").trim()).filter(Boolean);
 const caseUnit=d=>(d.Unit||"").trim()||UNIT_LABEL[unitKey(d.Extent)]||"";
+/* 12 Nov 2026: MODT Extent box holds only the number (2499); the unit is Drafting's Unit, shown faintly beside it */
+const EXT_NUM=/^\s*\d+(?:\.\d+)?\s*$/;
+function extFull(d){const e=String(d.Extent||"").trim(),u=caseUnit(d);return e&&EXT_NUM.test(e)&&u?e+" "+u:e}
+function extNum(d){const e=String(d.Extent||"").trim();if(!e||EXT_NUM.test(e))return d;const u=caseUnit(d);if(!u)return d;const v=areaIn(e,u);if(!v)return d;if(!String(d.Unit||"").trim())d.Unit=u;d.Extent=v;return d}
 function modtFill(c,d){const set=(k,v)=>{if(v!=null&&String(v).trim()!==""&&!String(d[k]||"").trim())d[k]=String(v)};
   /* the customer (borrower) need not be the title holder: title holder names come only from the title deed / Aadhaar;
      title holder 1's phone is the phone given in the case */
@@ -1567,13 +1571,18 @@ function openReview(c,gen){
     ids.forEach(e=>e.addEventListener("input",tri));tri()}
   /* extents: every extent in the one unit of the case; show what the robot will type and the patta's own figure */
   if(!dor&&$("rv_Extent")){const U=$("rv_Unit"),fl=[["rv_Extent","Mortgaged extent"],["rv_Total_survey_extent","Total survey extent"]];
+    {const ex=$("rv_Extent"),toNum=()=>{const v=extNum({Extent:ex.value,Unit:U?U.value:""});if(v.Extent!==ex.value){ex.value=v.Extent;if(U&&!U.value&&v.Unit){U.value=v.Unit;U.dispatchEvent(new Event("change"))}}};toNum();
+      const w=document.createElement("span");w.className="extwrap";w.style.cssText="position:relative;display:block";ex.parentNode.insertBefore(w,ex);w.appendChild(ex);ex.style.paddingRight="80px";
+      const sf=document.createElement("span");sf.id="extUnit";sf.style.cssText="position:absolute;right:12px;top:50%;transform:translateY(-50%);opacity:.65;pointer-events:none;user-select:none;-webkit-user-select:none;font-size:13px;color:inherit";w.appendChild(sf);
+      const upd=()=>{sf.textContent=(U&&U.value)||caseUnit({Extent:ex.value})||""};if(U)U.addEventListener("change",upd);ex.addEventListener("change",()=>{toNum();upd()});upd()}
     const show=()=>{const dd={Unit:U?U.value:"",Extent:$("rv_Extent").value},u=caseUnit(dd);
-      fl.forEach(([id])=>{const e=$(id);if(!e)return;let m=e.parentElement.querySelector(".unitnote");if(!m){m=document.createElement("span");m.className="sub unitnote";e.after(m)}
+      fl.forEach(([id])=>{const e=$(id);if(!e)return;const host=e.closest(".extwrap")||e;let m=host.parentElement.querySelector(".unitnote");if(!m){m=document.createElement("span");m.className="sub unitnote";host.after(m)}
+        if(id==="rv_Extent"&&EXT_NUM.test(e.value)&&u){m.style.color="";m.textContent="";return}
         const t=e.value.trim(),v=t&&u?areaIn(t,u):"",orig=id==="rv_Total_survey_extent"&&(c.draft||{})["Total survey extent (patta)"];
         m.style.color=t&&!v&&u&&/[a-z\u0B80-\u0BFF-]/i.test(t)?"#b42318":"";
         m.textContent=!t?"":!u?"⚠ Choose the Unit above - every extent is typed in that one unit":v?`→ robot types ${v} ${u}${unitKey(t)!==unitKey(u)?` (converted from ${t})`:""}${orig?` · patta shows ${orig}${/^\D*\d+\s*[-–]/.test(orig)?" (hectare - ares)":""}`:""}`:`→ no unit written: robot types ${t.match(/[\d.]+/)?.[0]||t} as ${u}`});
       if(U&&!U.value&&u)U.title="Unit taken from the mortgaged extent: "+u;
-      const te=$("rv_Total_survey_extent"),a=areaSqm($("rv_Extent").value),b=te?areaSqm(te.value):null,m=$("rv_Extent").parentElement.querySelector(".unitnote");
+      const te=$("rv_Total_survey_extent"),a=areaSqm(extFull({Extent:$("rv_Extent").value,Unit:U?U.value:""})),b=te?areaSqm(te.value):null,m=($("rv_Extent").closest(".extwrap")||$("rv_Extent")).parentElement.querySelector(".unitnote");
       if(m&&a&&b&&a>b*1.002){m.style.color="#b42318";m.textContent+=` ⚠ MORE than the patta total (${areaIn(te.value,u)} ${u}) — check the MODT and patta; the robot will not start`}};
     [U,$("rv_Extent"),$("rv_Total_survey_extent")].forEach(e=>e&&e.addEventListener(e.tagName==="SELECT"?"change":"input",show));show()}
   wireRobotQs(c);
@@ -1829,7 +1838,7 @@ function modtDoneCheck(c,d){const P=[],v=k=>String(d[k]??"").trim(),n=Math.max(1
   if(!v("Property type"))P.push("Property type");if(!v("Village"))P.push("Village");if(!v("New survey no"))P.push("New survey number");
   const u=caseUnit(d);if(!u)P.push("Unit");if(!v("Extent"))P.push("Mortgaged extent");else if(u&&!areaIn(v("Extent"),u)&&/[a-z]/i.test(v("Extent")))P.push("Mortgaged extent: unit not clear");
   if(/agri/i.test(v("Property type"))&&!v("Land classification"))P.push("Land classification (Punjai / Nanjai … from the patta) - TNREGINET's Land Type");
-  if(/agri/i.test(v("Property type"))){if(!v("Total survey extent"))P.push("Total survey extent (agricultural land: from the patta)");else{const a=areaSqm(v("Extent")),b=areaSqm(v("Total survey extent"));if(a&&b&&a>b*1.002)P.push(`Mortgaged extent ${v("Extent")} is MORE than the patta total ${areaIn(v("Total survey extent"),u)} ${u}`)}}
+  if(/agri/i.test(v("Property type"))){if(!v("Total survey extent"))P.push("Total survey extent (agricultural land: from the patta)");else{const a=areaSqm(extFull(d)),b=areaSqm(v("Total survey extent"));if(a&&b&&a>b*1.002)P.push(`Mortgaged extent ${v("Extent")} is MORE than the patta total ${areaIn(v("Total survey extent"),u)} ${u}`)}}
   if(!v("Property remarks"))P.push("Property remarks (English) - press ✎ Build remarks");
   if(v("Street name")&&!v("Street name Tamil"))P.push("Street name Tamil (the street goes into the Tamil remarks)");
   if(!v("Loan amount"))P.push("Loan amount");
@@ -2024,7 +2033,7 @@ const PART_REASON=sv=>`Survey number is "${sv}" (Part). TNREGINET will not make 
 const BUSY_ST={starting:"starting",captcha:"waiting for the captcha",captcha_sent:"signing in",filling:"filling",uploading:"uploading",translate:"waiting for English names"};
 function busyText(b){b=(b||[])[0];if(!b)return"";const c=cases.find(x=>x.id===b.case),nm=c?c.applicant:b.case||"";return`TP Computer Busy · ${nm}${b.kind==="dor_upload"?" (upload)":""} · ${BUSY_ST[b.status]||b.status||""}`}
 const MODT_POOL="MODT · all companies";const isPool=l=>l.client===MODT_POOL;
-async function tnLogins(){let r=await window.__sb.from("tn_logins").select("id,client,username,created_by").order("client");if(r.error)r=await window.__sb.from("tn_logins").select("id,client,username").order("client");if(r.error)throw r.error;return r.data||[]}
+async function tnLogins(){let r=await window.__sb.from("tn_logins").select("id,client,username,created_by,created_at").order("client");if(r.error)r=await window.__sb.from("tn_logins").select("id,client,username,created_at").order("client");if(r.error)r=await window.__sb.from("tn_logins").select("id,client,username").order("client");if(r.error)throw r.error;return r.data||[]}
 /* ---- Recording mode: the person does one TNREGINET entry by hand on the TP computer; every page is saved for building the robot ---- */
 const REC={unsub:null};
 async function recRender(l){const box=$("recBox");if(!box)return;if(!isMD){box.innerHTML="";return}
@@ -2072,16 +2081,21 @@ async function tnRender(ro){const box=$("tnList");if(!box)return;$("tnImp").hidd
   $("tn_client").innerHTML=(pt?"":`<option>${esc(MODT_POOL)}</option>`)+cfg.banks.map(b=>`<option>${esc(b)}</option>`).join("");
   if(!isMD&&!pt){box.innerHTML=`<p class="sf-note">Only the Admin can see these.</p>`;$("tnListM").innerHTML="";return}
   let l=[];try{l=await tnLogins()}catch(e){box.innerHTML=`<p class="banner">Login IDs could not load: ${esc(e.message)}</p>`;return}
-  recRender(l);const pool=l.filter(isPool),all=l.filter(x=>!isPool(x)),tq=()=>($("tnQ").value||"").trim().toLowerCase();
+  recRender(l);const byNew=(a,b)=>String(b.created_at||"").localeCompare(String(a.created_at||""));
+  const pool=l.filter(isPool).sort(byNew),all=l.filter(x=>!isPool(x)).sort(byNew),tq=()=>($("tnQ").value||"").trim().toLowerCase(),dup=tnDups(l);
   const mine=x=>isMD||(x.created_by&&x.created_by===String(SELF_EMAIL||"").toLowerCase());
-  const row=x=>`<div class="mrow"><b>${esc(x.username)}</b><span>${ro||!mine(x)?"":`<button class="btn" type="button" data-tne="${x.id}">Edit</button> <button class="btn danger" type="button" data-tnx="${x.id}">Delete</button>`}</span><div class="mf">${esc(x.client)} · password saved</div></div>`;
+  const row=x=>`<div class="mrow"><b>${esc(x.username)}</b><span>${ro||!mine(x)?"":`<button class="btn" type="button" data-tne="${x.id}">Edit</button> <button class="btn danger" type="button" data-tnx="${x.id}">Delete</button>`}</span><div class="mf">${esc(x.client)} · password saved${x.created_at?" · added "+esc(tnWhen(x.created_at)):""}${dup[x.id]?` · <b style="color:#b42318">Duplicate${dup[x.id]==="old"?" (older - delete this one)":" (newer)"}</b>`:""}</div></div>`;
   const paint=()=>{const q=tq(),l=q?all.filter(x=>(x.client+" "+x.username).toLowerCase().includes(q)):[];
   $("tnListM").innerHTML=pt?`<p class="sf-note">MODT login IDs are managed by the Admin.</p>`:pool.length?pool.map(row).join(""):`<p class="sf-note">No MODT login IDs yet. Add one below with “${esc(MODT_POOL)}”.</p>`;
   box.innerHTML=!q?`<p class="sf-note">${all.length} Receipt login IDs for ${new Set(all.map(x=>x.client)).size} companies. Type a company name above to see and remove them.</p>`:l.length?l.map(row).join(""):`<p class="sf-note">No login IDs for “${esc(q)}”.</p>`;
-  [...box.querySelectorAll("[data-tne]"),...$("tnListM").querySelectorAll("[data-tne]")].forEach(b=>b.onclick=()=>tnEdit(l.find(x=>x.id===b.dataset.tne),pt,ro));
+  [...box.querySelectorAll("[data-tne]"),...$("tnListM").querySelectorAll("[data-tne]")].forEach(b=>b.onclick=()=>tnEdit([...pool,...all].find(x=>x.id===b.dataset.tne),pt,ro));
   [...box.querySelectorAll("[data-tnx]"),...$("tnListM").querySelectorAll("[data-tnx]")].forEach(b=>b.onclick=()=>ask("Delete this login ID?",`<p class="sf-note">The TP computer will stop using it.</p>`,async()=>{const{error}=await window.__sb.from("tn_logins").delete().eq("id",b.dataset.tnx);if(error)toast(error.message);else{toast("Removed");tnRender(ro)}},"Remove"))};paint();$("tnQ").oninput=paint;
   $("tnAdd").onsubmit=async e=>{e.preventDefault();const client=fv("tn_client"),username=fv("tn_user"),password=$("tn_pass").value;if(!client||!username||!password){toast("Fill company, login ID and password");return}
     const{error}=await window.__sb.from("tn_logins").insert({client,username,password});if(error){toast(error.message);return}$("tn_user").value="";$("tn_pass").value="";toast("Login ID saved");tnRender(ro)}}
+/* 12 Nov 2026: the same login ID saved twice (same company list, same ID) is marked Duplicate - the older one to delete */
+function tnDups(l){const g={},out={};(l||[]).forEach(x=>{const k=(isPool(x)?"pool":"r:"+String(x.client||"").toLowerCase())+"|"+String(x.username||"").trim().toLowerCase();(g[k]=g[k]||[]).push(x)});
+  Object.values(g).forEach(a=>{if(a.length<2)return;a.sort((p,q)=>String(q.created_at||"").localeCompare(String(p.created_at||"")));a.forEach((x,i)=>out[x.id]=i?"old":"new")});return out}
+function tnWhen(t){const d=new Date(t);return isNaN(d)?"":d.toLocaleString("en-IN",{day:"numeric",month:"short",year:"numeric",hour:"numeric",minute:"2-digit",hour12:true,timeZone:"Asia/Kolkata"})}
 /* 12 Nov 2026: Edit a TNREGINET login ID (wrong company, login ID or password). The password stays write-only: it is never
    shown; leave it empty to keep the saved one (Admin). A partner login cannot change a saved row, so its edit saves a new row
    with the new password and deletes the old one. */
@@ -3168,12 +3182,12 @@ async function docBinText(file){const b=new Uint8Array(await file.arrayBuffer())
   return (score(u16)>=score(u8)*0.6?u16:u8).replace(/\x07\x07/g,"\n").replace(/\x07/g," | ").replace(/\r/g,"\n").replace(/\t/g," ").replace(/\n{3,}/g,"\n\n").trim()}
 /* 12 Nov 2026 (Rajeswari 0088): Claude wrote "20 / 2B2 with linked 20/2C1A" as the New survey no. New survey no = the
    number only; the sub-division to Subdivision; extra numbers belong to Linked survey numbers (kept if already there). */
-function surveyClean(d){const raw=String(d["New survey no"]||"").trim();if(!raw||/^\d+[A-Za-z]?$/.test(raw))return d;
-  const m=/^(\d+[A-Za-z]?)\s*(?:\/\s*([0-9A-Za-z]+(?:\/[0-9A-Za-z]+)*))?/.exec(raw);if(!m)return d;
+function surveyClean(d){const raw=String(d["New survey no"]||"").trim();if(!raw||/^\d+[A-Za-z]?$/.test(raw))return svFix(extNum(d));
+  const m=/^(\d+[A-Za-z]?)\s*(?:\/\s*([0-9A-Za-z]+(?:\/[0-9A-Za-z]+)*))?/.exec(raw);if(!m)return svFix(extNum(d));
   d["New survey no"]=m[1];if(m[2]&&!String(d.Subdivision||"").trim())d.Subdivision=m[2];
   const extra=(raw.slice(m[0].length).match(/\d+[A-Za-z]?\s*\/\s*[0-9A-Za-z]+(?:\/[0-9A-Za-z]+)*/g)||[]).map(x=>x.replace(/\s+/g,""));
   const have=String(d["Linked survey numbers"]||"");const add=extra.filter(x=>!have.replace(/\s+/g,"").includes(x));if(add.length)d["Linked survey numbers"]=[have,...add].filter(Boolean).join(", ");
-  return svFix(d)}
+  return svFix(extNum(d))}
 /* 12 Nov 2026 (Rajeswari 0088): survey rows. Each new survey number is its own row - Survey No. and Sub Division kept
    apart (20 + 2B2, then 20 + 2C1A) with that row's old survey number(s). The robot selects each row on TNREGINET's
    Linked Survey screen and presses Add; the extent is typed once at the end. "Survey rows" (JSON) is the master; the old
@@ -3273,7 +3287,7 @@ async function readModtCase(c,force){window.__readRef=c.id+" · MODT case read";
     if(lodHtml)for(let i=dq.length-1;i>=0;i--)if(dq[i].field==="List of documents deposited")dq.splice(i,1);/* the Word table is pasted as it is - no question */
     const ch={draft:d,draftText:draft.slice(0,20000),...(legal.trim()?{legalText:legal.slice(0,20000)}:{}),tpAuto:{...(c.tpAuto||{}),...Object.fromEntries(Object.entries(F).map(([k,v])=>[k,String(v??"")]))},tpNotes:doubts};if(lodHtml){ch.lodHtml=lodHtml;ch.lodFrom=null;ch.lodWord=null}
     if(dq.length)ch.robotQs=await doubtQs(c,dq,"draft","MODT documents");
-    {const u=caseUnit(d),a=areaSqm(d.Extent),b=areaSqm(d["Total survey extent"]);if(a&&b&&a>b*1.002&&/agri/i.test(d["Property type"]||""))ch.robotQs=[...(ch.robotQs||c.robotQs||[]),{id:crypto.randomUUID(),q:`Mortgaged extent (MODT) ${d.Extent} is MORE than the patta total ${areaIn(d["Total survey extent"],u)} ${u}. Which is right?`,options:[`MODT is right: ${d.Extent}`,"Patta is right - I will correct the MODT extent"],hint:"The mortgaged extent cannot be more than the whole survey extent in the patta",src:"Extent check",at:nowISO()}]}
+    {const u=caseUnit(d),a=areaSqm(extFull(d)),b=areaSqm(d["Total survey extent"]);if(a&&b&&a>b*1.002&&/agri/i.test(d["Property type"]||""))ch.robotQs=[...(ch.robotQs||c.robotQs||[]),{id:crypto.randomUUID(),q:`Mortgaged extent (MODT) ${d.Extent} is MORE than the patta total ${areaIn(d["Total survey extent"],u)} ${u}. Which is right?`,options:[`MODT is right: ${d.Extent}`,"Patta is right - I will correct the MODT extent"],hint:"The mortgaged extent cannot be more than the whole survey extent in the patta",src:"Extent check",at:nowISO()}]}
     {const miss=["North","South","East","West"].filter(x=>String(d["Boundary "+x]??"")===""||String(d[`Boundary ${x} Tamil`]??"")==="");if(miss.length)ch.robotQs=[...(ch.robotQs||c.robotQs||[]),...miss.map(x=>({id:crypto.randomUUID(),q:`Boundary ${x} is not in the MODT draft or the title deed reading. Type it (English) from the title deed.`,options:[],field:"Boundary "+x,hint:"All four boundaries are needed in English and Tamil",src:"Boundary check",at:nowISO()}))]}
     if(/urban|rural|natham/i.test(doubts)&&!(ch.robotQs||c.robotQs||[]).some(q=>q.field==="Land type"&&!q.answer))ch.robotQs=[...(ch.robotQs||c.robotQs||[]),{id:crypto.randomUUID(),q:"Is this property Urban, Rural or Natham?",options:["Urban","Rural","Natham"],field:"Land type",hint:doubts.slice(0,300)}];
     await patch(c,ch,`MODT documents read by Claude (${n} fields filled)`);

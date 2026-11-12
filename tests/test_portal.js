@@ -12,11 +12,12 @@ src+=grab("const DOCS={","\nconst docsFor=")+"\n"+grab("const docsFor=","\n")+"\
 src="const flowOf=t=>/legal/i.test(t||'')?'legal':'modt';\n"+src;
 src+=grab("function modtUploads(","\n  return out}")+"\n  return out}\n";
 src+=grab("const DOC_NAME=","async function addDocs(")+"\n";
+src+=grab("const AREA_SQM=","function modtFill(")+"\n";
 src+=grab("function surveyClean(","\nasync function readModtCase(")+"\n";
 src+="const nowISO=()=>'2026-11-12T00:00:00Z',who=()=>'Test';\n"+grab("function settleQs(","\nfunction ")+"\n";
 src+=grab("async function doubtQs(","\n/* files are kept")+"\n";
 const MSTATES=(html.match(/MSTATES=\[[^\]]*\]/)||["MSTATES=[]"])[0];
-const T={};new Function("T",`const ${MSTATES};${src};T.parseSurvey=parseSurvey;T.partSurvey=partSurvey;T.modtCoAddr=modtCoAddr;T.lodBoxOf=lodBoxOf;T.dorDoneCheck=dorDoneCheck;T.custFromSubject=custFromSubject;T.NOT_DOR_RE=NOT_DOR_RE;T.dupPlan=dupPlan;T.missingReq=missingReq;T.modtUploads=modtUploads;T.surveyClean=surveyClean;T.settleQs=settleQs;T.doubtQs=doubtQs;T.svRowsOf=svRowsOf;T.svFix=svFix;T.legalSecurity=legalSecurity;T.secText=secText;T.deedProblems=deedProblems;T.applySecurity=applySecurity;T.legalBlock=legalBlock;T.lodParse=lodParse;T.lodSplit=lodSplit;T.lodRowsFromText=lodRowsFromText;T.lodBuild=lodBuild;T.lodSync=lodSync;T.lodTextOf=lodTextOf;T.docNames=docNames;T.remarksStreet=remarksStreet;`)(T);
+const T={};new Function("T",`const ${MSTATES};${src};T.parseSurvey=parseSurvey;T.partSurvey=partSurvey;T.modtCoAddr=modtCoAddr;T.lodBoxOf=lodBoxOf;T.dorDoneCheck=dorDoneCheck;T.custFromSubject=custFromSubject;T.NOT_DOR_RE=NOT_DOR_RE;T.dupPlan=dupPlan;T.missingReq=missingReq;T.modtUploads=modtUploads;T.surveyClean=surveyClean;T.settleQs=settleQs;T.doubtQs=doubtQs;T.svRowsOf=svRowsOf;T.svFix=svFix;T.legalSecurity=legalSecurity;T.secText=secText;T.deedProblems=deedProblems;T.applySecurity=applySecurity;T.legalBlock=legalBlock;T.lodParse=lodParse;T.lodSplit=lodSplit;T.lodRowsFromText=lodRowsFromText;T.lodBuild=lodBuild;T.lodSync=lodSync;T.lodTextOf=lodTextOf;T.docNames=docNames;T.remarksStreet=remarksStreet;T.extNum=extNum;T.extFull=extFull;`)(T);
 let fails=0;const check=(n,g,w)=>{if(JSON.stringify(g)!==JSON.stringify(w)){fails++;console.log("FAIL",n,"got",JSON.stringify(g),"want",JSON.stringify(w))}};
 for(const [text,exp] of JSON.parse(fs.readFileSync(path.join(__dirname,"survey_cases.json"),"utf8"))){const r=T.parseSurvey(text);for(const k in exp)check(`parseSurvey(${JSON.stringify(text.slice(0,40))}).${k}`,r[k],exp[k])}
 check("partSurvey part+new",T.partSurvey({type:"Deed of Receipt",tp:{"Survey number":"Old Sy.No.622/3 Part, New Survey No. 1025/12"}}),"");
@@ -133,4 +134,14 @@ check("survey rows widget: Edit, Delete, + Add survey row",/data-sv="e\$\{i\}">E
  const e={...d};T.remarksStreet(e);check("street not added twice",e["Property remarks"],d["Property remarks"]);
  check("Naicker spelling counts as the same street",T.remarksStreet({"Street name":"Kuppusamy Naicker St",Village:"Porur","Property remarks":d["Property remarks"]})["Property remarks"],d["Property remarks"]);
  const n={Village:"Porur","Property remarks":"Porur Village, x"};check("no street, no change",T.remarksStreet({...n})["Property remarks"],"Porur Village, x");}
+
+// 12 Nov 2026: Extent holds only the number; the unit is Drafting's Unit
+check("extent '2499 Sq.Ft.' -> 2499",T.extNum({Extent:"2499 Sq.Ft.",Unit:"Sq.ft"}).Extent,"2499");
+check("extent unit taken when Unit empty",(({Extent,Unit})=>[Extent,Unit])(T.extNum({Extent:"5.5 Cents"})),["5.5","Cent"]);
+check("extent number stays",T.extNum({Extent:"2499",Unit:"Sq.ft"}).Extent,"2499");
+check("extent unclear unit kept for the check",T.extNum({Extent:"2499 kuzhi",Unit:"Sq.ft"}).Extent,"2499 kuzhi");
+check("extFull adds the unit back for checks",T.extFull({Extent:"2499",Unit:"Sq.ft"}),"2499 Sq.ft");
+check("surveyClean stores the number",T.surveyClean({"New survey no":"20",Extent:"2499 Sq.Ft.",Unit:"Sq.ft"}).Extent,"2499");
+check("login IDs: Edit finds MODT logins too",/tnEdit\(\[\.\.\.pool,\.\.\.all\]\.find/.test(html),true);
+check("login IDs: added date, newest first, Duplicate mark",/created_at/.test(html)&&/function tnDups\(/.test(html)&&/Duplicate\$\{/.test(html),true);
 
