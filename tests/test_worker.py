@@ -43,5 +43,25 @@ check("presenter no rep -> mortgagor", ns["presenter_name"]({"Rep name": "", "Mo
 check("presenter chosen mortgagor", ns["presenter_name"]({"Rep name": "R", "Mortgagor": "A", "Presenter": "Mortgagor"}), "A")
 rw = src[src.index("def rep_witness_presenter("):src.index("def add_representative(")]
 check("rep step skipped when no rep", "if g(t, \"Rep name\")" in rw and "raise Stop" not in rw, True)
+
+# 12 Nov 2026 (Rajeswari 0088): survey rows, street close match, deeds only from the legal report's security list
+ns["json"] = json
+for start, end in (("PART_WORD = re.compile", "def linked_check("), ("def sv_norm(", "# land area"), ("def sec_nos(", "def modt_problems(")):
+    a = src.index(start)
+    exec(src[a:src.index(end, a + len(start))], ns)
+d88 = {"New survey no": "20", "Subdivision": "2B2", "Linked survey numbers": "20/2C1A", "Old survey numbers": "20/2, 20/2C1", "Extent": "2499 Sq.Ft."}
+check("survey_rows from old fields", ns["survey_rows"](d88), [("20", "2B2", ["20/2"], ""), ("20", "2C1A", ["20/2C1"], "")])
+check("survey_rows from Drafting rows", ns["survey_rows"]({**d88, "Survey rows": json.dumps([{"s": "20", "sd": "2B2", "old": ""}, {"s": "20", "sd": "2C1A", "old": "20/2, 20/2C1"}])}),
+      [("20", "2B2", [], ""), ("20", "2C1A", ["20/2", "20/2C1"], "")])
+check("survey_rows single", ns["survey_rows"]({"New survey no": "73", "Subdivision": "10", "Old survey numbers": "73/2, 73/2A", "Extent": "555"}), [("73", "10", ["73/2", "73/2A"], "")])
+check("street Nayakkar = NAICKER", ns["street_pick"]("Kuppusamy Nayakkar Street", ["- Select -", "MAIN ROAD", "KUPPUSAMY NAICKER STREET", "KUPPAN STREET"]), "KUPPUSAMY NAICKER STREET")
+check("street Naickar spelling", ns["street_pick"]("Kuppusamy Naickar St", ["KUPPUSAMY NAYAKAR STREET"]), "KUPPUSAMY NAYAKAR STREET")
+check("street different name not picked", ns["street_pick"]("Kuppusamy Nayakkar Street", ["RAMASAMY NAICKER STREET", "MAIN ROAD"]), "")
+dd = {"Documents for security (legal report)": "5429/2022 Release Deed", "Deed 1 Doc No": "5429", "Deed 1 Year": "2022", "Deed 2 Doc No": "20504", "Deed 2 Year": "2025", "Deed 3 Doc No": "21195", "Deed 3 Year": "2026"}
+check("deed_problems flags the MODT and the Deed of Receipt", len(ns["deed_problems"](dd)), 2)
+check("deed_problems ok with only the title deed", ns["deed_problems"]({**dd, "Deed 2 Doc No": "", "Deed 3 Doc No": ""}), [])
+check("deed_problems top-up keeps the earlier MODT", ns["deed_problems"]({**dd, "Deed 3 Doc No": "", "Top-up loan": "Yes"}), [])
+check("deed_problems no legal report", ns["deed_problems"]({"Deed 1 Doc No": "1"}), [])
+check("survey select ignores CMDA list", "any(re.search(r\"\\d\", o) for o in opts)" in src and "selOk" in src, True)
 print("worker tests:", "OK" if not fails else f"{fails} FAILED")
 sys.exit(1 if fails else 0)

@@ -2058,6 +2058,31 @@ def modt_co_addr(d):
     return d
 
 
+def sec_nos(t):
+    return [(str(int(m.group(1))), m.group(2)) for m in re.finditer(r"\b0*(\d{1,6})\s*/\s*((?:19|20)\d\d)\b", str(t or ""))]
+
+
+def deed_problems(d):
+    """12 Nov 2026 (Rajeswari 0088): link only the deed(s) under 'Documents for security' in the legal report (the earlier
+    MODT too only for a top-up loan) - same rule as the portal's deedProblems."""
+    sec, out = sec_nos(g(d, "Documents for security (legal report)")), []
+    if not sec:
+        return out
+    top = g(d, "Top-up loan").lower().startswith("y")
+    linked = []
+    for n in (1, 2, 3):
+        no, yr = re.sub(r"\D", "", g(d, f"Deed {n} Doc No")), g(d, f"Deed {n} Year")
+        if not no:
+            continue
+        linked.append(str(int(no)))
+        if not top and not any(x == str(int(no)) and (not yr or y == yr) for x, y in sec):
+            out.append(f"Deed {n} ({int(no)}/{yr}) is not under 'Documents for security' in the legal report ({g(d, 'Documents for security (legal report)')}) - link only those deeds")
+    for x, y in sec:
+        if x not in linked:
+            out.append(f"Deed {x}/{y} from the legal report's 'Documents for security' is not in 1 · Linked documents")
+    return out
+
+
 def modt_problems(case):
     """MODT checks before login: all four boundaries (English and Tamil), and the MODT extent not more than the patta's total."""
     d, out = case.get("draft") or {}, []
@@ -2070,6 +2095,10 @@ def modt_problems(case):
             out.append(f"witness {n} Aadhaar is uploaded in the case ({(docs[f'w{n}_kyc'][0].get('name') or '')}) but not read - press 'Read customer's witness Aadhaar' in Drafting")
     if not (case.get("lodHtml") or g(d, "List of documents deposited")):
         out.append("List of documents deposited (LOD) is empty in Drafting - it is compulsory for every MODT (read the MODT draft again or type it)")
+    out += deed_problems(d)
+    for i, r in enumerate(survey_rows(d)):
+        if PART_WORD.search(r[1] or ""):
+            out.append(f"survey row {i + 1}: sub-division '{r[1]}' has 'Part' - put the new sub-division number from the patta")
     tot, ext = area_sqm(g(d, "Total survey extent")), area_sqm(g(d, "Extent"))
     ptype = ptype_of(d) or ""
     if "Agri" in ptype and tot and ext and ext > tot * 1.002:
@@ -2347,8 +2376,10 @@ def run_modt(page, job, case):
     for n in deeds:
         link_doc(P, job, page, g(d, f"Deed {n} SRO") or g(d, "Property SRO"), "1", g(d, f"Deed {n} Doc No"),
                  g(d, f"Deed {n} Year"), "Regular Document", f"title deed {n}")
-    linked_check(page, d, deeds, comments)
+    bad = linked_check(page, d, deeds, comments)
     job.step("1 · Linked documents checked", page)
+    if bad:
+        raise Stop("; ".join(bad) + ". Nothing was created on TNREGINET. Correct 1 · Linked documents in Drafting (only the title deed under 'Documents for security' in the legal report), then start again.")
     P.click("createDocProceed", 6)
     keep_draft(page, job, "start")
     # 2. Mortgagors (title holders)
@@ -2488,6 +2519,10 @@ const labelOf=e=>{let l=e.labels&&e.labels[0]?e.labels[0].innerText:'';if(!l&&e.
 const textEl=re=>{const els=[...document.querySelectorAll('label,span,div,p,b,strong,h1,h2,h3,h4,h5,h6,td,th,legend')].filter(e=>vis(e)&&re.test(own(e)||''));
   const w=e=>(own(e)||'').length+(/^T[HD]$/.test(e.tagName)?1000:0);els.sort((a,b)=>w(a)-w(b));return els[0]};
 const after=(el,sel)=>[...document.querySelectorAll(sel)].find(x=>vis(x)&&(el.compareDocumentPosition(x)&Node.DOCUMENT_POSITION_FOLLOWING));
+/* 12 Nov 2026 (Rajeswari 0088): TNREGINET hides some dropdowns behind a chosen / select2 box - the hidden <select> is
+   still the right one (before, the next plain dropdown, CMDA / DTCP / Local Body, was read as the survey list) */
+const selOk=x=>vis(x)||[x.nextElementSibling,x.parentElement].some(w=>!!w&&/chosen|select2|bootstrap-select|selectize|ss-main|choices/i.test(w.className||'')&&vis(w));
+const selAfter=t=>[...document.querySelectorAll('select')].find(x=>selOk(x)&&(t.compareDocumentPosition(x)&Node.DOCUMENT_POSITION_FOLLOWING));
 const fire=e=>['input','change','blur'].forEach(t=>e.dispatchEvent(new Event(t,{bubbles:true})));"""
 
 RADIO_JS = "(pat)=>{" + VIS_JS + r"""const re=new RegExp(pat,'i');
@@ -2504,13 +2539,13 @@ FILL_AFTER_JS = "([pat,v,tag])=>{" + VIS_JS + r"""const t=textEl(new RegExp(pat,
   e.focus();e.value=v;fire(e);return e.id||e.name||'ok'}"""
 
 SELECT_AFTER_JS = "([pat,op])=>{" + VIS_JS + r"""const t=textEl(new RegExp(pat,'i'));if(!t)return 'NOTEXT';
-  let s=after(t,'select');if(!s){s=[...document.querySelectorAll('select')].find(x=>t.compareDocumentPosition(x)&Node.DOCUMENT_POSITION_FOLLOWING&&vis(x.nextElementSibling||x.parentElement))}
+  let s=selAfter(t);if(!s){s=[...document.querySelectorAll('select')].find(x=>t.compareDocumentPosition(x)&Node.DOCUMENT_POSITION_FOLLOWING&&vis(x.nextElementSibling||x.parentElement))}
   if(!s)return 'NOSEL';const ro=new RegExp(op,'i');const o=[...s.options].find(o=>ro.test(o.text.trim()));
   if(!o)return 'NOOPT '+[...s.options].map(o=>o.text.trim()).slice(0,25).join('|');
   if(window.jQuery){jQuery(s).val(o.value).trigger('change').trigger('chosen:updated')}else{s.value=o.value;fire(s)}return 'ok '+o.text.trim()}"""
 
 OPTIONS_AFTER_JS = "(pat)=>{" + VIS_JS + r"""const t=textEl(new RegExp(pat,'i'));if(!t)return null;
-  let s=after(t,'select');if(!s)s=[...document.querySelectorAll('select')].find(x=>t.compareDocumentPosition(x)&Node.DOCUMENT_POSITION_FOLLOWING);
+  let s=selAfter(t);if(!s)s=[...document.querySelectorAll('select')].find(x=>t.compareDocumentPosition(x)&Node.DOCUMENT_POSITION_FOLLOWING);
   return s?[...s.options].map(o=>o.text.trim()):null}"""
 
 CLICK_AFTER_JS = "([pat,btn])=>{" + VIS_JS + r"""const t=textEl(new RegExp(pat,'i'));if(!t)return '';const re=new RegExp(btn,'i');
@@ -2585,6 +2620,7 @@ def strip_part(x):
 def linked_check(page, d, deeds, comments):
     """After linking: the linked-documents table must show each deed's number, year and SRO (and its nature)."""
     txt = page.evaluate("()=>[...document.querySelectorAll('table')].filter(t=>t.getClientRects().length).map(t=>t.innerText.replace(/\\s+/g,' ')).join(' || ')")
+    bad = []
     for n in deeds:
         no, yr, sro = num(g(d, f"Deed {n} Doc No")), g(d, f"Deed {n} Year"), g(d, f"Deed {n} SRO") or g(d, "Property SRO")
         rows = [r for r in re.split(r"\s\|\|\s|(?<=\d{4})\s(?=\d+\s)", txt) if re.search(rf"\b0*{no}\b", r)]
@@ -2598,6 +2634,9 @@ def linked_check(page, d, deeds, comments):
             comments.append(f"Linked deed {n}: SRO '{sro}' not in the table row - check")
         if not re.search(r"sale|gift|settle|partition|release|deed|conveyance|exchange|will|agreement|document", row, re.I):
             comments.append(f"Linked deed {n}: nature of document not shown - check")
+        if re.search(r"receipt", row, re.I):  # 12 Nov 2026 (Rajeswari 0088): a Deed of Receipt is never a title deed
+            bad.append(f"Deed {n} ({no}/{yr}) is a Deed of Receipt on TNREGINET ({row[:90]}) - it must not be linked")
+    return bad
 
 
 def clear_copied_holders(P, job, page, d, holders, comments):
@@ -2642,6 +2681,72 @@ def surveys_of(d):
         if s and (s, sd) not in [(a, b) for a, b, _ in out]:
             out.append((s.strip(), sd.strip(), ext))
     return out
+
+
+def sv_norm(x):
+    return re.sub(r"[^0-9a-z]", "", re.sub(r"(?<![0-9])0+(?=[0-9])", "", str(x or "").lower()))
+
+
+def survey_rows(d):
+    """12 Nov 2026 (Rajeswari 0088): [(survey, sub-division, [old numbers], extent)] - one row per new survey number, as saved in
+    Drafting's 'Survey rows' (same rules as the portal's svRowsOf). More than one row = TNREGINET's Linked Survey."""
+    try:
+        raw = json.loads(g(d, "Survey rows") or "[]")
+    except Exception:
+        raw = []
+    rows = []
+    for x in raw if isinstance(raw, list) else []:
+        if isinstance(x, dict) and str(x.get("s") or "").strip():
+            rows.append([str(x.get("s")).strip(), str(x.get("sd") or "").strip(),
+                         [o.strip() for o in re.split(r"[,;\n]+", str(x.get("old") or "")) if o.strip()], str(x.get("ext") or "").strip()])
+    if not rows:
+        rows = [[a, b, [], c] for a, b, c in surveys_of(d)]
+        if len(rows) and rows[0][3] == g(d, "Extent"):
+            rows[0][3] = ""
+        olds = [x.strip() for x in re.split(r"[,;\n]+", g(d, "Old survey numbers")) if x.strip()]
+        later = []
+        for o in olds:
+            n = sv_norm(strip_part(o))
+            hit = [i for i, r in enumerate(rows) if n and sv_norm(f"{r[0]}/{r[1]}").startswith(n)]
+            if len(hit) == 1:
+                rows[hit[0]][2].append(o)
+            else:
+                later.append((o, hit))
+        for o, hit in later:  # not clear which row: a matching row with no old number yet, else the first match, else row 1
+            free = next((i for i in hit if not rows[i][2]), None)
+            if rows:
+                rows[free if free is not None else (hit[0] if hit else 0)][2].append(o)
+    return [tuple(r) for r in rows]
+
+
+NAICKER_RE = re.compile(r"\bn[a]?[iy]{1,2}[a]?[ck]{1,2}[ae]?r\b")
+
+
+def street_key(x):
+    """'Kuppusamy Nayakkar Street' and 'KUPPUSAMY NAICKER ST' -> 'kuppusamy naicker' (spelling of Naicker may differ)."""
+    x = re.sub(r"[^a-z ]", " ", str(x or "").lower())
+    x = NAICKER_RE.sub("naicker", x)
+    x = re.sub(r"\b(street|st|road|rd|salai|lane|ln|cross|main|avenue|nagar|colony|extn|extension)\b", " ", x)
+    return re.sub(r"\s+", " ", x).strip()
+
+
+def street_pick(want, opts):
+    """The TNREGINET street closest to Drafting's street name ('' when none is close enough)."""
+    import difflib
+    k = street_key(want)
+    if not k:
+        return ""
+    best, score = "", 0.0
+    for o in opts or []:
+        ok = street_key(o)
+        if not ok or re.match(r"^\W*select\W*$", o, re.I):
+            continue
+        r = difflib.SequenceMatcher(None, k, ok).ratio()
+        if k.split()[0] != ok.split()[0]:
+            r -= 0.25
+        if r > score:
+            best, score = o, r
+    return best if score >= 0.8 else ""
 
 
 # land area: one unit for the whole property (the unit chosen at the top of TNREGINET's survey screen)
@@ -2731,14 +2836,16 @@ def modt_property(P, job, page, d, case, comments):
     deed_no = g(d, "Deed 1 Doc No")
     pick = None
     for _ in range(10):
-        pick = page.evaluate(TABLE_PICK_JS, ["Document No", "", True])
+        # 12 Nov 2026: copy from Drafting's Deed 1 (the title deed from the legal report), not just the newest linked deed
+        pick = page.evaluate(TABLE_PICK_JS, ["Document No", (r"\b0*" + re.escape(num(deed_no)) + r"\b") if num(deed_no) else "", True])
         if pick:
             break
         P.wait(1.5)
     if not pick:
         raise Stop("No linked document showed under 'Copy Property From Linked Document'. The draft is saved; check the linked title deed.")
     if pick["n"] > 1:
-        note(f"{pick['n']} linked deeds listed - the newest was used ({pick['row'][:80]}); check with the legal report")
+        used = "Deed 1" if num(deed_no) and re.search(r"\b0*" + re.escape(num(deed_no)) + r"\b", pick["row"]) else "the newest"
+        note(f"{pick['n']} linked deeds listed - {used} was used ({pick['row'][:80]}); check with the legal report")
     job.step(f"7 · Linked deed: {pick['row'][:90]}", page)
     P.wait(2.5)
     vil = g(d, "Village")
@@ -2929,6 +3036,91 @@ def survey_question(job, q, shot, options=None, field=None):
         log("survey question failed", e)
 
 
+SURVEY_SEP_JS = "()=>[...document.querySelectorAll('label,span,div')].some(e=>e.getClientRects().length&&/^Survey No\\.?\\s*\\*?$/i.test((e.innerText||'').trim()))"
+
+
+def pick_survey(P, job, page, d, i, s, sd):
+    """Select one survey row on TNREGINET: Survey No. and Sub Division in their own lists (20, then 2B2) - or, when
+    TNREGINET shows one joined 'Survey No./Sub Division' list, the joined item. Never types '20/2B2' into a list."""
+    told = g(d, "TNREGINET survey option")
+    end, opts, sep, pat = time.time() + 45, [], False, ""
+    while time.time() < end:  # the list loads late; a list without any number (CMDA / DTCP / Local Body) is not the survey list
+        sep = bool(page.evaluate(SURVEY_SEP_JS))
+        pat = "^Survey No\\.?\\s*\\*?$" if sep else "^Survey No\\.?\\s*/\\s*Sub Divi?si?on"
+        opts = [o for o in (page.evaluate(OPTIONS_AFTER_JS, pat) or []) if o and not re.match(r"^\W*select\W*$", o, re.I)]
+        if opts and any(re.search(r"\d", o) for o in opts):
+            break
+        P.wait(2)
+    if not opts or not any(re.search(r"\d", o) for o in opts):
+        shot = survey_shot(page, job, i, "nolist")
+        why = "the survey list stayed empty" if not opts else f"TNREGINET's list shows {', '.join(opts[:6])} - not survey numbers"
+        survey_question(job, f"Survey screen: {why} (Urban/Natham/Rural = {g(d, 'Land type') or '-'}). Check the screenshot and Drafting's Land type, then start the TP again.", shot)
+        raise Stop(f"Survey {s} + {sd}: {why}. A robot question with the screenshot is on the case; the draft is saved.")
+    if sep:
+        hit = pick_option(page, pat, opts, {sv_norm(s)}, s)
+        if not hit:
+            shot = survey_shot(page, job, i, "nomatch")
+            survey_question(job, f"Survey screen: survey number {s} is not in TNREGINET's Survey No. list ({len(opts)} options: {', '.join(opts[:15])}{'…' if len(opts) > 15 else ''}). Pick the right one, then start the TP again.",
+                            shot, options=opts, field="TNREGINET survey option")
+            raise Stop(f"Survey {s}: not in TNREGINET's Survey No. list. A robot question with the screenshot is on the case; the draft is saved.")
+        if not sd:
+            return hit
+        P.wait(2.5); wait_loader(page)
+        sub_opts = wait_options(P, page, "^Sub Divi?si?on", 25)
+        sub = pick_option(page, "^Sub Divi?si?on", sub_opts, {x for x in (sv_norm(sd), sv_norm(told.split("/")[-1]) if told and i == 0 else "") if x}) if sub_opts else None
+        if not sub:
+            shot = survey_shot(page, job, i, "nosub")
+            why = "the Sub Division list stayed empty" if not sub_opts else f"sub-division {sd} is not in TNREGINET's list for survey {s} ({', '.join(sub_opts[:15])}{'…' if len(sub_opts) > 15 else ''})"
+            survey_question(job, f"Survey screen: {why}. Correct the survey row in Drafting (Edit), then start the TP again.", shot, options=sub_opts or None)
+            raise Stop(f"Survey {s} + {sd}: {why}. A robot question with the screenshot is on the case; the draft is saved.")
+        return f"{hit}/{sub}"
+    wants = {x for x in (sv_norm(f"{s}/{sd}" if sd else s), sv_norm(told) if i == 0 else "") if x}
+    hit = pick_option(page, pat, opts, wants, s)
+    if not hit:
+        shot = survey_shot(page, job, i, "nomatch")
+        survey_question(job, f"Survey screen: {s}/{sd} is not in TNREGINET's Survey No./Sub Division list ({len(opts)} options: {', '.join(opts[:15])}{'…' if len(opts) > 15 else ''}). Pick the right one, then start the TP again.",
+                        shot, options=opts, field="TNREGINET survey option")
+        raise Stop(f"Survey {s}/{sd}: not in TNREGINET's survey list. A robot question with the screenshot is on the case; the draft is saved.")
+    return hit
+
+
+def survey_extent(P, job, page, d, i, s, sd, src, ptype, u, cu, note, linked=False):
+    """Total (agricultural land) and mortgaged extent, then the Add under them. Linked Survey: once, after every row."""
+    if "Agri" in ptype and g(d, "Total survey extent"):
+        raw = g(d, "Total survey extent")
+        raw = raw if unit_key(raw) or re.search(r"\d\s*[-–]\s*\d", raw) else (f"{num(raw)} {cu}" if cu else raw)
+        tv = area_in(raw, u) if u else ""
+        if not tv:
+            tv = num(raw)
+            note(f"total survey extent '{raw}': unit not clear - typed {tv} as it is; check it is in {u or 'the chosen unit'}")
+        elif unit_key(raw) != unit_key(u):
+            note(f"total survey extent {raw} typed as {tv} {u} (same unit as the mortgaged extent)")
+        fill_extent(page, "^Total Survey Extent", tv, u, note)
+    src = src if unit_key(src) or not cu else f"{num(src)} {cu}"
+    e = (area_in(src, u) if u else "") or num(src)
+    if e and u and unit_key(src) and unit_key(src) != unit_key(u):
+        note(f"mortgaged extent {src} typed as {e} {u}")
+    if not e:
+        note(f"mortgaged extent for {s}/{sd} not in Drafting - add it by hand")
+        return
+    e_typed = fill_extent(page, "^Mortgaged Survey Extent", e, u, note)
+    P.wait(1)
+    before = survey_shot(page, job, i, "before")
+    page.evaluate(CLICK_AFTER_JS, ["^Market Value of Mortgaged", "^Add$"]) or page.evaluate(CLICK_AFTER_JS, ["^Mortgaged Survey Extent", "^Add$"])
+    P.wait(2.5); m = P.popup_ok()
+    tbl = page.evaluate(TABLE_TEXT_JS, "Mortgaged Survey Extent|Extent")
+    after = survey_shot(page, job, i, "after")
+    sv_ok = linked or f"{s}/{sd}".strip("/") in tbl or (not sd and s in tbl)
+    ex_ok = bool(e) and any(x and (x in tbl) for x in [e, e.split(".")[0], *(e_typed[1:] if len(e_typed) > 1 else [])])
+    if not sv_ok or not ex_ok or (m and re.search(r"invalid|not|exceed|error|greater|must", m, re.I)):
+        why = ("TNREGINET said: " + m[:140]) if m else (f"survey {s}/{sd} not in the table" if not sv_ok else f"extent {e} {u} not in the table")
+        if survey_ok(job):
+            note(f"survey screen: {why} - you answered 'Looks right - go on' earlier, so the robot went on (screenshot kept on the case)")
+            return
+        survey_question(job, f"Survey screen: {why}. We typed survey {s}{('/' + sd) if sd else ''}, extent {e} {u}. Table now: {tbl[:160] or '(empty)'}", after or before)
+        raise Stop(f"Survey screen did not match ({why}). Screenshots and a question are on the case; the draft is saved - answer the robot question, then start again.")
+
+
 def survey_tab(P, job, page, d, ptype, note):
     for _ in range(6):  # old survey / old survey number rows copied from the linked deed: delete, then add as per the current patta
         gone = page.evaluate(DEL_TABLE_ROW_JS, "Mortgaged Survey Extent|Survey No")
@@ -2968,41 +3160,19 @@ def survey_tab(P, job, page, d, ptype, note):
                 if not str(r).startswith("ok"):
                     note(f"{k} {v} not set ({str(r)[:80]})")
                 P.wait(2)
-    sv = surveys_of(d)
-    if not sv:
+    rows = survey_rows(d)
+    if not rows:
         note("no new survey number in Drafting - survey left for you")
         return
-    linked = len(sv) > 1
+    linked = len(rows) > 1
     page.evaluate(RADIO_JS, "^Linked Survey$" if linked else "^Single Survey$")
-    P.wait(2)
-    old = [x.strip() for x in re.split(r"[,;\n]+", g(d, "Old survey numbers")) if x.strip()]
-    for i, (s, sd, ext) in enumerate(sv):
-        job.step(f"7 · Survey {s}/{sd}", page)
-        told = g(d, "TNREGINET survey option")
-        # TNREGINET shows either one "Survey No./Sub Division" list (140/2A2) or a "Survey No." list (42) and then a "Sub Division No." list (28)
-        sep = page.evaluate("()=>[...document.querySelectorAll('label,span,div')].some(e=>e.getClientRects().length&&/^Survey No\\.?\\s*\\*?$/i.test((e.innerText||'').trim()))")
-        pat = "^Survey No\\.?\\s*\\*?$" if sep else "^Survey No\\.?/Sub Divi?si?on"
-        opts = wait_options(P, page, pat, 30)
-        hit = pick_option(page, pat, opts, {x for x in (norm_sv(f"{s}/{sd}" if sd else s), norm_sv(told)) if x}, s) if opts else None
-        stage, sub_opts = "survey", []
-        if not hit and opts and sd:  # survey number alone, then its sub-division
-            hit = pick_option(page, pat, opts, {norm_sv(s)}, s)
-            if hit:
-                P.wait(2.5); wait_loader(page)
-                stage = "sub-division"
-                sub_opts = wait_options(P, page, "^Sub Divi?si?on", 20)
-                hit = pick_option(page, "^Sub Divi?si?on", sub_opts, {x for x in (norm_sv(sd), norm_sv(told.split("/")[-1]) if told else "") if x}) if sub_opts else None
-        if not hit:
-            lst = sub_opts if stage == "sub-division" else opts
-            shot = survey_shot(page, job, i, "nolist" if not lst else "nomatch")
-            why = (f"the {stage} list stayed empty" if not lst else
-                   f"{s}/{sd}: {'sub-division ' + sd if stage == 'sub-division' else 'survey'} not in TNREGINET's {stage} list ({len(lst)} options: {', '.join(lst[:15])}{'…' if len(lst) > 15 else ''})")
-            survey_question(job, f"Survey screen: {why}. Pick the right one from TNREGINET's list (or type it), then start the TP again.", shot,
-                            options=lst, field="TNREGINET survey option")
-            raise Stop(f"Survey {s}/{sd}: {why}. A robot question with the screenshot is on the case; the draft is saved.")
+    P.wait(2.5); wait_loader(page)
+    for i, (s, sd, olds, ext) in enumerate(rows):
+        job.step(f"7 · Survey row {i + 1}/{len(rows)}: {s} + {sd or '-'}", page)
+        pick_survey(P, job, page, d, i, s, sd)
         P.wait(2.5); wait_loader(page)
-        # Land Type (mandatory on TNREGINET): from Drafting's Land classification, else the only option, else ask
-        lopts = wait_options(P, page, "^Land Type", 15)
+        # Land Type (mandatory on TNREGINET when shown): from Drafting's Land classification, else the only option, else ask
+        lopts = wait_options(P, page, "^Land Type", 6 if (linked or i) else 15)
         if lopts:
             want = g(d, "Land classification")
             rx = LAND_CLASS.get(nz(want), re.escape(want)) if want else ""
@@ -3014,61 +3184,49 @@ def survey_tab(P, job, page, d, ptype, note):
                 survey_question(job, f"Survey screen: Land Type is mandatory - which one is this land (patta: punjai / nanjai …)? TNREGINET offers: {', '.join(lopts[:15])}",
                                 shot, options=lopts, field="Land classification")
                 raise Stop("Land Type: not in Drafting. A robot question with TNREGINET's choices is on the case; the draft is saved.")
-        P.wait(2)
+        P.wait(1.5)
         st = g(d, "Street name")
-        if st and i == 0:
-            opts = page.evaluate(OPTIONS_AFTER_JS, "^Street Name$") or []
-            hit = next((o for o in opts if nz(st)[:6] and nz(st)[:6] in nz(o)), None)
+        if st and (linked or i == 0):
+            sopts = wait_options(P, page, "^Street Name$", 8)
+            hit = street_pick(st, sopts)
             if hit:
                 page.evaluate(SELECT_AFTER_JS, ["^Street Name$", "^" + re.escape(hit) + "$"])
-        if i == 0:
-            for o in old:
-                for v in ([o, strip_part(o)] if PART_WORD.search(o) else [o]):
-                    page.evaluate(FILL_AFTER_JS, ["^Old Survey No\\.?$", v, ""])
-                    page.evaluate(CLICK_AFTER_JS, ["^Old Survey No\\.?$", "^Add Old Survey Number$"])
-                    P.wait(1.5); P.popup_ok()
-                    if nz(v) in nz(page.evaluate(TABLE_TEXT_JS, "Old Survey No")):
-                        if v != o:
-                            note(f"old survey '{o}' was not accepted with 'Part'; added as {v} (the remarks keep 'Part')")
-                        break
+                if nz(hit) != nz(st):
+                    note(f"street '{st}' chosen as TNREGINET's '{hit}'")
+            elif sopts:
+                note(f"street '{st}' not in TNREGINET's street list ({', '.join(sopts[:8])}{'…' if len(sopts) > 8 else ''}) - left empty, check")
+        row_old = olds if linked else (olds or [x.strip() for x in re.split(r"[,;\n]+", g(d, "Old survey numbers")) if x.strip()])
+        for o in row_old:
+            for v in ([o, strip_part(o)] if PART_WORD.search(o) else [o]):
+                page.evaluate(FILL_AFTER_JS, ["^Old Survey No\\.?$", v, ""])
+                page.evaluate(CLICK_AFTER_JS, ["^Old Survey No\\.?$", "^Add Old Survey Number$"])
+                P.wait(1.5); P.popup_ok()
+                if nz(v) in nz(page.evaluate(TABLE_TEXT_JS, "Old Survey No")):
+                    if v != o:
+                        note(f"old survey '{o}' was not accepted with 'Part'; added as {v} (the remarks keep 'Part')")
+                    break
+        if row_old:
             have = page.evaluate(TABLE_TEXT_JS, "Old Survey No")
-            miss = [o for o in old if nz(o) not in nz(have) and nz(strip_part(o)) not in nz(have)]
+            miss = [o for o in row_old if nz(o) not in nz(have) and nz(strip_part(o)) not in nz(have)]
             if miss:
-                note("old survey no. not added: " + ", ".join(miss))
-        if "Agri" in ptype and g(d, "Total survey extent"):
-            raw = g(d, "Total survey extent")
-            raw = raw if unit_key(raw) or re.search(r"\d\s*[-–]\s*\d", raw) else (f"{num(raw)} {cu}" if cu else raw)
-            tv = area_in(raw, u) if u else ""
-            if not tv:
-                tv = num(raw)
-                note(f"total survey extent '{raw}': unit not clear - typed {tv} as it is; check it is in {u or 'the chosen unit'}")
-            elif unit_key(raw) != unit_key(u):
-                note(f"total survey extent {raw} typed as {tv} {u} (same unit as the mortgaged extent)")
-            fill_extent(page, "^Total Survey Extent", tv, u, note)
-        src = ext or (g(d, "Extent") if i == 0 else "")
-        src = src if unit_key(src) or not cu else f"{num(src)} {cu}"
-        e = (area_in(src, u) if u else "") or num(src)
-        if e and u and unit_key(src) and unit_key(src) != unit_key(u):
-            note(f"mortgaged extent {src} typed as {e} {u}")
-        if not e:
-            note(f"mortgaged extent for {s}/{sd} not in Drafting - add it by hand")
+                note(f"row {i + 1}: old survey no. not added: " + ", ".join(miss))
+        if linked:
+            # Linked Survey: each row is added with the "Add" next to Pymash No.; the extent comes once, after all rows
+            before_tbl = page.evaluate(TABLE_TEXT_JS, "Survey No")
+            r = page.evaluate(CLICK_AFTER_JS, ["^Pymash No\\.?$", "^Add$"]) or page.evaluate(CLICK_AFTER_JS, ["^Old Survey No\\.?$", "^Add$"])
+            P.wait(2.5); m = P.popup_ok(); wait_loader(page)
+            tbl = page.evaluate(TABLE_TEXT_JS, "Survey No")
+            want = sv_norm(f"{s}/{sd}" if sd else s)
+            if not r or (m and re.search(r"invalid|not|exist|error|select|please", m, re.I)) or (want not in sv_norm(tbl) and tbl == before_tbl):
+                shot = survey_shot(page, job, i, "linked-add")
+                why = ("TNREGINET said: " + m[:140]) if m else ("the Add button next to Pymash No. was not found" if not r else f"survey {s}/{sd} did not show in the table")
+                survey_question(job, f"Survey screen, linked survey row {i + 1} ({s} + {sd}): {why}. Table now: {tbl[:160] or '(empty)'}", shot)
+                raise Stop(f"Linked survey row {i + 1} ({s}/{sd}) was not added ({why}). A question with the screenshot is on the case; the draft is saved.")
+            job.step(f"7 · Survey row {i + 1} added: {s} + {sd}", page)
             continue
-        e_typed = fill_extent(page, "^Mortgaged Survey Extent", e, u, note)
-        P.wait(1)
-        before = survey_shot(page, job, i, "before")
-        page.evaluate(CLICK_AFTER_JS, ["^Market Value of Mortgaged", "^Add$"])
-        P.wait(2.5); m = P.popup_ok()
-        tbl = page.evaluate(TABLE_TEXT_JS, "Mortgaged Survey Extent")
-        after = survey_shot(page, job, i, "after")
-        sv_ok = f"{s}/{sd}".strip("/") in tbl or (not sd and s in tbl)
-        ex_ok = bool(e) and any(x and (x in tbl) for x in [e, e.split(".")[0], *(e_typed[1:] if len(e_typed) > 1 else [])])
-        if not sv_ok or not ex_ok or (m and re.search(r"invalid|not|exceed|error|greater|must", m, re.I)):
-            why = ("TNREGINET said: " + m[:140]) if m else (f"survey {s}/{sd} not in the table" if not sv_ok else f"extent {e} {u} not in the table")
-            if survey_ok(job):
-                note(f"survey screen: {why} - you answered 'Looks right - go on' earlier, so the robot went on (screenshot kept on the case)")
-                continue
-            survey_question(job, f"Survey screen: {why}. We typed survey {s}/{sd}, extent {e} {u}. Table now: {tbl[:160] or '(empty)'}", after or before)
-            raise Stop(f"Survey screen did not match ({why}). Screenshots and a question are on the case; the draft is saved - answer the robot question, then start again.")
+        survey_extent(P, job, page, d, i, s, sd, ext or g(d, "Extent"), ptype, u, cu, note)
+    if linked:
+        survey_extent(P, job, page, d, len(rows) - 1, "/".join(f"{a}/{b}".strip("/") for a, b, _, _ in rows), "", g(d, "Extent"), ptype, u, cu, note, linked=True)
     pl = g(d, "Plot No")
     if pl:
         page.evaluate(FILL_AFTER_JS, ["^Plot Number$", pl, ""])

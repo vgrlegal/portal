@@ -707,14 +707,14 @@ const MP=n=>[[`Mortgagor ${n} salutation`,"s",MSAL],`Mortgagor ${n} name`,`Mortg
 /* MODT drafting, in the same order as TNREGINET's Deposit of Title Deeds screens */
 const PTYPES=["Plot with Building","Plot","Flats","Agricultural Land","Agriculture Land with Building"];
 const MODT_FIELDS=[
-  ["1 · Linked documents (title deeds)",[["Deed 1 SRO","sro"],"Deed 1 Doc No",["Deed 1 Year","year"],["Deed 2 SRO","sro"],"Deed 2 Doc No",["Deed 2 Year","year"],["Deed 3 SRO","sro"],"Deed 3 Doc No",["Deed 3 Year","year"]]],
+  ["1 · Linked documents (title deeds)",[["Linked deeds","note","Link ONLY the title deed(s) under 'Documents for security' in the legal report (marked MOD). The earlier MODT only for a top-up loan. Never a Deed of Receipt or any other deed in the list of documents."],["Documents for security (legal report)","w"],["Top-up loan","s",["No","Yes"]],["Deed 1 SRO","sro"],"Deed 1 Doc No",["Deed 1 Year","year"],["Deed 2 SRO","sro"],"Deed 2 Doc No",["Deed 2 Year","year"],["Deed 3 SRO","sro"],"Deed 3 Doc No",["Deed 3 Year","year"]]],
   ["2 · Mortgagor (title holders)",[["Title holders","s",["1","2","3","4"]]]],
   ["2 · Title holder 1",MP(1)],["2 · Title holder 2",MP(2)],["2 · Title holder 3",MP(3)],["2 · Title holder 4",MP(4)],
   ["3 · Mortgagee (company)",["Govt Body Name",["Company office","s",["Registered Office","Head Office","Corporate Office"]],["Company state","s",MSTATES],"Company district",["Company address","w"],["Company address Tamil","w"],"Company pincode"]],
   ["4 · Company representative",[["Representative","note","Skipped for MODT. Needed only when the property belongs to a company."]]],
   ["5 · Witnesses",[["Witness 1","wsel"],["Witness 2","wsel"]]],
   ["6 · Presenter",[["Presenter","s",["Title holder 1","Title holder 2","Title holder 3","Title holder 4"]]]],
-  ["7 · Property",[["Property type","s",PTYPES],["Building type","s",["RCC house","Tiled house","Sheet roof house","No building"]],["Property SRO","sro"],["Village","vil"],"Patta No",["Land type","s",["Urban","Natham","Rural"]],["Land classification","s",["Punjai","Nanjai","Manavari","Natham"]],"Ward","Block","Street name",["Unit","s",["Sq.ft","Sq.m","Cent","Acre","Hectare"]],"New survey no","Subdivision",["Linked survey numbers","w"],"Sheet name",["Old survey numbers","w"],"Extent","Total survey extent","Plot No"]],
+  ["7 · Property",[["Property type","s",PTYPES],["Building type","s",["RCC house","Tiled house","Sheet roof house","No building"]],["Property SRO","sro"],["Village","vil"],"Patta No",["Land type","s",["Urban","Natham","Rural"]],["Land classification","s",["Punjai","Nanjai","Manavari","Natham"]],"Ward","Block","Street name",["Unit","s",["Sq.ft","Sq.m","Cent","Acre","Hectare"]],["Survey rows","svrows"],["New survey no","hid"],["Subdivision","hid"],["Linked survey numbers","hid"],"Sheet name",["Old survey numbers","hid"],"Extent","Total survey extent","Plot No"]],
   ["8 · Boundaries",[["Boundary type","s",["Regular","Irregular"]],"Boundary North","Boundary South","Boundary East","Boundary West","Boundary North Tamil","Boundary South Tamil","Boundary East Tamil","Boundary West Tamil"]],
   ["9 · Building details",[["Building","note","The robot deletes anything copied here from the old deed and leaves this page empty. The building (RCC / tiled house) goes into the property remarks."]]],
   ["10 · Linear measurement",["North length","South length","East length","West length"]],
@@ -1491,6 +1491,8 @@ function openReview(c,gen){
   sections.forEach(([sec,fields])=>{if(dor&&!suppUsed)fields=fields.filter(ff=>!/^Supp /.test(Array.isArray(ff)?ff[0]:ff));h+=`<div class="rvsec"><div class="sect">${esc(sec)}</div><div class="fgrid">`+fields.map(ff=>{const [f,t,o]=Array.isArray(ff)?ff:[ff],id="rv_"+f.replace(/\W+/g,"_");
       if(t==="s")return`<label>${esc(f)}${dor&&DOR_REQ.includes(f)?" *":""}<select id="${id}"><option value=""></option>${[...new Set([...o,data[f]].filter(Boolean))].map(x=>`<option${x===data[f]?" selected":""}>${esc(x)}</option>`).join("")}</select></label>`;
       if(t==="note")return`<p class="sf-note full" style="grid-column:1/-1">${esc(o)}</p>`;
+      if(t==="hid")return`<input type="hidden" id="${id}" value="${esc(data[f]||"")}">`;
+      if(t==="svrows")return`<div class="full" style="grid-column:1/-1"><b>Survey numbers</b> <span class="sub">One row per new survey number, Survey No. and Sub Division separate, with that row's old survey number(s). More than one row = TNREGINET "Linked Survey". Street, extent and boundaries are common to all rows.</span><input type="hidden" id="${id}" value="${esc(JSON.stringify(svRowsOf(data)))}"><div id="svRowsBox" style="margin:6px 0"></div><button type="button" class="btn" id="svAdd">+ Add survey row</button></div>`;
       if(t==="ta"&&!dor){const ta=/Tamil/.test(f);return`<label class="full">${esc(f)}${ta?' <span class="lg ta">தமிழ்</span>':""}<textarea id="${id}" rows="${/Legal|List/.test(f)?6:3}"${ta?' lang="ta"':""}>${esc(data[f]||"")}</textarea></label>`}
       if(t==="ro")return`<label>${esc(f)}<input id="${id}" value="${esc(data[f]||"")}" readonly></label>`;
       const req=dor&&DOR_REQ.includes(f)?" *":"";
@@ -1509,7 +1511,7 @@ function openReview(c,gen){
   if(!dor)h+=`<div class="rvsec"><div class="sect">Documents the robot uploads on TNREGINET</div>${modtUploads(c,c.draft||{}).map(x=>`<div class="kv"><span>${esc(x.l)}</span><b style="${x.v?"":"color:#b42318"}">${x.v?esc(x.v):"⚠ missing"}${(x.miss||[]).length?` <span style="color:#b42318">· ${esc(x.miss.join(", "))} missing</span>`:""}</b></div>`).join("")}<p class="sf-note">The MODT draft (Word copy) and sanction letter are only read for Drafting; they are not uploaded.</p></div>`;
   else h+=`<div class="rvsec"><div class="sect">${dor?"10 · ":""}Documents to upload on TNREGINET</div>${docs.length?docs.map(d=>`<div class="kv"><span>${esc(d.l)}</span><b>${c.docs[d.k].map(f=>esc(f.name)).join(", ")}</b></div>`).join(""):`<p class="sf-note">No documents uploaded yet.</p>`}</div>`;
   if(gen)h+=`<div class="rvsec" id="rvLogin"></div>`;
-  $("rvBody").innerHTML=h;
+  $("rvBody").innerHTML=h;svRowsUi();
   $("rvFoot").innerHTML=`<span class="sp"></span><button type="button" class="btn" id="rvCancel">Close</button><button type="button" class="btn ${gen?"":"primary"}" id="rvSave">Save draft</button>`+
     (!gen&&c.stage==="Draft Pending"?`<button type="button" class="btn primary" id="rvDone">Draft done</button>`:"")+
     (gen?`<button type="button" class="btn primary" id="rvApprove">Approve &amp; continue</button>`:"");
@@ -1795,6 +1797,8 @@ function modtUploads(c,d){const D=c.docs||{},n=Math.max(1,Math.min(4,+String(d["
 /* "Draft done" for a MODT: everything the robot needs, or a list of what is missing */
 function modtDoneCheck(c,d){const P=[],v=k=>String(d[k]??"").trim(),n=Math.max(1,+v("Title holders").replace(/\D/g,"")||1);
   if(!v("Deed 1 Doc No")||!v("Deed 1 Year")||!v("Deed 1 SRO"))P.push("Linked title deed: Deed 1 SRO, Doc No and Year");
+  deedProblems(d).forEach(x=>P.push(x));
+  svRowsOf(d).forEach((r,i)=>{if(!r.s)P.push(`Survey row ${i+1}: Survey No. empty`)});
   for(let i=1;i<=n;i++){const t=`Title holder ${i}`;["salutation","name","name Tamil","relation","relative name","relative name Tamil","date of birth","district","address","address Tamil"].forEach(k=>{if(!v(`Mortgagor ${i} ${k}`))P.push(`${t}: ${k}`)});
     const a=v(`Mortgagor ${i} Aadhaar`).replace(/\D/g,"");if(!verhoeff(a))P.push(`${t}: Aadhaar ${a?"wrong (check digit fails)":"empty"}`);
     if(!/^\d{6}$/.test(v(`Mortgagor ${i} pincode`)))P.push(`${t}: pincode (6 digits)`);if(/:/.test(v(`Mortgagor ${i} address`)+v(`Mortgagor ${i} address Tamil`)))P.push(`${t}: address has ':'`)}
@@ -1995,13 +1999,27 @@ async function tnRender(ro){const box=$("tnList");if(!box)return;$("tnImp").hidd
   let l=[];try{l=await tnLogins()}catch(e){box.innerHTML=`<p class="banner">Login IDs could not load: ${esc(e.message)}</p>`;return}
   recRender(l);const pool=l.filter(isPool),all=l.filter(x=>!isPool(x)),tq=()=>($("tnQ").value||"").trim().toLowerCase();
   const mine=x=>isMD||(x.created_by&&x.created_by===String(SELF_EMAIL||"").toLowerCase());
-  const row=x=>`<div class="mrow"><b>${esc(x.username)}</b><span>${ro||!mine(x)?"":`<button class="btn danger" type="button" data-tnx="${x.id}">Remove</button>`}</span><div class="mf">${esc(x.client)} · password saved</div></div>`;
+  const row=x=>`<div class="mrow"><b>${esc(x.username)}</b><span>${ro||!mine(x)?"":`<button class="btn" type="button" data-tne="${x.id}">Edit</button> <button class="btn danger" type="button" data-tnx="${x.id}">Delete</button>`}</span><div class="mf">${esc(x.client)} · password saved</div></div>`;
   const paint=()=>{const q=tq(),l=q?all.filter(x=>(x.client+" "+x.username).toLowerCase().includes(q)):[];
   $("tnListM").innerHTML=pt?`<p class="sf-note">MODT login IDs are managed by the Admin.</p>`:pool.length?pool.map(row).join(""):`<p class="sf-note">No MODT login IDs yet. Add one below with “${esc(MODT_POOL)}”.</p>`;
   box.innerHTML=!q?`<p class="sf-note">${all.length} Receipt login IDs for ${new Set(all.map(x=>x.client)).size} companies. Type a company name above to see and remove them.</p>`:l.length?l.map(row).join(""):`<p class="sf-note">No login IDs for “${esc(q)}”.</p>`;
-  [...box.querySelectorAll("[data-tnx]"),...$("tnListM").querySelectorAll("[data-tnx]")].forEach(b=>b.onclick=()=>ask("Remove this login ID?",`<p class="sf-note">The TP computer will stop using it.</p>`,async()=>{const{error}=await window.__sb.from("tn_logins").delete().eq("id",b.dataset.tnx);if(error)toast(error.message);else{toast("Removed");tnRender(ro)}},"Remove"))};paint();$("tnQ").oninput=paint;
+  [...box.querySelectorAll("[data-tne]"),...$("tnListM").querySelectorAll("[data-tne]")].forEach(b=>b.onclick=()=>tnEdit(l.find(x=>x.id===b.dataset.tne),pt,ro));
+  [...box.querySelectorAll("[data-tnx]"),...$("tnListM").querySelectorAll("[data-tnx]")].forEach(b=>b.onclick=()=>ask("Delete this login ID?",`<p class="sf-note">The TP computer will stop using it.</p>`,async()=>{const{error}=await window.__sb.from("tn_logins").delete().eq("id",b.dataset.tnx);if(error)toast(error.message);else{toast("Removed");tnRender(ro)}},"Remove"))};paint();$("tnQ").oninput=paint;
   $("tnAdd").onsubmit=async e=>{e.preventDefault();const client=fv("tn_client"),username=fv("tn_user"),password=$("tn_pass").value;if(!client||!username||!password){toast("Fill company, login ID and password");return}
     const{error}=await window.__sb.from("tn_logins").insert({client,username,password});if(error){toast(error.message);return}$("tn_user").value="";$("tn_pass").value="";toast("Login ID saved");tnRender(ro)}}
+/* 12 Nov 2026: Edit a TNREGINET login ID (wrong company, login ID or password). The password stays write-only: it is never
+   shown; leave it empty to keep the saved one (Admin). A partner login cannot change a saved row, so its edit saves a new row
+   with the new password and deletes the old one. */
+function tnEdit(x,pt,ro){if(!x)return;const opts=[...(pt?[]:[MODT_POOL]),...cfg.banks];if(!opts.includes(x.client))opts.unshift(x.client);
+  ask("Edit login ID",`<label>Company<select id="tne_client">${opts.map(o=>`<option${o===x.client?" selected":""}>${esc(o)}</option>`).join("")}</select></label>
+    <label>Login ID<input id="tne_user" value="${esc(x.username)}" autocomplete="off"></label>
+    <label>New password<input id="tne_pass" type="password" autocomplete="new-password" placeholder="${isMD?"Leave empty to keep the saved password":"Type the password again"}"></label>
+    <p class="sf-note">The saved password is never shown. Type a new one only if it was wrong.</p>`,async()=>{
+    const client=fv("tne_client"),username=fv("tne_user"),password=$("tne_pass").value;if(!client||!username){toast("Fill company and login ID");return false}
+    if(isMD){const ch={client,username};if(password)ch.password=password;const{error}=await window.__sb.from("tn_logins").update(ch).eq("id",x.id);if(error){toast(error.message);return false}}
+    else{if(!password){toast("Type the password again");return false}const{error}=await window.__sb.from("tn_logins").insert({client,username,password});if(error){toast(error.message);return false}
+      const r=await window.__sb.from("tn_logins").delete().eq("id",x.id);if(r.error)toast("Saved the new one, but the old one could not be deleted: "+r.error.message)}
+    $("tne_pass").value="";toast("Login ID updated");tnRender(ro)},"Save")}
 async function cloudTp(c,fresh){const box=$("rvLogin");box.innerHTML=`<div class="sect">Generate TP on TNREGINET</div><p class="sf-note">Loading login IDs…</p>`;
   if(c.tpJob&&!fresh){const j=await db.doc("tp_jobs/"+c.tpJob).get().catch(()=>null);if(j&&j.exists&&!["done","error","cancelled"].includes((j.data()||{}).status))return watchJob(c,c.tpJob)}
   let l=[];try{l=await tnLogins()}catch(e){box.innerHTML=`<p class="banner">${esc(e.message)}</p>`;return}
@@ -3080,12 +3098,82 @@ function surveyClean(d){const raw=String(d["New survey no"]||"").trim();if(!raw|
   d["New survey no"]=m[1];if(m[2]&&!String(d.Subdivision||"").trim())d.Subdivision=m[2];
   const extra=(raw.slice(m[0].length).match(/\d+[A-Za-z]?\s*\/\s*[0-9A-Za-z]+(?:\/[0-9A-Za-z]+)*/g)||[]).map(x=>x.replace(/\s+/g,""));
   const have=String(d["Linked survey numbers"]||"");const add=extra.filter(x=>!have.replace(/\s+/g,"").includes(x));if(add.length)d["Linked survey numbers"]=[have,...add].filter(Boolean).join(", ");
-  return d}
+  return svFix(d)}
+/* 12 Nov 2026 (Rajeswari 0088): survey rows. Each new survey number is its own row - Survey No. and Sub Division kept
+   apart (20 + 2B2, then 20 + 2C1A) with that row's old survey number(s). The robot selects each row on TNREGINET's
+   Linked Survey screen and presses Add; the extent is typed once at the end. "Survey rows" (JSON) is the master; the old
+   fields (New survey no, Subdivision, Linked survey numbers, Old survey numbers) are kept in step for the remarks. */
+function svNorm(x){return String(x||"").toLowerCase().replace(/(^|[^0-9])0+(?=\d)/g,"$1").replace(/[^0-9a-z]/g,"")}
+const SV_PART=/\(?\s*\b(part|pt)\b\.?\s*\)?/ig;
+function svAssignOld(r,olds){const put=(i,o)=>{r[i].old=[r[i].old,o].filter(Boolean).join(", ")},later=[];
+  olds.forEach(o=>{const n=svNorm(o.replace(SV_PART,""));const hit=r.map((x,i)=>n&&svNorm(x.s+"/"+x.sd).startsWith(n)?i:-1).filter(i=>i>=0);if(hit.length===1)put(hit[0],o);else later.push([o,hit])});
+  /* not clear which row: a matching row that has no old number yet, else the first matching row, else row 1 (all old numbers in one row is fine) */
+  later.forEach(([o,hit])=>{const free=hit.find(i=>!r[i].old);put(free!=null?free:(hit.length?hit[0]:0),o)});return r}
+function svRowsOf(d){let r=[];try{r=JSON.parse(d["Survey rows"]||"[]")}catch(e){r=[]}
+  r=(Array.isArray(r)?r:[]).map(x=>({s:String(x.s||"").trim(),sd:String(x.sd||"").trim(),old:String(x.old||"").trim(),...(x.ext?{ext:String(x.ext).trim()}:{})})).filter(x=>x.s);if(r.length)return r;
+  const sn=String(d["New survey no"]||"").trim();
+  if(sn){let s=sn,sd=String(d.Subdivision||"").trim();const m=sn.match(/^\s*(\d+[A-Za-z]?)\s*(?:\/\s*([0-9A-Za-z]+))?/);if(m){s=m[1];if(!sd)sd=m[2]||""}r.push({s,sd,old:""})}
+  String(d["Linked survey numbers"]||"").split(/[,;\n&]+/).map(x=>x.trim()).filter(Boolean).forEach(t0=>{const[tok,ext=""]=t0.split("=").map(x=>x.trim()),i=tok.indexOf("/"),s=(i<0?tok:tok.slice(0,i)).trim(),sd=i<0?"":tok.slice(i+1).trim();
+    if(s&&!r.some(x=>svNorm(x.s+"/"+x.sd)===svNorm(s+"/"+sd)))r.push({s,sd,old:"",...(ext?{ext}:{})})});
+  if(r.length)svAssignOld(r,String(d["Old survey numbers"]||"").split(/[,;\n]+/).map(x=>x.trim()).filter(Boolean));return r}
+function svSync(d,r){if(!r.length)return d;d["Survey rows"]=JSON.stringify(r);d["New survey no"]=r[0].s;d.Subdivision=r[0].sd;
+  d["Linked survey numbers"]=r.slice(1).map(x=>x.s+(x.sd?"/"+x.sd:"")+(x.ext?"="+x.ext:"")).join(", ");
+  d["Old survey numbers"]=[...new Set(r.flatMap(x=>x.old.split(/[,;\n]+/).map(y=>y.trim()).filter(Boolean)))].join(", ");return d}
+function svFix(d){return svSync(d,svRowsOf(d))}
+function svRowsUi(){const h=$("rv_Survey_rows"),box=$("svRowsBox");if(!h||!box)return;let rows=[],edit=-1;try{rows=JSON.parse(h.value||"[]")}catch(e){}
+  const keep=()=>{h.value=JSON.stringify(rows.filter(r=>r.s));const d=svSync({},rows.filter(r=>r.s));["New survey no","Subdivision","Linked survey numbers","Old survey numbers"].forEach(k=>{const e=$("rv_"+k.replace(/\W+/g,"_"));if(e)e.value=d[k]||""});["Survey rows","New survey no","Subdivision","Linked survey numbers","Old survey numbers"].forEach(k=>(rv.touched=rv.touched||new Set()).add("rv_"+k.replace(/\W+/g,"_")))};
+  const draw=()=>{box.innerHTML=rows.length?rows.map((r,i)=>i===edit?`<div class="svrow" style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin:4px 0">Row ${i+1}: <input data-k="s" placeholder="Survey No. e.g. 20" value="${esc(r.s)}" style="width:110px"> <input data-k="sd" placeholder="Sub Division e.g. 2B2" value="${esc(r.sd)}" style="width:130px"> <input data-k="old" placeholder="Old survey no(s), e.g. 20/2" value="${esc(r.old)}" style="flex:1;min-width:160px"> <button type="button" class="btn primary" data-sv="ok">Done</button></div>`
+      :`<div class="svrow" style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin:4px 0">Row ${i+1}: Survey No. <b>${esc(r.s||"—")}</b> · Sub Division <b>${esc(r.sd||"—")}</b> · Old survey no. <b>${esc(r.old||"—")}</b> <button type="button" class="btn" data-sv="e${i}">Edit</button><button type="button" class="btn danger" data-sv="d${i}">Delete</button></div>`).join("")
+      :`<p class="sf-note">No survey number yet - press "+ Add survey row".</p>`;
+    box.querySelectorAll(".svrow input").forEach(e=>e.oninput=()=>{rows[edit][e.dataset.k]=e.value.trim();keep()});
+    box.querySelectorAll("[data-sv]").forEach(b=>b.onclick=()=>{const a=b.dataset.sv;if(a==="ok"){if(!rows[edit].s)rows.splice(edit,1);edit=-1}else if(a[0]==="e")edit=+a.slice(1);else{rows.splice(+a.slice(1),1);edit=-1}keep();draw()})};
+  $("svAdd").onclick=()=>{rows.push({s:"",sd:"",old:""});edit=rows.length-1;draw();const f=box.querySelector("input");if(f)f.focus()};draw()}
+function legalBlock(legal){legal=String(legal||"").trim();if(!legal)return"";
+  return `=== LEGAL REPORT (read this first) ===
+RULES FROM THE LAW OFFICE FOR THIS READING:
+(1) Deed 1-3 = ONLY the title deed(s) listed under "Documents for security" in this legal report (or marked "- MOD" in its list of documents). Never put any other deed from the list of documents there - not the earlier sale deeds, not the earlier MODT (unless the case is a top-up loan), never a Deed of Receipt / discharge receipt.
+(2) The property is the ONE schedule described in this legal report (property address / schedule): survey numbers, old survey numbers, extent, street, boundaries and measurements come from it. Where the MODT draft differs, follow the legal report and say so in Doubts.
+(3) New survey no = the number only (e.g. 20), Subdivision = its sub-division (e.g. 2B2); every other new survey number of the same property goes to Linked survey numbers as survey/sub-division (e.g. 20/2C1A). Old survey numbers comma separated.
+${legal.slice(0,12000)}
+=== END OF LEGAL REPORT ===
+
+`}
+/* 12 Nov 2026 (Rajeswari 0088): the legal report decides which deed(s) are linked - the ones listed under "Documents for
+   security" (or marked "- MOD" in the list of documents). Returns [{no,yr,nature}]. */
+const NATURE_RE=/(sale|release|settlement|gift|partition|exchange|conveyance|mortgage|MODT|receipt|will|power|agreement|partition)\s*(deed|document)?|MODT|receipt/ig;
+function legalSecurity(text){const t=String(text||"").replace(/\s+/g," "),out=[],seen=new Set();
+  const add=(no,yr,before)=>{no=String(+no);const k=no+"/"+yr;if(seen.has(k))return;seen.add(k);const nm=[...String(before).matchAll(NATURE_RE)].pop();out.push({no,yr,nature:nm?nm[0].trim():""})};
+  const DOC=/Doc(?:ument)?\.?\s*No\.?\s*[:.]?\s*(\d{1,6})\s*(?:\/|of)\s*((?:19|20)\d\d)/gi;
+  const h=t.search(/documents?\s*(?:offered\s*)?(?:for|as)\s*(?:the\s*)?security|security\s*documents?|(?:title\s*)?documents?\s*to\s*be\s*deposited|documents?\s*to\s*be\s*created\s*as\s*mortgage/i);
+  if(h>=0){let part=t.slice(h,h+1500);const end=part.slice(40).search(/\b(?:[IVX]{1,4}\s*\.|Annexure|Certificate|Legal Opinion|Thanking|DOCUMENTS ORIGINAL)/i);if(end>0)part=part.slice(0,end+40);
+    for(const m of part.matchAll(DOC))add(m[1],m[2],part.slice(Math.max(0,m.index-220),m.index));
+    if(!out.length)for(const m of part.matchAll(/\b(\d{1,6})\s*\/\s*((?:19|20)\d\d)\b/g))add(m[1],m[2],part.slice(Math.max(0,m.index-220),m.index))}
+  if(!out.length)for(const m of t.matchAll(DOC)){const after=t.slice(m.index+m[0].length,m.index+m[0].length+14);if(/^\s*\)?\s*[-–]?\s*\(?\s*MOD\b/i.test(after))add(m[1],m[2],t.slice(Math.max(0,m.index-220),m.index))}
+  return out.filter(x=>!/receipt/i.test(x.nature))}
+function secText(L){return L.map(x=>`${x.no}/${x.yr}${x.nature?" "+x.nature.replace(/\b\w/g,c=>c.toUpperCase()):""}`).join("; ")}
+function secNos(t){return[...String(t||"").matchAll(/\b0*(\d{1,6})\s*\/\s*((?:19|20)\d\d)\b/g)].map(m=>({no:String(+m[1]),yr:m[2]}))}
+/* the deeds to link: only those in the legal report's security list (top-up: the earlier MODT too) */
+function deedProblems(d){const P=[],sec=secNos(d["Documents for security (legal report)"]),top=/^yes/i.test(String(d["Top-up loan"]||""));
+  if(!sec.length)return P;
+  [1,2,3].forEach(n=>{const no=String(d[`Deed ${n} Doc No`]||"").replace(/\D/g,""),yr=String(d[`Deed ${n} Year`]||"").trim();if(!no)return;
+    if(!sec.some(x=>x.no===String(+no)&&(!yr||x.yr===yr))&&!top)P.push(`Deed ${n} (${+no}/${yr}) is not under 'Documents for security' in the legal report (${d["Documents for security (legal report)"]}) - link only those deeds; the earlier MODT only when Top-up loan is Yes`)});
+  sec.forEach(x=>{if(![1,2,3].some(n=>String(+String(d[`Deed ${n} Doc No`]||"").replace(/\D/g,""))===x.no))P.push(`Deed ${x.no}/${x.yr} from the legal report's 'Documents for security' is not in 1 · Linked documents`)});
+  return P}
+/* after Claude's reading: put exactly the security deeds into Deed 1..3 (SRO from Claude's reading of the same deed, else the property SRO) */
+function applySecurity(d,L,top){if(!L.length)return false;const cur=[1,2,3].map(n=>({sro:d[`Deed ${n} SRO`]||"",no:String(+String(d[`Deed ${n} Doc No`]||"").replace(/\D/g,"")||""),yr:String(d[`Deed ${n} Year`]||"")}));
+  const keep=L.map(x=>({sro:(cur.find(c=>c.no===x.no)||{}).sro||d["Property SRO"]||"",no:x.no,yr:x.yr}));
+  if(top)cur.filter(c=>c.no&&!keep.some(k=>k.no===c.no)).forEach(c=>keep.push(c));
+  const before=JSON.stringify(cur);[1,2,3].forEach((n,i)=>{const k=keep[i]||{sro:"",no:"",yr:""};d[`Deed ${n} SRO`]=k.sro;d[`Deed ${n} Doc No`]=k.no;d[`Deed ${n} Year`]=k.yr});
+  return JSON.stringify([1,2,3].map(n=>({sro:d[`Deed ${n} SRO`],no:d[`Deed ${n} Doc No`],yr:d[`Deed ${n} Year`]})))!==before}
 async function readModtCase(c,force){window.__readRef=c.id+" · MODT case read";const D=c.docs||{};if(!(D.deed||[]).length&&!(D.letter||[]).length){toast("Upload the title deed or the bank letter first (the MODT draft is optional)");return}
   const pg=readProg();pg.step((D.mdraft||[]).length?"Step 1/4 · Opening the MODT draft…":"Step 1/4 · No MODT draft - reading the title deed, Aadhaar, patta and EC…",5);
   try{let draft="";const imgs=[],labels=[],cvs=[];let dn=0;const dTot=["th_kyc","deed","revenue","photos","ec","sanction"].filter(k=>(D[k]||[]).length).length||1;
     const add=async(list,label,maxPages,cap,opt={})=>{if((list||[]).length){dn++;pg.step(`Step 2/4 · Opening documents ${dn}/${dTot}: ${label.replace(/ page$/,"").toLowerCase()}…`,8+Math.round(dn/dTot*22))}let n=0;for(const f of list||[]){if(n>=cap)break;const file=await fileOfDoc(f);const{canvases}=await canvasesOf([file],()=>{},maxPages,opt);for(const cv of canvases){if(n>=cap||imgs.length>=20)break;imgs.push(jpegOf(cv,1568,0.85));cvs.push(cv);labels.push(label+(cv._pageNo&&cv._pageOf>1?` ${cv._pageNo} of ${cv._pageOf}`:""));n++}}};
     let lodHtml="";for(const f of D.mdraft||[]){const file=await fileOfDoc(f);if(/\.docx$/i.test(f.name)){draft+=await docxText(file)+"\n";if(!lodHtml)try{lodHtml=await docxLodTable(file)}catch(e){console.warn(e)}}else if(/\.doc$/i.test(f.name)||/msword/.test(file.type||"")){draft+=await docBinText(file)+"\n";if(!lodHtml&&docBinText.lod)lodHtml=docBinText.lod}else{const r=await canvasesOf([file],()=>{},4);draft+=r.text||"";if(!r.text.trim())r.canvases.slice(0,4).forEach(cv=>{imgs.push(jpegOf(cv,1400));cvs.push(cv);labels.push("MODT DRAFT page")})}}
+    /* 12 Nov 2026 (Rajeswari 0088): the legal report decides the linked title deed(s) and the property schedule */
+    let legal="";for(const f of (D.legal||[]).slice(0,1)){pg.step("Step 1/4 · Reading the legal report…",6);try{const file=await fileOfDoc(f);
+      if(/\.docx$/i.test(f.name))legal+=await docxText(file);else if(/\.doc$/i.test(f.name)||/msword/.test(file.type||""))legal+=await docBinText(file);
+      else{const r=await canvasesOf([file],()=>{},6);legal+=r.text||"";if(!String(r.text||"").trim())r.canvases.slice(0,3).forEach(cv=>{imgs.push(jpegOf(cv,1400,0.8));cvs.push(cv);labels.push("LEGAL REPORT page (decides the linked title deed and the property schedule)")})}}catch(e){console.warn("legal report",e)}}
     await add(D.th_kyc,"TITLE HOLDER AADHAAR / KYC",3,5);
     await add(D.deed,"TITLE DEED page",6,8,{tail:2});
     await add((D.deed||[]).length?[]:D.letter,"BANK LETTER page (no title deed copy: take the deed details from this letter and the MODT draft)",3,4);
@@ -3096,7 +3184,7 @@ async function readModtCase(c,force){window.__readRef=c.id+" · MODT case read";
     if(!imgs.length&&!draft.trim()){pg.fail("Nothing readable in the uploaded documents");return}
     const s3=`Step 3/4 · Claude is reading ${imgs.length} pages + the draft… (about 1 minute)`;let p3=35;pg.step(s3,p3);const slow=setInterval(()=>pg.step(s3,p3=Math.min(88,p3+1)),1500);
     const hints=[...ruleHints(),...learned().slice(0,30).map(x=>`${x.field}: "${x.read}" → "${x.fixed}"`)].slice(0,40);
-    let data,error;try{({data,error}=await window.__sb.functions.invoke("read-aadhaar",{body:{kind:"modt_case",draft:draft.slice(0,30000),images:imgs,labels,hints}}))}finally{clearInterval(slow)}
+    let data,error;try{({data,error}=await window.__sb.functions.invoke("read-aadhaar",{body:{kind:"modt_case",draft:(legalBlock(legal)+draft).slice(0,30000),images:imgs,labels,hints}}))}finally{clearInterval(slow)}
     if(error||!data||!data.fields){let m=(data&&data.error)||(error&&error.message)||"no reply";try{if(error&&error.context){const b=await error.context.json();m=b.error||m}}catch(e){}throw new Error(m+" (try once more)")}
     const F=data.fields,doubts=String(F.Doubts||"").trim(),dq=(Array.isArray(F.doubts)?F.doubts:[]).filter(q=>q&&q.field&&q.field in F&&!(q.field==="Mortgagor 1 phone"&&String(c.phone||"").replace(/\D/g,"").length>=10)).slice(0,10).map(q=>({field:q.field,...wholeOpts(F[q.field],q.read,(q.options||[]).map(String),/address/i.test(q.field)?(x=>addrClean(x,F[q.field.replace(/ address( Tamil)?$/," district")],/Tamil/.test(q.field))):null),why:String(q.why||""),img:cropOf(cvs[(+q.img||0)-1],q.box,q.read,/address|boundar/i.test(q.field))}));delete F.Doubts;delete F.doubts;
     pg.step("Step 4/4 · Saving what Claude read…",90);if(String(c.phone||"").replace(/\D/g,"").length>=10)delete F["Mortgagor 1 phone"];
@@ -3106,8 +3194,9 @@ async function readModtCase(c,force){window.__readRef=c.id+" · MODT case read";
     surveyClean(F);
     const d={...(c.draft||{})};let n=0;Object.entries(F).forEach(([k,v])=>{v=Array.isArray(v)?v.join("\n"):String(v??"").trim();if(!v)return;if(force||!String(d[k]||"").trim()){if(d[k]!==v)n++;d[k]=v}});
     modtCoAddr(d,draft);surveyClean(d);
+    {const sec=legalSecurity(legal);if(sec.length){d["Documents for security (legal report)"]=secText(sec);if(applySecurity(d,sec,/^yes/i.test(String(d["Top-up loan"]||""))))n++}}
     if(lodHtml)for(let i=dq.length-1;i>=0;i--)if(dq[i].field==="List of documents deposited")dq.splice(i,1);/* the Word table is pasted as it is - no question */
-    const ch={draft:d,draftText:draft.slice(0,20000),tpAuto:{...(c.tpAuto||{}),...Object.fromEntries(Object.entries(F).map(([k,v])=>[k,String(v??"")]))},tpNotes:doubts};if(lodHtml)ch.lodHtml=lodHtml;
+    const ch={draft:d,draftText:draft.slice(0,20000),...(legal.trim()?{legalText:legal.slice(0,20000)}:{}),tpAuto:{...(c.tpAuto||{}),...Object.fromEntries(Object.entries(F).map(([k,v])=>[k,String(v??"")]))},tpNotes:doubts};if(lodHtml)ch.lodHtml=lodHtml;
     if(dq.length)ch.robotQs=await doubtQs(c,dq,"draft","MODT documents");
     {const u=caseUnit(d),a=areaSqm(d.Extent),b=areaSqm(d["Total survey extent"]);if(a&&b&&a>b*1.002&&/agri/i.test(d["Property type"]||""))ch.robotQs=[...(ch.robotQs||c.robotQs||[]),{id:crypto.randomUUID(),q:`Mortgaged extent (MODT) ${d.Extent} is MORE than the patta total ${areaIn(d["Total survey extent"],u)} ${u}. Which is right?`,options:[`MODT is right: ${d.Extent}`,"Patta is right - I will correct the MODT extent"],hint:"The mortgaged extent cannot be more than the whole survey extent in the patta",src:"Extent check",at:nowISO()}]}
     {const miss=["North","South","East","West"].filter(x=>String(d["Boundary "+x]??"")===""||String(d[`Boundary ${x} Tamil`]??"")==="");if(miss.length)ch.robotQs=[...(ch.robotQs||c.robotQs||[]),...miss.map(x=>({id:crypto.randomUUID(),q:`Boundary ${x} is not in the MODT draft or the title deed reading. Type it (English) from the title deed.`,options:[],field:"Boundary "+x,hint:"All four boundaries are needed in English and Tamil",src:"Boundary check",at:nowISO()}))]}

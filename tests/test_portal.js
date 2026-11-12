@@ -15,7 +15,7 @@ src+=grab("function surveyClean(","\nasync function readModtCase(")+"\n";
 src+="const nowISO=()=>'2026-11-12T00:00:00Z',who=()=>'Test';\n"+grab("function settleQs(","\nfunction ")+"\n";
 src+=grab("async function doubtQs(","\n/* files are kept")+"\n";
 const MSTATES=(html.match(/MSTATES=\[[^\]]*\]/)||["MSTATES=[]"])[0];
-const T={};new Function("T",`const ${MSTATES};${src};T.parseSurvey=parseSurvey;T.partSurvey=partSurvey;T.modtCoAddr=modtCoAddr;T.lodBoxOf=lodBoxOf;T.dorDoneCheck=dorDoneCheck;T.custFromSubject=custFromSubject;T.NOT_DOR_RE=NOT_DOR_RE;T.dupPlan=dupPlan;T.missingReq=missingReq;T.modtUploads=modtUploads;T.surveyClean=surveyClean;T.settleQs=settleQs;T.doubtQs=doubtQs;`)(T);
+const T={};new Function("T",`const ${MSTATES};${src};T.parseSurvey=parseSurvey;T.partSurvey=partSurvey;T.modtCoAddr=modtCoAddr;T.lodBoxOf=lodBoxOf;T.dorDoneCheck=dorDoneCheck;T.custFromSubject=custFromSubject;T.NOT_DOR_RE=NOT_DOR_RE;T.dupPlan=dupPlan;T.missingReq=missingReq;T.modtUploads=modtUploads;T.surveyClean=surveyClean;T.settleQs=settleQs;T.doubtQs=doubtQs;T.svRowsOf=svRowsOf;T.svFix=svFix;T.legalSecurity=legalSecurity;T.secText=secText;T.deedProblems=deedProblems;T.applySecurity=applySecurity;T.legalBlock=legalBlock;`)(T);
 let fails=0;const check=(n,g,w)=>{if(JSON.stringify(g)!==JSON.stringify(w)){fails++;console.log("FAIL",n,"got",JSON.stringify(g),"want",JSON.stringify(w))}};
 for(const [text,exp] of JSON.parse(fs.readFileSync(path.join(__dirname,"survey_cases.json"),"utf8"))){const r=T.parseSurvey(text);for(const k in exp)check(`parseSurvey(${JSON.stringify(text.slice(0,40))}).${k}`,r[k],exp[k])}
 check("partSurvey part+new",T.partSurvey({type:"Deed of Receipt",tp:{"Survey number":"Old Sy.No.622/3 Part, New Survey No. 1025/12"}}),"");
@@ -81,3 +81,26 @@ if(globalThis.__MORE__)globalThis.__MORE__(T,check,html);
  const out=await T.doubtQs(c,[{field:"Mortgagor 1 district",read:"Tiruvallur",options:[]},{field:"Deed 2 SRO",read:"Kundrathur",options:[]}],"draft","MODT");
  check("doubtQs: answered not asked again",out.filter(q=>!q.answer).map(q=>q.field),["Deed 2 SRO"]);
  console.log("portal tests:",fails?fails+" FAILED":"OK");process.exit(fails?1:0)})();
+// 12 Nov 2026 (Rajeswari 0088): survey rows - survey and sub-division apart, each linked survey its own row, old numbers per row
+{const d={"New survey no":"20 / 2B2 with linked 20/2C1A","Subdivision":"2B2","Linked survey numbers":"20/2C1A","Old survey numbers":"20/2, 20/2C1"};T.surveyClean(d);
+ check("survey rows built",T.svRowsOf(d),[{s:"20",sd:"2B2",old:"20/2"},{s:"20",sd:"2C1A",old:"20/2C1"}]);
+ check("survey rows -> old fields",[d["New survey no"],d.Subdivision,d["Linked survey numbers"],d["Old survey numbers"]],["20","2B2","20/2C1A","20/2, 20/2C1"]);
+ const e={...d,"Survey rows":JSON.stringify([{s:"20",sd:"2B2",old:""},{s:"20",sd:"2C1A",old:"20/2, 20/2C1"}])};T.svFix(e);
+ check("edited rows win",[e["Old survey numbers"],JSON.parse(e["Survey rows"])[1].old],["20/2, 20/2C1","20/2, 20/2C1"]);
+ check("old number unclear -> row 1",T.svRowsOf({"New survey no":"73","Subdivision":"10","Linked survey numbers":"74/2=300","Old survey numbers":"99/1"})[0].old,"99/1");
+ check("single survey one row",T.svRowsOf({"New survey no":"73","Subdivision":"10","Old survey numbers":"73/2, 73/2A"}),[{s:"73",sd:"10",old:"73/2, 73/2A"}]);}
+// the legal report decides the linked deeds (marked "- MOD"); the earlier MODT and the Deed of Receipt are not linked
+{const lr="III. Documents perused for scrutiny:- 1. 26.05.1962 Sale Deed Executed by Mr.Dhamotharan in favour of Mr.Govindharaj (Doc.No.1340/1962) S.No.20/2 5. 14.06.2013 Release Deed Executed by Mr.Ulaganathan to in favour of Mr.Krishnan (Doc.No. 9088 /2013) 8. 17.03.2022 Release Deed Executed by Mrs.Sivagami, Mr.Vinothkumar & Mr.Karthik to in favour of Mr.Balaji (Doc.No. 5429 /2022) - MOD S.No.20/2 , New S.No.20/2C1 10. 07.11.2025 MODT Executed by Mr.Balaji to in favour of Truhome Finance Ltd (Doc.No. 20504 /2025 ) DOCUMENTS ORIGINAL TO BE COLLECTED POST DISBURSEMENT:- 1. 17.03.2022 Release Deed (Doc.No. 5429 /2022) - MOD Original 2. 07.11.2025 MODT (Doc.No. 20504 /2025) Original 3. Registered Discharge Receipt for MODT Doc.No.20504/2025.";
+ const L=T.legalSecurity(lr);check("legal report MOD deed",L.map(x=>x.no+"/"+x.yr),["5429/2022"]);check("security text",T.secText(L),"5429/2022 Release Deed");
+ const d={"Deed 1 SRO":"Kunrathur","Deed 1 Doc No":"5429","Deed 1 Year":"2022","Deed 2 Doc No":"20504","Deed 2 Year":"2025","Deed 3 SRO":"Kunrathur","Deed 3 Doc No":"21195","Deed 3 Year":"2026","Documents for security (legal report)":"5429/2022 Release Deed"};
+ check("wrong deeds flagged",T.deedProblems(d).length,2);
+ T.applySecurity(d,L,false);check("only the title deed kept",[1,2,3].map(n=>d[`Deed ${n} Doc No`]+"/"+d[`Deed ${n} Year`]+"/"+d[`Deed ${n} SRO`]),["5429/2022/Kunrathur","//","//"]);
+ check("no problems after",T.deedProblems(d),[]);
+ check("top-up keeps the earlier MODT",T.deedProblems({...d,"Deed 2 Doc No":"20504","Deed 2 Year":"2025","Top-up loan":"Yes"}),[]);
+ const sec2=T.legalSecurity("V. Documents for Security: 1. Sale deed dated 2.1.2019 Doc No.221/2019 2. Settlement deed Document No. 45 of 2020 VI. Certificate");check("Documents for security heading",sec2.map(x=>x.no+"/"+x.yr),["221/2019","45/2020"]);
+ check("no legal report -> no rule",T.deedProblems({"Deed 1 Doc No":"1"}),[]);
+ check("legal block has the rules",/Documents for security/.test(T.legalBlock("x"))&&T.legalBlock("")==="",true);}
+
+check("login IDs: Edit and Delete buttons, password write-only",/data-tne=/.test(html)&&/function tnEdit\(/.test(html)&&/Leave empty to keep the saved password/.test(html)&&!/id="tne_pass"[^>]*value=/.test(html),true);
+check("survey rows widget: Edit, Delete, + Add survey row",/data-sv="e\$\{i\}">Edit</.test(html)&&/>Delete<\/button><\/div>`\)/.test(html)&&/\+ Add survey row/.test(html),true);
+
