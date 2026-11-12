@@ -2862,10 +2862,10 @@ function parseModt(raw){const t=String(raw||"").replace(/[ \t]+/g," "),f=(re,g=1
   if(/^(mrs|ms)/i.test(d["Mortgagor salutation"]||""))d["Mortgagor gender"]="Female";else if(d["Mortgagor salutation"]==="Mr")d["Mortgagor gender"]="Male";
   if(/wife/i.test(d["Mortgagor relation"]||""))d["Mortgagor marital status"]="Married";
   return d}
-async function claudeModt(file){if(!window.__sb)return null;const{canvases,text}=await canvasesOf([file],()=>{},12,{tail:4});if(!canvases.length)return null;
+async function claudeModt(file){if(!window.__sb)return null;const{canvases,text}=await canvasesOf([file],()=>{},11,{tail:3});/* server takes up to 14 pages: first 11 + last 3 */if(!canvases.length)return null;
   const hints=[...ruleHints(),...learned().slice(0,40).map(x=>`${x.field}: "${x.read}" → "${x.fixed}"`)].slice(0,40);
   const tx=String(text||"").replace(/\s+/g," ").trim(),junk=(tx.match(/[\u0080-\u00ff\ufffd]/g)||[]).length/Math.max(1,tx.length),useText=tx.length>=Math.max(1500,canvases.length*500)&&/\d{4}/.test(tx)&&/mortgag|deposit|loan|அடமான/i.test(tx)&&junk<0.01;
-  const{data,error}=await window.__sb.functions.invoke("read-aadhaar",{body:useText?{kind:"modt",pdfText:tx,hints}:{kind:"modt",images:canvases.slice(0,16).map(c=>jpegOf(c,1568,0.85)),labels:canvases.slice(0,16).map(c=>c._pageNo?`MODT page ${c._pageNo} of ${c._pageOf}`:""),hints}});
+  const{data,error}=await window.__sb.functions.invoke("read-aadhaar",{body:useText?{kind:"modt",pdfText:tx,hints}:{kind:"modt",images:canvases.slice(0,14).map(c=>jpegOf(c,1568,0.85)),labels:canvases.slice(0,14).map(c=>c._pageNo?`MODT page ${c._pageNo} of ${c._pageOf}`:""),hints}});
   if(error||!data||!data.fields){console.warn("Claude MODT",error||data);try{if(/credit balance/i.test(await error.context.text())){window.__noCredit=true;toast("Claude credit is finished — top up at console.anthropic.com (Plans & Billing).")}}catch(e){}return null}
   const f=data.fields,d={},put=(k,v)=>{v=String(v??"").trim();if(v)d[k]=v};
   (Array.isArray(f.co_mortgagors)?f.co_mortgagors:[]).slice(0,4).forEach((m,i)=>{const n=i+2;put(`Mortgagor ${n} name`,String(m.name||"").toUpperCase());put(`Mortgagor ${n} name (Tamil)`,m.name_ta);put(`Mortgagor ${n} age`,m.age);put(`Mortgagor ${n} relation`,m.rel_type);put(`Mortgagor ${n} relative name`,String(m.rel_name||"").toUpperCase())});
