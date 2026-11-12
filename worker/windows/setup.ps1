@@ -73,7 +73,7 @@ powercfg /change hibernate-timeout-ac 0; powercfg /change hibernate-timeout-dc 0
 powercfg /setacvalueindex SCHEME_CURRENT SUB_BUTTONS LIDACTION 0 2>$null; powercfg /setdcvalueindex SCHEME_CURRENT SUB_BUTTONS LIDACTION 0 2>$null; powercfg /setactive SCHEME_CURRENT 2>$null
 
 Say "6/6 Starting the TP Desk"
-Get-TP Desk | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
+Get-TPDesk | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
 Start-ScheduledTask -TaskName $TASK
 Start-Sleep -Seconds 25
 if (Test-Path "$D\worker.log") { Get-Content "$D\worker.log" -Tail 4 }

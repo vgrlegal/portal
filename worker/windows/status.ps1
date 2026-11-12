@@ -3,7 +3,7 @@
 $Host.UI.RawUI.WindowTitle = $NAME
 Write-Host "  $NAME  " -ForegroundColor White -BackgroundColor DarkBlue
 Write-Host "  Computer: $env:COMPUTERNAME"
-$p = Get-TP Desk
+$p = Get-TPDesk
 if ($p) { Write-Host "`nRUNNING on this computer." -ForegroundColor Green } else {
   Write-Host "`nNOT running. Starting it..." -ForegroundColor Yellow; Start-ScheduledTask -TaskName $TASK; Start-Sleep 10 }
 Write-Host "`nLast lines of its log:"; if (Test-Path "$D\worker.log") { Get-Content "$D\worker.log" -Tail 12 }

@@ -114,5 +114,19 @@ check("installer: two brands, brand.txt, both exes built", ("!ifdef OO" in nsi, 
 for f in ("setup.ps1", "status.ps1", "uninstall.ps1"):
     t = open(os.path.join(win, f), encoding="utf-8").read()
     check(f"{f}: brand-aware, no fixed VGR path/task", ('brand.ps1' in t, 'LOCALAPPDATA "VGRLegal' in t, '-TaskName "VGR Legal TP Robot"' in t), (True, False, False))
+# 13 Nov 2026: the rename to "TP Desk" put a space in a PowerShell function name ("Missing function body") - names stay one word
+for f in ("brand.ps1", "setup.ps1", "status.ps1", "uninstall.ps1"):
+    t = open(os.path.join(win, f), encoding="utf-8").read()
+    bad = [l for l in t.splitlines() if re.match(r"\s*function\s", l) and not re.match(r"\s*function\s+[A-Za-z][\w-]*\s*[({]", l)]
+    bad += [l for l in t.splitlines() if re.search(r"(^|\|\s*)Get-TP Desk|Get-Robot\b", l)]
+    check(f"{f}: PowerShell function names are one word", bad, [])
+# real PowerShell parse of the Windows scripts when PowerShell is on this machine (e.g. /opt/pwsh/pwsh)
+import shutil, subprocess
+ps = shutil.which("pwsh") or ("/opt/pwsh/pwsh" if os.path.exists("/opt/pwsh/pwsh") else "")
+if ps:
+    for f in ("brand.ps1", "setup.ps1", "status.ps1", "uninstall.ps1"):
+        fp = os.path.join(win, f).replace("'", "''")
+        out = subprocess.run([ps, "-NoProfile", "-c", f"$e=$null;[System.Management.Automation.Language.Parser]::ParseFile('{fp}',[ref]$null,[ref]$e)|Out-Null;($e|%{{$_.Message}}) -join ' | '"], capture_output=True, text=True, timeout=120).stdout.strip()
+        check(f"{f}: PowerShell parses it", out, "")
 print("worker tests:", "OK" if not fails else f"{fails} FAILED")
 sys.exit(1 if fails else 0)
