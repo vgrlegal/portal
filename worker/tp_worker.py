@@ -85,7 +85,7 @@ HOST = platform.node() or "tp-computer"
 # VGR_ROLE=staff (no daily backup there) and VGR_ORG (an Opinion and Ownership laptop takes only their TPs).
 ORG = (os.environ.get("VGR_ORG") or "vgr").strip().lower()
 ROLE = (os.environ.get("VGR_ROLE") or "main").strip().lower()
-NAME = os.environ.get("VGR_NAME") or ("Opinion and Ownership TP Robot" if ORG == "oo" else "VGR Legal TP Robot")
+NAME = os.environ.get("VGR_NAME") or ("Opinion and Ownership TP Desk" if ORG == "oo" else "VGR Legal TP Desk")
 
 
 def job_for_me(data):
@@ -227,7 +227,7 @@ import threading
 
 
 class _ThreadList:
-    """Browser alert messages (e.g. "Invalid captcha"), kept per robot thread (several logins run side by side)."""
+    """Browser alert messages (e.g. "Invalid captcha"), kept per TP Desk thread (several logins run side by side)."""
     _t = threading.local()
 
     def _l(self):
@@ -289,7 +289,7 @@ class Portal:
         time.sleep(s)
         if self.job.cancelled():
             raise Stop("Stopped from the portal")
-        # 12 Nov 2026: "Watch robot" (Admin) - a fresh TNREGINET screen every 3 s while someone watches; nothing is clicked
+        # 12 Nov 2026: "Watch TP Desk" (Admin) - a fresh TNREGINET screen every 3 s while someone watches; nothing is clicked
         if getattr(self.job, "watching", False) and time.time() - getattr(self.job, "_live", 0) >= 3:
             self.job._live = time.time()
             try:
@@ -671,7 +671,7 @@ def open_presenceless(page, job):
             page.goto(URL, wait_until="domcontentloaded", timeout=90000)
             page.wait_for_timeout(3000)
         if not logged_in(page) and getattr(job, "acc", None) and relog < 1:
-            # 11 Nov 2026: TNREGINET signed the robot out (same login used in another browser, or the session ended) -
+            # 11 Nov 2026: TNREGINET signed the TP Desk out (same login used in another browser, or the session ended) -
             # the home page shows Sign In and the Presence-less banner. Sign in again (a new captcha is asked).
             relog += 1
             job.step("TNREGINET signed out - signing in again (type the new captcha)", page)
@@ -2173,7 +2173,7 @@ def modt_problems(case):
 
 
 def aadhaar_problems(case, kind):
-    """Every Aadhaar the robot will type for this case: [] when all are right."""
+    """Every Aadhaar the TP Desk will type for this case: [] when all are right."""
     out, people = [], []
     if kind == "modt":
         d = case.get("draft") or {}
@@ -2207,7 +2207,7 @@ def aadhaar_problems(case, kind):
 
 
 def record_stop(job, case_id, reason):
-    """Keep on the case where and why the robot stopped (and the TNREGINET draft number if one was seen)."""
+    """Keep on the case where and why the TP Desk stopped (and the TNREGINET draft number if one was seen)."""
     try:
         kv_merge("cases", case_id, {"tpStop": {"at": now(), "step": job.last, "reason": str(reason)[:400],
                                                "draftNo": job.d.get("draftNo", ""), "job": job.id, "timing": job.timing()}})
@@ -2386,7 +2386,7 @@ def open_draft(P, job, page, dn):
     if not row:
         shot = survey_shot(page, job, 0, "draftlist")
         survey_question(job, f"Draft Listing: draft {dn} not found (clicked: {hit or 'no Draft Listing link'}). Open TNREGINET's Draft Listing and check the number, or clear it in TP Generate to start a fresh document.", shot)
-        raise Stop(f"Saved draft {dn} not found in Draft Listing. A robot question with the screenshot is on the case.")
+        raise Stop(f"Saved draft {dn} not found in Draft Listing. A TP Desk question with the screenshot is on the case.")
     P.wait(1.5)
     click_btn_text(P, r"^\s*load\s*$") or click_text(page, r"^\s*load\s*$")
     wait_loader(page); P.wait(3); P.popup_ok()
@@ -2395,13 +2395,13 @@ def open_draft(P, job, page, dn):
     if num not in (got or ""):
         shot = survey_shot(page, job, 0, "draftload")
         survey_question(job, f"Draft {dn}: pressed Load but the page shows '{got or 'no draft number'}'. Check the screen.", shot)
-        raise Stop(f"Draft {dn} did not open after Load. A robot question with the screenshot is on the case.")
+        raise Stop(f"Draft {dn} did not open after Load. A TP Desk question with the screenshot is on the case.")
     job.step(f"0 · Draft {got} loaded", page)
     return got
 
 
 def run_modt(page, job, case):
-    """MODT robot, part 1 (from the recording of 9 Nov): create document, link the title deed(s), title holders,
+    """MODT TP Desk, part 1 (from the recording of 9 Nov): create document, link the title deed(s), title holders,
     mortgagee company, skip representative, witnesses, presenter; then property, loan, legal conditions, Create Document, uploads, print, fees."""
     d = case.get("draft") or {}
     P = Portal(page, job)
@@ -2572,7 +2572,7 @@ APPEND_LOD_JS = r"""(txt)=>{const html='<p>&nbsp;</p>'+txt.split(/\n/).map(l=>'<
 
 # ---------------- MODT property (rules of 11 Nov 2026, from the screenshots) ----------------
 # Every helper finds things by the words printed on the screen, so small layout changes do not break it.
-# Nothing here stops the robot for a mismatch: it is written into `comments` and shown on the case after the TP.
+# Nothing here stops the TP Desk for a mismatch: it is written into `comments` and shown on the case after the TP.
 
 VIS_JS = r"""const vis=e=>!!e&&e.getClientRects().length>0&&getComputedStyle(e).visibility!=='hidden';
 const own=e=>[...e.childNodes].filter(n=>n.nodeType===3).map(n=>n.textContent).join(' ').replace(/\s+/g,' ').trim();
@@ -3139,7 +3139,7 @@ def survey_qs_keep(qs, q, job_id):
 
 
 def survey_question(job, q, shot, options=None, field=None):
-    """Stop and ask the office on the case (Drafting → Robot questions), with the screenshot."""
+    """Stop and ask the office on the case (Drafting → TP Desk questions), with the screenshot."""
     cid = job.d.get("case") or job.d.get("caseId") or ""
     if not cid:
         return
@@ -3149,7 +3149,7 @@ def survey_question(job, q, shot, options=None, field=None):
         if qs is None:
             return  # the same question is already waiting on the case - do not ask it again
         qs = qs + [{"id": str(uuid.uuid4()), "job": job.id, "q": q[:400], "options": (options or ["Looks right - go on", "Wrong - I will correct Drafting"])[:30],
-                                           "hint": "From the robot, on TNREGINET's survey screen", "src": "TNREGINET survey screen", "shot": shot,
+                                           "hint": "From the TP Desk, on TNREGINET's survey screen", "src": "TNREGINET survey screen", "shot": shot,
                                            "kind": "survey" if not field else "survey-pick", **({"field": field} if field else {}),
                                            **({"store": "tp"} if job.d.get("kind") == "dor" else {}), "at": now()}]
         kv_merge("cases", cid, {"robotQs": qs})
@@ -3230,7 +3230,7 @@ def pick_survey(P, job, page, d, i, s, sd):
         why = (f"sub-division {sd} is not in TNREGINET's list for survey {s} ({', '.join(lst[:15])})" if what == "nosub" and lst else
                "the Sub Division list stayed empty" if what == "nosub" else f"survey {s} is not in TNREGINET's Survey No. list ({', '.join(lst[:15])})")
         survey_question(job, f"Survey screen: {why}. Correct the survey row in Drafting (Edit), then start the TP again.", shot, options=lst or None)
-        raise Stop(f"Survey {s} + {sd}: {why}. A robot question with the screenshot is on the case; the draft is saved.")
+        raise Stop(f"Survey {s} + {sd}: {why}. A TP Desk question with the screenshot is on the case; the draft is saved.")
     end, opts, sep, pat = time.time() + 45, [], False, ""
     while time.time() < end:  # the list loads late; a list without any number (CMDA / DTCP / Local Body) is not the survey list
         sep = bool(page.evaluate(SURVEY_SEP_JS))
@@ -3245,14 +3245,14 @@ def pick_survey(P, job, page, d, i, s, sd):
         shot = survey_shot(page, job, i, "nolist")
         why = "the survey list stayed empty" if not opts else f"TNREGINET's list shows {', '.join(opts[:6])} - not survey numbers"
         survey_question(job, f"Survey screen: {why} (Urban/Natham/Rural = {g(d, 'Land type') or '-'}). Check the screenshot and Drafting's Land type, then start the TP again.", shot)
-        raise Stop(f"Survey {s} + {sd}: {why}. A robot question with the screenshot is on the case; the draft is saved.")
+        raise Stop(f"Survey {s} + {sd}: {why}. A TP Desk question with the screenshot is on the case; the draft is saved.")
     if sep:
         hit = pick_option(page, pat, opts, {sv_norm(s)}, s)
         if not hit:
             shot = survey_shot(page, job, i, "nomatch")
             survey_question(job, f"Survey screen: survey number {s} is not in TNREGINET's Survey No. list ({len(opts)} options: {', '.join(opts[:15])}{'…' if len(opts) > 15 else ''}). Pick the right one, then start the TP again.",
                             shot, options=opts, field="TNREGINET survey option")
-            raise Stop(f"Survey {s}: not in TNREGINET's Survey No. list. A robot question with the screenshot is on the case; the draft is saved.")
+            raise Stop(f"Survey {s}: not in TNREGINET's Survey No. list. A TP Desk question with the screenshot is on the case; the draft is saved.")
         if not sd:
             return hit
         P.wait(2.5); wait_loader(page)
@@ -3262,7 +3262,7 @@ def pick_survey(P, job, page, d, i, s, sd):
             shot = survey_shot(page, job, i, "nosub")
             why = "the Sub Division list stayed empty" if not sub_opts else f"sub-division {sd} is not in TNREGINET's list for survey {s} ({', '.join(sub_opts[:15])}{'…' if len(sub_opts) > 15 else ''})"
             survey_question(job, f"Survey screen: {why}. Correct the survey row in Drafting (Edit), then start the TP again.", shot, options=sub_opts or None)
-            raise Stop(f"Survey {s} + {sd}: {why}. A robot question with the screenshot is on the case; the draft is saved.")
+            raise Stop(f"Survey {s} + {sd}: {why}. A TP Desk question with the screenshot is on the case; the draft is saved.")
         return f"{hit}/{sub}"
     wants = {x for x in (sv_norm(f"{s}/{sd}" if sd else s), sv_norm(told) if i == 0 else "") if x}
     hit = pick_option(page, pat, opts, wants, s)
@@ -3270,7 +3270,7 @@ def pick_survey(P, job, page, d, i, s, sd):
         shot = survey_shot(page, job, i, "nomatch")
         survey_question(job, f"Survey screen: {s}/{sd} is not in TNREGINET's Survey No./Sub Division list ({len(opts)} options: {', '.join(opts[:15])}{'…' if len(opts) > 15 else ''}). Pick the right one, then start the TP again.",
                         shot, options=opts, field="TNREGINET survey option")
-        raise Stop(f"Survey {s}/{sd}: not in TNREGINET's survey list. A robot question with the screenshot is on the case; the draft is saved.")
+        raise Stop(f"Survey {s}/{sd}: not in TNREGINET's survey list. A TP Desk question with the screenshot is on the case; the draft is saved.")
     return hit
 
 
@@ -3305,10 +3305,10 @@ def survey_extent(P, job, page, d, i, s, sd, src, ptype, u, cu, note, linked=Fal
     if not sv_ok or not ex_ok or (m and re.search(r"invalid|not|exceed|error|greater|must", m, re.I)):
         why = ("TNREGINET said: " + m[:140]) if m else (f"survey {s}/{sd} not in the table" if not sv_ok else f"extent {e} {u} not in the table")
         if survey_ok(job):
-            note(f"survey screen: {why} - you answered 'Looks right - go on' earlier, so the robot went on (screenshot kept on the case)")
+            note(f"survey screen: {why} - you answered 'Looks right - go on' earlier, so the TP Desk went on (screenshot kept on the case)")
             return
         survey_question(job, f"Survey screen: {why}. We typed survey {s}{('/' + sd) if sd else ''}, extent {e} {u}. Table now: {tbl[:160] or '(empty)'}", after or before)
-        raise Stop(f"Survey screen did not match ({why}). Screenshots and a question are on the case; the draft is saved - answer the robot question, then start again.")
+        raise Stop(f"Survey screen did not match ({why}). Screenshots and a question are on the case; the draft is saved - answer the TP Desk question, then start again.")
 
 
 # 12 Nov 2026: copied survey rows (to check a delete really happened), radio really on, and a real (trusted) radio click
@@ -3369,7 +3369,7 @@ def survey_tab(P, job, page, d, ptype, note):
                 shot = survey_shot(page, job, 0, "nodelete")
                 survey_question(job, f"Survey screen: the old survey row copied from the title deed ({first[:90]}) did not go after 4 delete tries (10 seconds each). Please delete it by hand in My Documents, or tell me what TNREGINET shows.", shot,
                                 options=["I deleted it by hand - start again", "Something else - I will check"])
-                raise Stop(f"The old survey row ({first[:70]}) could not be deleted after 4 tries. A robot question with the screenshot is on the case; the draft is saved.")
+                raise Stop(f"The old survey row ({first[:70]}) could not be deleted after 4 tries. A TP Desk question with the screenshot is on the case; the draft is saved.")
 
     delete_copied()
     survey_shot(page, job, 0, "after-delete")
@@ -3437,7 +3437,7 @@ def survey_tab(P, job, page, d, ptype, note):
             shot = survey_shot(page, job, 0, "row-back-again")
             survey_question(job, f"Survey screen: the old row ({back[0][:80]}) was deleted (Yes on the pop-up) but came back after Rural / Linked Survey were clicked - twice. When you do it by hand, what do you click after Yes? (screenshot)", shot,
                             options=["Fixed by hand - start again", "Something else - I will check"])
-            raise Stop("The old survey row comes back after Rural / Linked Survey. A robot question with the screenshots is on the case; the draft is saved.")
+            raise Stop("The old survey row comes back after Rural / Linked Survey. A TP Desk question with the screenshots is on the case; the draft is saved.")
     if now_u and now_u[0] and unit_key(now_u[0]) and unit_key(now_u[0]) != unit_key(u):
         note(f"TNREGINET's unit is '{now_u[0]}'{' (locked)' if now_u[1] else ''} - our unit is {u or '-'}; every extent typed in {now_u[0]}")
         u = UNIT_LABEL.get(unit_key(now_u[0]), now_u[0])
@@ -3450,7 +3450,7 @@ def survey_tab(P, job, page, d, ptype, note):
         shot = survey_shot(page, job, 0, "radios")
         why = f"'{lt}' is not selected" if not ok_lt else f"'{'Linked' if linked else 'Single'} Survey' is not selected"
         survey_question(job, f"Survey screen: {why} even after 3 tries. What does TNREGINET show? (screenshot)", shot, options=["Fixed by hand - start again", "Something else - I will check"])
-        raise Stop(f"Survey screen: {why} after 3 tries. A robot question with the screenshot is on the case; the draft is saved.")
+        raise Stop(f"Survey screen: {why} after 3 tries. A TP Desk question with the screenshot is on the case; the draft is saved.")
     if not ok_sep:
         # Linked Survey on, but one joined 'Survey No./Sub Division' box: go on only when every row is in that list exactly
         jl = [o for o in (page.evaluate(OPTIONS_LAB_JS, "^Survey No\\.?\\s*/\\s*Sub Divi?si?on") or []) if re.search(r"\d", o)]
@@ -3461,7 +3461,7 @@ def survey_tab(P, job, page, d, ptype, note):
             survey_question(job, "Survey screen: Linked Survey is selected, but TNREGINET shows one joined 'Survey No./Sub Division' box, not separate 'Survey No.' and 'Sub Divison No.' boxes"
                             + (f" (its list: {', '.join(jl[:10])})" if jl else " (and its list is empty)") + ". What should be done here? (screenshot)", shot,
                             options=["Fixed by hand - start again", "Something else - I will check"])
-            raise Stop("Survey screen: Linked Survey did not show separate Survey No. / Sub Division boxes after 3 tries. A robot question with the screenshot is on the case; the draft is saved.")
+            raise Stop("Survey screen: Linked Survey did not show separate Survey No. / Sub Division boxes after 3 tries. A TP Desk question with the screenshot is on the case; the draft is saved.")
         note("Linked Survey shows one joined Survey No./Sub Division list - every row was in it, so it was used")
     for i, (s, sd, olds, ext) in enumerate(rows):
         job.step(f"7 · Survey row {i + 1}/{len(rows)}: {s} + {sd or '-'}", page)
@@ -3479,7 +3479,7 @@ def survey_tab(P, job, page, d, ptype, note):
                 shot = survey_shot(page, job, i, "landtype")
                 survey_question(job, f"Survey screen: Land Type is mandatory - which one is this land (patta: punjai / nanjai …)? TNREGINET offers: {', '.join(lopts[:15])}",
                                 shot, options=lopts, field="Land classification")
-                raise Stop("Land Type: not in Drafting. A robot question with TNREGINET's choices is on the case; the draft is saved.")
+                raise Stop("Land Type: not in Drafting. A TP Desk question with TNREGINET's choices is on the case; the draft is saved.")
         P.wait(1.5)
         st = g(d, "Street name")
         if st and (linked or i == 0):
@@ -3941,7 +3941,7 @@ def save_fees(job, case_id, tp, fees, comments):
 
 
 def modt_second_half(P, job, page, d, case, comments):
-    """MODT robot part 2 (screens of 10-11 Nov): loan (checked 3 ways) → title deposit (skip) → possession (skip) →
+    """MODT TP Desk part 2 (screens of 10-11 Nov): loan (checked 3 ways) → title deposit (skip) → possession (skip) →
     legal conditions (tick all, Copy, 2 lines, list of documents WITH its table) → reasons (save) → supporting details →
     preview → read fees → Create Document → uploads → print → fees with page count. Stops before payment."""
     job.step("9 · Mortgage and security details", page)
@@ -4053,7 +4053,7 @@ def modt_second_half(P, job, page, d, case, comments):
         comments.append("Stays at TP Creation, missing: " + ", ".join(miss))
     note = f"MODT TP created: {tp}. Uploaded: {', '.join(done) or 'none'}" + ("" if err else ". Print saved in the case")
     if f:
-        pass  # 12 Nov 2026: the amount to collect is shown only in the case's fees box (Admin switch), not in the robot's message
+        pass  # 12 Nov 2026: the amount to collect is shown only in the case's fees box (Admin switch), not in the TP Desk's message
     note += ". Do biometric + payment yourself. "
     if comments:
         note += "CHECK: " + " · ".join(comments) + ". "
@@ -4062,7 +4062,7 @@ def modt_second_half(P, job, page, d, case, comments):
     try:
         c = kv_get("cases", cid) or {}
         if comments:
-            kv_merge("cases", cid, {"tpRemarks": comments, "log": (c.get("log") or [])[-79:] + [{"at": now(), "by": "TP robot", "text": f"{tp}: please check - " + " · ".join(comments)[:900]}]})
+            kv_merge("cases", cid, {"tpRemarks": comments, "log": (c.get("log") or [])[-79:] + [{"at": now(), "by": "TP Desk", "text": f"{tp}: please check - " + " · ".join(comments)[:900]}]})
     except Exception:
         pass
     tm = job.timing()
@@ -4090,8 +4090,8 @@ def tp_ready(job, case_id, tp, done, print_err):
         ch = {"tpChecks": {"tp": tp, "uploaded": done, "saved": bool(getattr(job, "upSaved", False)), "print": not print_err, "missing": missing, "at": now()}}
         if not missing and (c.get("stage") or "") in ("", "Draft Pending", "TP Creation", "TP On Hold"):
             ch.update(stage="Photo/Biometric", stageAt=now(), updatedAt=now(),
-                      stageLog=(c.get("stageLog") or [])[-39:] + [{"s": "Photo/Biometric", "at": now(), "by": "TP robot"}],
-                      log=(c.get("log") or [])[-79:] + [{"at": now(), "by": "TP robot", "text": f"{tp}: all documents uploaded and TP print saved → Biometric pending"}])
+                      stageLog=(c.get("stageLog") or [])[-39:] + [{"s": "Photo/Biometric", "at": now(), "by": "TP Desk"}],
+                      log=(c.get("log") or [])[-79:] + [{"at": now(), "by": "TP Desk", "text": f"{tp}: all documents uploaded and TP print saved → Biometric pending"}])
         kv_merge("cases", case_id, ch)
     except Exception as e:
         log("tp_ready failed", e)
@@ -4154,7 +4154,7 @@ def run_bio(page, job, data):
         head, cells = info.get("head") or [], info.get("cells") or []
         st = next((cells[i] for i, h in enumerate(head) if i < len(cells) and re.search(r"status", h, re.I)), "") or info.get("row", "")
         done = bool(BIO_DONE_RE.search(st)) and not BIO_PENDING_RE.search(st)
-        ch = {"bioCheck": {"at": now(), "found": True, "status": st[:200], "row": info.get("row", "")[:400], "head": head[:15], "done": done, "by": "TP robot · daily check"}}
+        ch = {"bioCheck": {"at": now(), "found": True, "status": st[:200], "row": info.get("row", "")[:400], "head": head[:15], "done": done, "by": "TP Desk · daily check"}}
         if done:
             b = dict(c.get("bio") or {})
             if re.search(r"receipt", c.get("type") or "", re.I):
@@ -4165,8 +4165,8 @@ def run_bio(page, job, data):
             for k in who:
                 b.setdefault(k, {"at": now(), "by": "TNREGINET (daily check)"})
             ch.update(bio=b, stage="Payment", stageAt=now(), updatedAt=now(),
-                      stageLog=(c.get("stageLog") or [])[-39:] + [{"s": "Payment", "at": now(), "by": "TP robot · daily check"}],
-                      log=(c.get("log") or [])[-79:] + [{"at": now(), "by": "TP robot", "text": f"{tp}: TNREGINET shows '{st[:80]}' → biometric complete → Payment"}])
+                      stageLog=(c.get("stageLog") or [])[-39:] + [{"s": "Payment", "at": now(), "by": "TP Desk · daily check"}],
+                      log=(c.get("log") or [])[-79:] + [{"at": now(), "by": "TP Desk", "text": f"{tp}: TNREGINET shows '{st[:80]}' → biometric complete → Payment"}])
         kv_merge("cases", cid, ch)
         res.append(f"{c.get('applicant', cid)}: {st[:60] or '?'}{' → Payment' if done else ''}")
     job.step("Biometric check finished", page)
@@ -4343,9 +4343,9 @@ REC_INIT = r"""(() => { window.__rec = window.__rec || [];
 
 
 def run_record(jid, data):
-    """Recording mode: a VISIBLE browser on the TP computer. The robot signs in (captcha in the portal), then the
-    person does one TNREGINET entry by hand. Every page, field, button and click is saved for building the robot.
-    Nothing is clicked by the robot after sign-in; it never submits or pays."""
+    """Recording mode: a VISIBLE browser on the TP computer. The TP Desk signs in (captcha in the portal), then the
+    person does one TNREGINET entry by hand. Every page, field, button and click is saved for building the TP Desk.
+    Nothing is clicked by the TP Desk after sign-in; it never submits or pays."""
     key = ("record", data.get("login", ""))
     job = Job(jid, data)
     steps, n = [], 0

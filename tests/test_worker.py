@@ -110,7 +110,7 @@ check("backup only on the main computer", 'if ROLE == "main" and time.time() - B
 check("one heartbeat row per computer", 'kv_set("tp_jobs", "_w_" +' in src, True)
 win = os.path.join(ROOT, "worker", "windows")
 nsi = open(os.path.join(win, "installer.nsi"), encoding="utf-8").read()
-check("installer: two brands, brand.txt, both exes built", ("!ifdef OO" in nsi, "brand.txt" in nsi, os.path.exists(os.path.join(win, "VGR-Legal-TP-Robot-Setup.exe")), os.path.exists(os.path.join(win, "Opinion-and-Ownership-TP-Robot-Setup.exe"))), (True, True, True, True))
+check("installer: two brands, brand.txt, both exes built", ("!ifdef OO" in nsi, "brand.txt" in nsi, os.path.exists(os.path.join(win, "VGR-Legal-TP-Desk-Setup.exe")), os.path.exists(os.path.join(win, "Opinion-and-Ownership-TP-Desk-Setup.exe"))), (True, True, True, True))
 for f in ("setup.ps1", "status.ps1", "uninstall.ps1"):
     t = open(os.path.join(win, f), encoding="utf-8").read()
     check(f"{f}: brand-aware, no fixed VGR path/task", ('brand.ps1' in t, 'LOCALAPPDATA "VGRLegal' in t, '-TaskName "VGR Legal TP Robot"' in t), (True, False, False))

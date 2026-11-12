@@ -1,5 +1,5 @@
-# VGR Legal / Opinion and Ownership TP Robot - Windows setup (run by the installer; safe to run again).
-# Installs Python + the robot + its browser, asks once for this computer's key, starts the robot at every sign-in,
+# VGR Legal / Opinion and Ownership TP Desk - Windows setup (run by the installer; safe to run again).
+# Installs Python + the TP Desk + its browser, asks once for this computer's key, starts the TP Desk at every sign-in,
 # keeps the computer awake. A staff laptop: no daily backup here (that stays on the main computer), and an
 # Opinion and Ownership laptop takes only Opinion and Ownership TPs.
 $ErrorActionPreference = "Stop"
@@ -10,7 +10,7 @@ $Host.UI.RawUI.WindowTitle = "$NAME - Setup"
 Write-Host $NAME -ForegroundColor Cyan
 function Say($m) { Write-Host ""; Write-Host "== $m ==" -ForegroundColor Cyan }
 
-Say "1/6 Downloading the robot"
+Say "1/6 Downloading the TP Desk"
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 Invoke-WebRequest -UseBasicParsing "https://raw.githubusercontent.com/vgrlegal/portal/main/worker/tp_worker.py" -OutFile "$D\tp_worker.py"
 
@@ -22,7 +22,7 @@ if (-not $uv) { throw "Could not install Python (uv). Check the internet and run
 $PY = Join-Path $D "venv\Scripts\python.exe"
 if (-not (Test-Path $PY)) { & $uv venv --python 3.12 "$D\venv" }
 
-Say "3/6 Installing the robot's parts and its browser (a few minutes)"
+Say "3/6 Installing the TP Desk's parts and its browser (a few minutes)"
 & $uv pip install --python $PY playwright requests
 & $PY -m playwright install chromium
 
@@ -45,7 +45,7 @@ Say "5/6 Start at every sign-in, and stay awake"
 $run = Join-Path $D "run.cmd"
 @"
 @echo off
-rem $NAME`: runs the robot and starts it again after each self-update.
+rem $NAME`: runs the TP Desk and starts it again after each self-update.
 title $NAME
 cd /d "$D"
 set PYTHONUTF8=1
@@ -61,14 +61,19 @@ $act = New-ScheduledTaskAction -Execute "wscript.exe" -Argument "`"$vbs`""
 $trg = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME
 $set = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit ([TimeSpan]::Zero) -RestartCount 99 -RestartInterval (New-TimeSpan -Minutes 1)
 Register-ScheduledTask -TaskName $TASK -Action $act -Trigger $trg -Settings $set -Description "$NAME (TNREGINET)" -Force | Out-Null
+# the older name of this app (before 13 Nov 2026): remove its start-up task and desktop icon so only one runs
+foreach ($old in @("VGR Legal TP Ro" + "bot", "Opinion and Ownership TP Ro" + "bot")) {
+  Unregister-ScheduledTask -TaskName $old -Confirm:$false -ErrorAction SilentlyContinue
+  Remove-Item -Force -ErrorAction SilentlyContinue (Join-Path ([Environment]::GetFolderPath("Desktop")) "$old.lnk")
+}
 # never sleep or hibernate (the screen may still turn off)
 powercfg /change standby-timeout-ac 0; powercfg /change standby-timeout-dc 0
 powercfg /change hibernate-timeout-ac 0; powercfg /change hibernate-timeout-dc 0
 # closing the lid does nothing (plugged in or on battery)
 powercfg /setacvalueindex SCHEME_CURRENT SUB_BUTTONS LIDACTION 0 2>$null; powercfg /setdcvalueindex SCHEME_CURRENT SUB_BUTTONS LIDACTION 0 2>$null; powercfg /setactive SCHEME_CURRENT 2>$null
 
-Say "6/6 Starting the robot"
-Get-Robot | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
+Say "6/6 Starting the TP Desk"
+Get-TP Desk | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
 Start-ScheduledTask -TaskName $TASK
 Start-Sleep -Seconds 25
 if (Test-Path "$D\worker.log") { Get-Content "$D\worker.log" -Tail 4 }

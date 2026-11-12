@@ -171,5 +171,9 @@ check("Claude plan: old days show about how many cases were made (~)",/const MAD
 check("TP jobs carry the organisation (partner laptops take only their own)",(html.match(/status:"queued",org:myOrg\(\),/g)||[]).length,4);
 {const f=new Function("myOrg",html.match(/const tpOnline=[^\n]*/)[0].replace("const tpOnline=","return ")).call(null,()=>"");const n=Date.parse("2026-11-13T00:00:00Z");
  check("Dashboard counts TP computers that are on (VGR view hides partner laptops)",f([{at:"2026-11-12T23:59:00Z",org:"vgr"},{at:"2026-11-12T23:59:30Z",org:"oo"},{at:"2026-11-12T23:00:00Z",org:"vgr"},{at:"2026-11-12T23:58:00Z"}],n).length,2)}
+{/* 13 Nov 2026: the word "robot" never shows on screen - "TP Desk" (code names like robotQs stay) */
+ const vis=html.replace(/<meta name="robots"[^>]*>/,"").replace(/\b(?:TP )?\[Rr\]obot\\b/,"").replace(/add\("robot",/,"");
+ check("no visible 'robot' word in the portal",(vis.match(/\b[Rr]obot\b|\bROBOT\b/g)||[]).length,0);
+ check("old saved text shows TP Desk",eval(html.match(/const esc=(s=>[^\n]*?\}\[c\]\)\))/)[1])("TP robot · daily check / Robot question answered / the robot stopped"),"TP Desk · daily check / TP Desk question answered / the TP Desk stopped");}
 check("Clean-up never touches cases or documents",/async function cleanPlan\(/.test(html)&&!/from\("kv"\)\.delete\(\)\.eq\("collection","cases"\)/.test(html),true);
 
