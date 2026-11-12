@@ -1446,7 +1446,7 @@ function openReview(c,gen){
   {const ex=$("rv_Execution_SRO"),ta=$("rv_SRO_Tamil");if(ex&&ta){
     {const ps=$("rv_SRO")||$("rv_Property_SRO");if(!ex.value&&ps&&ps.value)ex.value=ps.value}
     const syncTa=()=>{const t=sroTamil(ex.value);if(t)ta.value=t};if(!ta.value)syncTa();ex.addEventListener("change",syncTa)}}
-  if(!dor){const th=$("rv_Title_holders"),showTh=()=>document.querySelectorAll("#rvBody .rvsec").forEach(sx=>{const m=(sx.querySelector(".sect")||{}).textContent.match(/Title holder (\d)$/);if(m)sx.hidden=+m[1]>(+(th&&th.value)||1)});if(th){th.onchange=showTh;showTh()}
+  if(!dor){const th=$("rv_Title_holders"),showTh=()=>document.querySelectorAll("#rvBody .rvsec").forEach(sx=>{const m=String((sx.querySelector(".sect")||{}).textContent||"").match(/Title holder (\d)$/);if(m)sx.hidden=+m[1]>(+(th&&th.value)||1)});if(th){th.onchange=showTh;showTh()}
     const L=["North","South","East","West"].map(x=>$("rv_"+x+"_length")),bt=$("rv_Boundary_type"),reg=()=>{const n=L.map(e=>parseFloat(e.value));if(n.some(isNaN))return;bt.value=n[0]===n[1]&&n[2]===n[3]?"Regular":"Irregular"};L.forEach(e=>e&&e.addEventListener("input",reg));
     {const dsec=$("rv_Deed_1_Doc_No")&&$("rv_Deed_1_Doc_No").closest(".rvsec");if(dsec){const grp=n=>["SRO","Doc_No","Year"].map(k=>$(`rv_Deed_${n}_${k}`)).filter(Boolean).map(e=>e.closest("label"));
       const has=n=>["Doc No","Year"].some(k=>String(data[`Deed ${n} ${k}`]||"").trim());let shown=1;[2,3].forEach(n=>{const h=has(n);grp(n).forEach(l=>l.hidden=!h);if(h)shown=n});
