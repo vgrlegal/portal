@@ -93,5 +93,11 @@ check("until stops as soon as done", (ns["until"](P_, _fn, 10), P_.waited), (Tru
 P2 = _P()
 check("until gives up after the longest wait", ns["until"](P2, lambda: False, 0.3, 0.1), False)
 check("watch: live screen only while watched, nothing clicked", 'getattr(self.job, "watching", False)' in src and '"select": "st:data->>status,w:data->>watch"' in src, True)
+# 13 Nov 2026: the survey question is not asked again and again
+a = src.index("def survey_qs_keep("); exec(src[a:src.index("\n\n\ndef survey_question(", a)], ns)
+Q = [{"kind": "survey", "q": "Survey screen: X", "job": "j1"}, {"kind": "survey", "q": "Old", "job": "j1", "answer": "Fixed by hand"}, {"kind": "doubt", "q": "D"}]
+check("same question waiting -> not added", ns["survey_qs_keep"](Q, "Survey  screen: x", "j2"), None)
+check("new run replaces old unanswered survey qs, keeps answered + others", [x["q"] for x in ns["survey_qs_keep"](Q, "Other", "j2")], ["Old", "D"])
+check("same run keeps its own questions", len(ns["survey_qs_keep"](Q, "Other", "j1")), 3)
 print("worker tests:", "OK" if not fails else f"{fails} FAILED")
 sys.exit(1 if fails else 0)

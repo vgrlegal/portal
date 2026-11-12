@@ -78,6 +78,17 @@ with sync_playwright() as pw:
     except W.Stop as e:
         err = str(e)
     check("bad sub-division stops with a question", ("9Z9" in err, bool(asked)), (True, True))
+    # 13 Nov 2026 - TNREGINET's real ids (the MD's recording): Action-cell delete + "Yes", unit already right is NOT re-selected
+    p = b.new_page(); p.goto("file://" + os.path.join(ROOT, "tests", "screens", "survey_ids.html")); P = W.Portal(p, job); asked.clear(); notes = []
+    try:
+        W.survey_tab(P, job, p, dict(D88), "Plot with Building", notes.append); err = ""
+    except W.Stop as e:
+        err = str(e)
+    check("ids: no stop", (err, asked), ("", []))
+    check("ids: Yes pressed, unit not re-selected (no reload)", p.evaluate("()=>[yes,reloads]"), [1, 0])
+    check("ids: rows by id", p.evaluate("()=>rowsAdded"), [["20/2B2", "KUPPUSAMY NAICKER STREET", "20/2"], ["20/2C1A", "KUPPUSAMY NAICKER STREET", "20/2C1"]])
+    check("ids: extent by id", p.evaluate("()=>window.extAdded"), "2499")
+    p.close()
     b.close()
 print("robot screen tests (survey):", "OK" if not fails else f"{fails} FAILED")
 sys.exit(1 if fails else 0)

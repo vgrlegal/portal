@@ -2642,6 +2642,31 @@ DEL_TABLE_ROW_JS = "(head)=>{" + VIS_JS + r"""const hr=new RegExp(head,'i');cons
   for(const x of t){for(const r of [...x.rows].slice(1)){const e=[...r.querySelectorAll('a,button,i,img,span,input')].find(e=>/delete|trash|remove|bin/i.test((e.className||'')+' '+(e.title||'')+' '+(e.value||'')+' '+(e.getAttribute('onclick')||'')+' '+(e.getAttribute('src')||'')));
     if(e&&vis(e)){const txt=r.innerText.replace(/\s+/g,' ').slice(0,100);(e.closest('a,button')||e).click();return txt}}}return ''}"""
 
+# 13 Nov 2026 (the MD's recording): TNREGINET's survey table is table#tblNonUDS and the delete is in its "Action" cell
+# (no trash class to find), then a "Yes" button (id confirm-ok-...). Mark the thing to click so Playwright gives it a real click.
+MARK_DEL_JS = "(head)=>{" + VIS_JS + r"""document.querySelectorAll('[data-vgrdel]').forEach(e=>e.removeAttribute('data-vgrdel'));const hr=new RegExp(head,'i');
+  const tbN=document.getElementById('tblNonUDS');const t=[...(tbN&&vis(tbN)?[tbN]:[]),...[...document.querySelectorAll('table')].filter(x=>x!==tbN&&vis(x)&&x.rows.length>1&&hr.test(x.rows[0].innerText))];
+  for(const x of t){if(x.rows.length<2)continue;const hd=[...x.rows[0].cells].map(c=>c.innerText.trim());const ai=hd.findIndex(h=>/^Action$/i.test(h));
+    for(const r of [...x.rows].slice(1)){if(!r.innerText.trim())continue;
+      let e=[...r.querySelectorAll('a,button,i,img,span,input')].find(e=>/delete|trash|remove|bin/i.test((e.className||'')+' '+(e.title||'')+' '+(e.value||'')+' '+(e.getAttribute('onclick')||'')+' '+(e.getAttribute('src')||'')));
+      if(!e&&ai>=0&&r.cells[ai]){const c=r.cells[ai];e=c.querySelector('a,button,i,img,span,input')||c}
+      if(!e)e=r.cells[r.cells.length-1];
+      if(e){e.setAttribute('data-vgrdel','1');return r.innerText.replace(/\s+/g,' ').slice(0,100)}}}return ''}"""
+CONFIRM_YES_JS = r"""()=>{const b=[...document.querySelectorAll('[id^="confirm-ok-"]')].find(b=>b.offsetParent);if(b){b.click();return b.id}return ''}"""
+
+
+def del_click(page, head):
+    """Click the delete of the first survey row like a person (trusted click). '' = nothing to delete."""
+    hit = page.evaluate(MARK_DEL_JS, head)
+    if not hit:
+        return ""
+    try:
+        page.locator('[data-vgrdel="1"]').first.click(force=True, timeout=5000)
+    except Exception:
+        page.evaluate(DEL_TABLE_ROW_JS, head)
+    return hit
+
+
 DEL_ICONS_JS = "()=>{" + VIS_JS + r"""const t=[...document.querySelectorAll('table')].filter(x=>vis(x)&&x.rows.length>1);
   for(const x of t){for(const r of [...x.rows].slice(1)){const e=[...r.querySelectorAll('a,button,i,img,span')].find(e=>/delete|trash|remove|bin/i.test((e.className||'')+' '+(e.title||'')+' '+(e.getAttribute('onclick')||'')+' '+(e.getAttribute('src')||'')));
     if(e&&vis(e)){(e.closest('a,button')||e).click();return r.innerText.replace(/\s+/g,' ').slice(0,100)}}}return ''}"""
@@ -3092,6 +3117,17 @@ def survey_ok(job):
         return False
 
 
+def survey_qs_keep(qs, q, job_id):
+    """13 Nov 2026 (the MD: the survey question kept coming again and again): a new run's question replaces the
+    unanswered survey questions of earlier runs, and the same unanswered question is never added twice.
+    Answered questions stay as history. None = this exact question is already waiting."""
+    same = lambda x: re.sub(r"\s+", " ", str(x or "")).strip().lower()
+    mine = lambda x: x.get("kind") in ("survey", "survey-pick")
+    if any(mine(x) and not x.get("answer") and same(x.get("q")) == same(q) for x in qs):
+        return None
+    return [x for x in qs if not (mine(x) and not x.get("answer") and x.get("job") != job_id)]
+
+
 def survey_question(job, q, shot, options=None, field=None):
     """Stop and ask the office on the case (Drafting → Robot questions), with the screenshot."""
     cid = job.d.get("case") or job.d.get("caseId") or ""
@@ -3099,7 +3135,10 @@ def survey_question(job, q, shot, options=None, field=None):
         return
     try:
         c = kv_get("cases", cid) or {}
-        qs = (c.get("robotQs") or []) + [{"id": str(uuid.uuid4()), "q": q[:400], "options": (options or ["Looks right - go on", "Wrong - I will correct Drafting"])[:30],
+        qs = survey_qs_keep(c.get("robotQs") or [], q[:400], job.id)
+        if qs is None:
+            return  # the same question is already waiting on the case - do not ask it again
+        qs = qs + [{"id": str(uuid.uuid4()), "job": job.id, "q": q[:400], "options": (options or ["Looks right - go on", "Wrong - I will correct Drafting"])[:30],
                                            "hint": "From the robot, on TNREGINET's survey screen", "src": "TNREGINET survey screen", "shot": shot,
                                            "kind": "survey" if not field else "survey-pick", **({"field": field} if field else {}),
                                            **({"store": "tp"} if job.d.get("kind") == "dor" else {}), "at": now()}]
@@ -3128,13 +3167,60 @@ def survey_diag(page, job):
 
 
 # 12 Nov 2026 (3rd Rajeswari run): separate boxes = a real dropdown labelled "Survey No." (the table header "Survey No." fooled the old check)
-SURVEY_SEP_JS = "()=>{" + VIS_JS + LAB_JS + r"""return !!selByLabel(/^Survey No\.?\s*\*?$/i)}"""
+SURVEY_SEP_JS = "()=>{" + VIS_JS + LAB_JS + r"""const sd=document.getElementById('cmb_SubDivNo');if(sd&&selOk(sd)&&shown(sd))return true;return !!selByLabel(/^Survey No\.?\s*\*?$/i)}"""
+
+
+# 12 Nov 2026 (the MD's recording of Rajeswari, done by hand): TNREGINET's own ids on the survey screen
+SV_IDS = {"survey": "cmb_SurveyNo_natham", "sub": "cmb_SubDivNo", "street": "cmb_street_type", "old": "txt_oldSurveyNo",
+          "add_old": "btnAddOldSurvey", "add_linked": "btnAddLinkedSurveydtls", "extent_sqft": "txt_sqft2", "add_extent": "btnAddSurveydtls"}
+ID_OPTS_JS = "(id)=>{const s=document.getElementById(id);return s?[...s.options].map(o=>o.text.trim()):null}"
+ID_SELECT_JS = """([id,txt])=>{const s=document.getElementById(id);if(!s)return 'NOSEL';const o=[...s.options].find(o=>o.text.trim()===txt);if(!o)return 'NOOPT';
+  if(window.jQuery){const j=jQuery(s);j.val(o.value).trigger('change').trigger('chosen:updated')}else{s.value=o.value;s.dispatchEvent(new Event('change',{bubbles:true}))}return 'ok '+txt}"""
+ID_CLICK_JS = "(id)=>{const b=document.getElementById(id);if(!b||!b.getClientRects().length)return '';b.click();return id}"
+
+
+def pick_survey_ids(P, page, s, sd, told):
+    """Survey No. then Sub Division by TNREGINET's ids, as the office does by hand. None when those lists are not there."""
+    opts = [o for o in (page.evaluate(ID_OPTS_JS, SV_IDS["survey"]) or []) if o and not re.match(r"^\W*select\W*$", o, re.I)]
+    if not opts or not any(re.search(r"\d", o) for o in opts):
+        return None
+    joined = next((o for o in opts if sv_norm(o) == sv_norm(f"{s}/{sd}" if sd else s)), None)
+    one = next((o for o in opts if sv_norm(o) == sv_norm(s)), None)
+    if one and sd:
+        page.evaluate(ID_SELECT_JS, [SV_IDS["survey"], one])
+        P.wait(2); wait_loader(page)
+        end, subs = time.time() + 25, []
+        while time.time() < end:
+            subs = [o for o in (page.evaluate(ID_OPTS_JS, SV_IDS["sub"]) or []) if o and not re.match(r"^\W*select\W*$", o, re.I)]
+            if subs:
+                break
+            P.wait(2)
+        hit = next((o for o in subs if sv_norm(o) in {x for x in (sv_norm(sd), sv_norm(told.split("/")[-1]) if told else "") if x}), None)
+        if hit:
+            page.evaluate(ID_SELECT_JS, [SV_IDS["sub"], hit])
+            return f"{one}/{hit}"
+        return ("nosub", subs)
+    pick = joined or one
+    if pick:
+        page.evaluate(ID_SELECT_JS, [SV_IDS["survey"], pick])
+        return pick
+    return ("nosurvey", opts)
 
 
 def pick_survey(P, job, page, d, i, s, sd):
     """Select one survey row on TNREGINET: Survey No. and Sub Division in their own lists (20, then 2B2) - or, when
     TNREGINET shows one joined 'Survey No./Sub Division' list, the joined item. Never types '20/2B2' into a list."""
     told = g(d, "TNREGINET survey option")
+    r0 = pick_survey_ids(P, page, s, sd, told if i == 0 else "")
+    if isinstance(r0, str):
+        return r0
+    if isinstance(r0, tuple):
+        what, lst = r0
+        shot = survey_shot(page, job, i, "nomatch")
+        why = (f"sub-division {sd} is not in TNREGINET's list for survey {s} ({', '.join(lst[:15])})" if what == "nosub" and lst else
+               "the Sub Division list stayed empty" if what == "nosub" else f"survey {s} is not in TNREGINET's Survey No. list ({', '.join(lst[:15])})")
+        survey_question(job, f"Survey screen: {why}. Correct the survey row in Drafting (Edit), then start the TP again.", shot, options=lst or None)
+        raise Stop(f"Survey {s} + {sd}: {why}. A robot question with the screenshot is on the case; the draft is saved.")
     end, opts, sep, pat = time.time() + 45, [], False, ""
     while time.time() < end:  # the list loads late; a list without any number (CMDA / DTCP / Local Body) is not the survey list
         sep = bool(page.evaluate(SURVEY_SEP_JS))
@@ -3200,7 +3286,7 @@ def survey_extent(P, job, page, d, i, s, sd, src, ptype, u, cu, note, linked=Fal
     e_typed = fill_extent(page, "^Mortgaged Survey Extent", e, u, note)
     P.wait(1)
     before = survey_shot(page, job, i, "before")
-    page.evaluate(CLICK_AFTER_JS, ["^Market Value of Mortgaged", "^Add$"]) or page.evaluate(CLICK_AFTER_JS, ["^Mortgaged Survey Extent", "^Add$"])
+    page.evaluate(ID_CLICK_JS, SV_IDS["add_extent"]) or page.evaluate(CLICK_AFTER_JS, ["^Market Value of Mortgaged", "^Add$"]) or page.evaluate(CLICK_AFTER_JS, ["^Mortgaged Survey Extent", "^Add$"])
     P.wait(2.5); m = P.popup_ok()
     tbl = page.evaluate(TABLE_TEXT_JS, "Mortgaged Survey Extent|Extent")
     after = survey_shot(page, job, i, "after")
@@ -3259,10 +3345,10 @@ def survey_tab(P, job, page, d, ptype, note):
                 break
             first = rows_now[0]
             for tri in range(4):
-                page.evaluate(DEL_TABLE_ROW_JS, "Mortgaged Survey Extent|Survey No")
+                del_click(page, "Mortgaged Survey Extent|Survey No")
 
                 def gone():
-                    P.popup_ok()
+                    page.evaluate(CONFIRM_YES_JS) or P.popup_ok()
                     after = page.evaluate(SURVEY_ROWS_JS, "Mortgaged Survey Extent|Survey No") or []
                     return first not in after or len(after) < len(rows_now)
                 # look every 2 s, go on as soon as the row is gone; 10 s is only the longest wait (TNREGINET can be slow)
@@ -3289,9 +3375,15 @@ def survey_tab(P, job, page, d, ptype, note):
         # (2) after the delete, before any survey number: Unit right, Urban/Natham/Rural really selected, Linked / Single really
         # on (Linked = separate 'Survey No.' and 'Sub Divison No.' boxes). Anything changed is selected again with a real click.
         for tri in range(3):
-            r = label_select(page, r"Unit of Measurement", unit_re(u)) if u else "skip"
-            P.wait(1)
+            # 12 Nov 2026 (the MD's recording): the office only LOOKS at the unit. Selecting it again fires TNREGINET's
+            # unit change, which reloads the survey section and brings the deleted row back - so change it only when wrong.
             now_u = page.evaluate(UNIT_NOW_JS) or None
+            if u and not (now_u and now_u[0] and unit_key(now_u[0]) == unit_key(u)):
+                r = label_select(page, r"Unit of Measurement", unit_re(u))
+                P.wait(1)
+                now_u = page.evaluate(UNIT_NOW_JS) or None
+            else:
+                r = "ok (already " + (now_u[0] if now_u else "-") + ")" if u else "skip"
             if not page.evaluate(RADIO_ON_JS, "^" + lt + "$"):
                 if not radio_click(page, "^" + lt + "$"):
                     note(f"'{lt}' button not found")
@@ -3407,7 +3499,7 @@ def survey_tab(P, job, page, d, ptype, note):
         if linked:
             # Linked Survey: each row is added with the "Add" next to Pymash No.; the extent comes once, after all rows
             before_tbl = page.evaluate(TABLE_TEXT_JS, "Survey No")
-            r = page.evaluate(CLICK_AFTER_JS, ["^Pymash No\\.?$", "^Add$"]) or page.evaluate(CLICK_AFTER_JS, ["^Old Survey No\\.?$", "^Add$"])
+            r = page.evaluate(ID_CLICK_JS, SV_IDS["add_linked"]) or page.evaluate(CLICK_AFTER_JS, ["^Pymash No\\.?$", "^Add$"]) or page.evaluate(CLICK_AFTER_JS, ["^Old Survey No\\.?$", "^Add$"])
             P.wait(2.5); m = P.popup_ok(); wait_loader(page)
             tbl = page.evaluate(TABLE_TEXT_JS, "Survey No")
             want = sv_norm(f"{s}/{sd}" if sd else s)

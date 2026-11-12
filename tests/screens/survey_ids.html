@@ -1,0 +1,38 @@
+<html><body>
+<!-- mock of TNREGINET's MODT "Survey Details" screen with TNREGINET's real ids, from the MD's hand recording of Rajeswari
+     (13 Nov 2026): table#tblNonUDS, delete in the Action cell (no trash class) + "Yes" button confirm-ok-..., the unit is
+     already Square Feet and RE-SELECTING it reloads the old row; survey list cmb_SurveyNo_natham + cmb_SubDivNo. -->
+<style>.chosen-container{display:inline-block;width:200px;height:20px;border:1px solid #999}</style>
+<h4>Property Survey Details</h4>
+<label>Unit of Measurement*</label><select id="unit_of_measurement" onchange="reload()"><option>- Select -</option><option selected>Square Feet</option></select>
+<span><input type="radio" id="radioUrban" name="u"> Urban</span><span><input type="radio" id="radioNatham" name="u"> Natham</span><span><input type="radio" id="radioRural" name="u" onclick="fill()"> Rural</span>
+<label><input type="radio" id="rad_surveyType_single" name="st"> Single Survey</label><label><input type="radio" id="rad_surveyType_linked" name="st" onclick="fill()"> Linked Survey</label>
+<div><label>Survey No.<span>*</span></label><select id="cmb_SurveyNo_natham" style="display:none" onchange="subs()"><option>- Select -</option></select><div class="chosen-container"></div></div>
+<div><label>Sub Divison No.<span>*</span></label><select id="cmb_SubDivNo" style="display:none"><option>- Select -</option></select><div class="chosen-container"></div></div>
+<div><label>Street Name</label><select id="cmb_street_type" style="display:none"><option>- Select -</option><option value="17341">KUPPUSAMY NAICKER STREET</option></select><div class="chosen-container"></div></div>
+<div><label>Old Survey No.</label><input type="text" id="txt_oldSurveyNo"><input type="button" id="btnAddOldSurvey" value="Add Old Survey Number" onclick="var t=document.getElementById('ot');t.insertRow().innerHTML='<td>'+(t.rows.length-1)+'</td><td>'+txt_oldSurveyNo.value+'</td>';txt_oldSurveyNo.value=''"></div>
+<table id="ot"><tr><th>Sr. No.</th><th>Old Survey No.</th></tr></table>
+<div><label>Pymash No.</label><input type="text" id="pym"><input type="button" id="btnAddLinkedSurveydtls" value="Add" onclick="addRow()"></div>
+<table id="lt"><tr><th>Sr. No.</th><th>Survey No./Sub Division No.</th><th>Street</th><th>Old Survey No.</th></tr></table>
+<label>Mortgaged Survey Extent<span>*</span></label><span>Square Feet</span><input type="text" id="txt_sqft2">
+<label>Market Value of Mortgaged ..</label><input type="text" id="mv"><input type="button" id="btnAddSurveydtls" value="Add" onclick="addExt()">
+<table id="tblNonUDS"><tr><th>Sr. No.</th><th>Survey Type</th><th>Survey No.</th><th>Mortgaged Survey Extent</th><th>Action</th></tr></table>
+<div><label>Approved by</label><select id="appr"><option>- Select -</option><option>CMDA</option></select></div>
+<script>
+window.reloads=0;window.yes=0;
+function oldRow(){const r=tblNonUDS.insertRow(1);r.id='copied';r.innerHTML='<td>1</td><td>Single Survey</td><td>20/2C1</td><td>2499.0 Sq.Ft</td><td><img src="x.png" width="16" height="16"></td>';
+  r.cells[4].addEventListener('click',e=>{if(!e.isTrusted)return;const id='confirm-ok-'+Date.now();const d=document.createElement('div');d.id='dlg';d.style='position:fixed;top:40%;left:40%;background:#fff;border:1px solid #000;padding:10px';
+    d.innerHTML='Are you sure? <button id="'+id+'">Yes</button><button id="confirm-cancel-1">No</button>';document.body.appendChild(d);
+    document.getElementById(id).onclick=()=>{yes++;d.remove();setTimeout(()=>{const c=document.getElementById('copied');if(c)c.remove()},1500)}})}
+oldRow();
+/* TNREGINET: changing the unit reloads the survey section - the deleted copied row comes back */
+function reload(){reloads++;if(!document.getElementById('copied'))oldRow()}
+function fill(){if(radioRural.checked&&rad_surveyType_linked.checked&&cmb_SurveyNo_natham.options.length<2)cmb_SurveyNo_natham.innerHTML='<option>- Select -</option><option>19</option><option>20</option>'}
+function subs(){cmb_SubDivNo.innerHTML='<option>- Select -</option>'+(cmb_SurveyNo_natham.value==='20'?'<option>2B2</option><option>2C1A</option>':'')}
+window.rowsAdded=[];
+function addRow(){const s=cmb_SurveyNo_natham.value+'/'+cmb_SubDivNo.value;if(/Select/.test(s))return;const st=cmb_street_type.options[cmb_street_type.selectedIndex].text;
+  const olds=[...ot.rows].slice(1).map(r=>r.cells[1].innerText).join(', ');lt.insertRow().innerHTML='<td>'+lt.rows.length+'</td><td>'+s+'</td><td>'+st+'</td><td>'+olds+'</td>';
+  rowsAdded.push([s,st,olds]);while(ot.rows.length>1)ot.deleteRow(1);cmb_SubDivNo.selectedIndex=0;cmb_street_type.selectedIndex=0}
+function addExt(){if(!txt_sqft2.value)return;const r=tblNonUDS.insertRow();r.innerHTML='<td>1</td><td>Linked Survey</td><td>20/2B2</td><td>'+txt_sqft2.value+' Sq.Ft</td><td></td>';window.extAdded=txt_sqft2.value}
+</script>
+</body></html>
