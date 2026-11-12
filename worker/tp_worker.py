@@ -3078,7 +3078,7 @@ EDITOR_TEXT_JS = r"""()=>{if(window.CKEDITOR&&CKEDITOR.instances){const k=Object
 
 # Document Valuation page: every line that names a fee and an amount
 FEES_JS = r"""()=>{const out={};const add=(k,v)=>{v=String(v).replace(/[^\d.]/g,'');if(v&&!(k in out))out[k]=Number(v)};
-  const re=/(stamp\s*duty|registration\s*fee|computer\s*fee|processing\s*fee|copy(ing)?\s*fee|user\s*charge|scanning\s*fee|cd\s*fee|other\s*fee|deficit|total)/i;
+  const re=/(stamp\s*duty|registration\s*fee|computer\s*fee|processing\s*fee|copy(ing)?\s*fee|user\s*charge|scanning\s*fee|cd\s*fee|other\s*fee|deficit|\bfees?\b|charges?\b|duty|cess|total)/i;
   document.querySelectorAll('tr').forEach(r=>{if(!r.getClientRects().length)return;const c=[...r.cells].map(x=>x.innerText.trim());
     for(let i=0;i<c.length;i++){const m=c[i].match(re);if(m){const v=c.slice(i+1).find(x=>/\d/.test(x));if(v)add(c[i].replace(/\s+/g,' ').slice(0,40),v)}}});
   if(!Object.keys(out).length){document.body.innerText.split('\n').forEach(l=>{const m=l.match(/^(.*?(stamp\s*duty|registration\s*fee|computer\s*fee|fee|total)[^\d₹]*)[₹\s:]*([\d,]+(\.\d+)?)/i);if(m)add(m[1].trim().slice(0,40),m[3])})}
@@ -3237,7 +3237,14 @@ def save_fees(job, case_id, tp, fees, comments):
         items = {k: v for k, v in (fees or {}).items() if not re.search(r"total", k, re.I)}
         comp_key = next((k for k in items if re.search(r"computer", k, re.I)), None)
         gov = sum(float(v) for v in items.values())
-        f = {"items": items, "tnTotal": (fees or {}).get(next((k for k in (fees or {}) if re.search(r"total", k, re.I)), ""), None),
+        tn_total = (fees or {}).get(next((k for k in (fees or {}) if re.search(r"total", k, re.I)), ""), None)
+        if tn_total and float(tn_total) > gov + 0.5:
+            # 12 Nov 2026: a fee line with a label we did not match (Nagaraj: total 210, only the 200 computer fee read) -
+            # keep TNREGINET's own total so the amount to collect is never short
+            items["Other TNREGINET fees (valuation page)"] = round(float(tn_total) - gov, 2)
+            comments.append(f"fees: TNREGINET total ₹{float(tn_total):,.0f} is more than the lines read (₹{gov:,.0f}) - the difference is added as 'Other TNREGINET fees'; check the valuation page")
+            gov = float(tn_total)
+        f = {"items": items, "tnTotal": tn_total,
              "pages": pages, "extraPages": max(0, pages - 10), "extraFee": extra, "computerKey": comp_key or "Computer fee",
              "govTotal": gov + extra, "service": float(svc or 0), "total": gov + extra + float(svc or 0), "at": now(), "tp": tp}
         pay = dict(c.get("payment") or {})
