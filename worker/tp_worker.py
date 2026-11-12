@@ -3314,7 +3314,9 @@ def save_fees(job, case_id, tp, fees, comments):
         extra = max(0, pages - 10) * 100
         lists = kv_get("config", "lists") or {}
         prof = (lists.get("profiles") or {}).get(c.get("bank") or "") or {}
-        svc = (c.get("payment") or {}).get("service") or prof.get("service") or (lists.get("pay") or {}).get("service") or 0
+        # service charge: this case's own, else the company's (Settings → company), else the general one
+        svc = (c.get("payment") or {}).get("service") or prof.get("service") or (prof.get("company") or {}).get("service") or (lists.get("pay") or {}).get("service") or 0
+        svc = float(re.sub(r"[^\d.]", "", str(svc)) or 0)
         items = {k: v for k, v in (fees or {}).items() if not re.search(r"total", k, re.I)}
         comp_key = next((k for k in items if re.search(r"computer", k, re.I)), None)
         gov = sum(float(v) for v in items.values())

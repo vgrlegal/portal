@@ -454,7 +454,7 @@ tr.hf input,tr.hf select{font-size:12.5px;padding:5px 7px;margin:2px 0}
   <section id="v-rep" hidden><div class="wrap" style="padding-top:16px"><div class="card"><h2>Reports</h2>
     <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-bottom:10px"><label>Month<input type="month" id="repMonth"></label><label id="repOrgL">Show<select id="repOrg"><option value="all">Everything</option><option value="vgr">VGR office only</option><option value="oo">Opinion &amp; Ownership only</option></select></label><button class="btn" id="repCsv" type="button">⬇ Excel (CSV)</button></div>
     <div style="overflow-x:auto"><table class="mini" id="repTbl"></table></div><p class="sf-note" id="repNote"></p></div>
-    <div class="card" id="aiCard" style="margin-top:16px" hidden><h2>Claude cost</h2><p class="sf-note">Admin only. Every Claude call the portal makes, from the usage log (from 9 Nov 2026). Cost is an estimate from tokens; the Anthropic Console bill is the final figure.</p><div id="aiCost"></div></div>
+    <div class="card" id="aiCard" style="margin-top:16px" hidden><h2>Claude cost</h2><p class="sf-note">Admin only. Every Claude call the portal makes, from the usage log (from 9 Nov 2026). Worked out from tokens at prices that match the Claude Console bill (checked 9-11 Nov), in ₹ as charged to the card (≈ ₹117 per $ incl. GST and bank charges). Console also counts a little use before 9 Nov.</p><div id="aiCost"></div></div>
     <div class="card" style="margin-top:16px"><h2>Time on the portal</h2><p class="sf-note">Minutes with the portal open, counted each day (India time). Open but idle still counts, so read it together with the work done above.</p><div style="overflow-x:auto"><table class="mini" id="timeTbl"></table></div></div></div></section>
   <section id="v-team" hidden><div class="wrap" style="padding-top:16px"><div class="card"><h2>My team</h2><p>Your team works on Deed of Receipt only. Add a person, save, then press Invite (e-mail) or Copy link (to send on WhatsApp). The link works once; only that person should open it.</p>
     <div style="overflow-x:auto"><table class="mini" id="teamTbl"></table></div>
@@ -1540,7 +1540,11 @@ function applyBrand(){const o=ORGS[myOrg()];const h=document.querySelector("head
   if(!pl){pl=document.createElement("img");pl.id="ptLogo";pl.className="logo ptlogo";h.insertBefore(pl,h.firstChild)}pl.src=o.logo;pl.alt=o.name;
   const vg=document.querySelector("header .logo:not(.ptlogo)");vg.classList.add("small");vg.hidden=true;const of=document.querySelector("header .office");if(of)of.textContent="Deed of Receipt desk"}
 /* ---- Reports: who did what (per person, per organisation) + Claude reading (OCR) count and cost ---- */
-const USD_INR=84;let REP_ROWS=[];
+/* 12 Nov 2026: cost worked out from tokens with prices that match the Claude Console bill (checked day by day 9-11 Nov):
+   stronger model $2 in / $10 out, cheaper model $0.80 / $4 per million tokens. ₹ per credit dollar = what the card paid
+   (₹2,867 for $24.41 incl. GST and bank charges ≈ ₹117). */
+const USD_INR=117,AI_PRICE={s:[2,10],h:[0.8,4]};let REP_ROWS=[];
+function aiUsd(u){const h=/haiku/i.test(u.model||"")||["classify","english","tamil"].includes(u.kind),p=AI_PRICE[h?"h":"s"];return((+u.inTok||0)*p[0]+(+u.outTok||0)*p[1])/1e6}
 function orgOfName(n){const m=cfg.staff.map(staffObj).find(x=>x.name===n);return m?(m.partner||m.team||"vgr"):(n===MD_NAME||n===MD_OLD?"vgr":"vgr")}
 async function renderReport(){const mEl=$("repMonth");if(!mEl.value)mEl.value=new Date().toISOString().slice(0,7);
   if(!isMD){$("repOrgL").hidden=true}mEl.onchange=renderReport;$("repOrg").onchange=renderReport;
@@ -1550,7 +1554,7 @@ async function renderReport(){const mEl=$("repMonth");if(!mEl.value)mEl.value=ne
   cases.forEach(c=>{const L=stageLog(c);L.forEach((e,i)=>{if(!inM(e.at)||!e.by)return;const by=String(e.by).replace(/^Mail · .*/,"Mail (auto)");
     if(i===0||e.s==="Case Created")row(by).created++;else if(e.s==="TP Creation")row(by).drafted++;else if(e.s==="Photo/Biometric")row(by).tp++;else if(FINAL.has(e.s))row(by).done++})});
   let usage=[];if(isMD)try{const{data}=await window.__sb.from("kv").select("data").eq("collection","usage").gte("data->>at",from).lt("data->>at",to).limit(5000);usage=(data||[]).map(r=>r.data)}catch(e){}
-  usage.forEach(u=>{const r=row(u.name||u.email||"?");if(u.org)r.org=u.org;r.ocr++;r.img+=+u.images||0;r.usd+=+u.usd||0});
+  usage.forEach(u=>{u.usd=aiUsd(u);const r=row(u.name||u.email||"?");if(u.org)r.org=u.org;r.ocr++;r.img+=+u.images||0;r.usd+=u.usd});
   REP_ROWS=Object.values(P).filter(r=>okOrg(r.org)).sort((a,b)=>a.org.localeCompare(b.org)||b.created+b.tp-a.created-a.tp);
   const tot=REP_ROWS.reduce((t,r)=>{["created","drafted","tp","done","ocr","img","usd"].forEach(k=>t[k]+=r[k]);return t},{created:0,drafted:0,tp:0,done:0,ocr:0,img:0,usd:0});
   const on=o=>o==="vgr"?"VGR Legal":(ORGS[o]||{}).name||o;
@@ -1558,7 +1562,7 @@ async function renderReport(){const mEl=$("repMonth");if(!mEl.value)mEl.value=ne
   $("repTbl").innerHTML=`<tr><th>Person</th><th>Organisation</th><th class="c">Cases created</th><th class="c">Drafts done</th><th class="c">TPs made</th><th class="c">Completed</th>${C?`<th class="c">Claude readings</th><th class="c">Pages read</th><th class="c">Cost (₹, approx.)</th>`:""}</tr>`+
     REP_ROWS.map(r=>`<tr><td>${esc(r.name)}</td><td>${esc(on(r.org))}</td><td class="c">${r.created}</td><td class="c">${r.drafted}</td><td class="c">${r.tp}</td><td class="c">${r.done}</td>${C?`<td class="c">${r.ocr}</td><td class="c">${r.img}</td><td class="c">${Math.round(r.usd*USD_INR)}</td>`:""}</tr>`).join("")+
     `<tr style="font-weight:700"><td>Total</td><td></td><td class="c">${tot.created}</td><td class="c">${tot.drafted}</td><td class="c">${tot.tp}</td><td class="c">${tot.done}</td>${C?`<td class="c">${tot.ocr}</td><td class="c">${tot.img}</td><td class="c">${Math.round(tot.usd*USD_INR)}</td>`:""}</tr>`;
-  $("repNote").textContent=`People in this view: ${REP_ROWS.filter(r=>r.name!=="Mail (auto)").length}.`+(C?` Claude reading is counted from 9 Nov 2026; cost is an estimate (≈ ₹${USD_INR}/$).`:"");
+  $("repNote").textContent=`People in this view: ${REP_ROWS.filter(r=>r.name!=="Mail (auto)").length}.`+(C?` Claude reading is counted from 9 Nov 2026; cost is worked out to match the Claude Console bill, in ₹ as charged to the card (≈ ₹${USD_INR} per $ incl. GST).`:"");
   renderTime(from,to,want,on);if(isMD)renderAiCost(usage,mon);
   $("repCsv").onclick=()=>{const h=["Person","Organisation","Cases created","Drafts done","TPs made","Completed","Claude readings","Pages read","Cost INR approx"];
     if(!C)h.length=6;const csv=[h,...REP_ROWS.map(r=>[r.name,on(r.org),r.created,r.drafted,r.tp,r.done,r.ocr,r.img,Math.round(r.usd*USD_INR)].slice(0,C?9:6))].map(a=>a.map(x=>`"${String(x).replace(/"/g,'""')}"`).join(",")).join("\n");
@@ -1628,7 +1632,9 @@ async function classifyMail(c){window.__readRef=c.id+" · sort mail files";const
   F.forEach((x,j)=>{if(!idx.includes(j)&&!(j in free))(docs.other=docs.other||[]).push(x.f)});
   const multi=custs.size>1||R.filter(x=>x.type==="modt").length>1||Object.values(free).filter(t=>t==="modt").length>1;
   let inside=null;if(!docs.modt){try{inside=await findModtInside(F);if(inside)docs.modt=[inside.doc]}catch(e){console.warn("MODT inside a combined PDF",e)}}
-  const ch={docs,classified:true,noModt:!docs.modt,multiCustomer:multi,needsRead:docs.modt?"modt":null};
+  /* 12 Nov 2026: a "supplementary" MODT with no main MODT is the main MODT (Revathi OO-20261109-0011 was never read) */
+  if(!(docs.modt||[]).length&&(docs.modt2||[]).length){docs.modt=docs.modt2;delete docs.modt2}
+  const ch={docs,classified:true,noModt:!docs.modt,multiCustomer:multi,needsRead:docs.modt?"modt":null,lockCls:null};
   if(inside)ch.log=[...(c.log||[]),{at:nowISO(),by:"Claude",text:`MODT found inside ${inside.name}, pages ${inside.from}–${inside.to}; those pages saved as the MODT copy`}].slice(-80);
   if(!c.phone&&data.fields.phone)ch.phone=String(data.fields.phone).replace(/\D/g,"").slice(-10);
   if(!c.bank&&data.fields.lender){const b=await bankFromName(data.fields.lender);if(b){ch.bank=b;ch.mailBankDone=true}}
@@ -2518,7 +2524,7 @@ drawPreview();
 const SAL=["Mr","Mrs","Ms","Dr"],REL=["Son of","Wife of","Daughter of","Husband of","Father of","Care of"],GEN=["Male","Female"];
 const PERSON_F=[["sal","Salutation","s",SAL],["name","Name"],["name_ta","Name in Tamil"],["rel_type","Relationship type","s",REL],["rel_name","Relationship name"],["rel_ta","Relationship name in Tamil"],["dob","Date of birth / Age"],["gender","Gender","s",GEN],["id_no","Aadhaar number"],["designation","Designation"],["state","State"],["district","District"],["addr","Address","w"],["addr_ta","Address in Tamil","w"],["pincode","Pincode"],["mobile","Mobile"]];
 const WIT_F=[["sal","Salutation","s",SAL],["name","Name"],["rel_type","Relationship type","s",REL],["rel_name","Relationship name"],["dob","Date of birth / Age"],["gender","Gender","s",GEN],["aadhaar","Aadhaar number"],["district","District"],["addr","Address","w"],["pincode","Pincode"],["mobile","Mobile"]];
-const CO_F=[["full_name","Company full name (as in TNREGINET)","w"],["state","State"],["district","District"],["addr_en","Address in English","w"],["addr_ta","Address in Tamil","w"],["pincode","Pincode"],["modt_legal","MODT legal conditions — the company's own wording. The robot puts these in TNREGINET's legal conditions box (instead of TNREGINET's copied text), then 2 blank lines and the case's list of documents. One paragraph per block, a blank line between; no numbers.","ta"]];
+const CO_F=[["full_name","Company full name (as in TNREGINET)","w"],["service","Our service charge per case (₹) - added to the fees to collect"],["state","State"],["district","District"],["addr_en","Address in English","w"],["addr_ta","Address in Tamil","w"],["pincode","Pincode"],["modt_legal","MODT legal conditions — the company's own wording. The robot puts these in TNREGINET's legal conditions box (instead of TNREGINET's copied text), then 2 blank lines and the case's list of documents. One paragraph per block, a blank line between; no numbers.","ta"]];
 const profOf=b=>((cfg.profiles||{})[b])||null;
 const repsOf=b=>(profOf(b)&&profOf(b).reps)||[];
 function relNorm(v){v=String(v||"").trim();const m=v.toLowerCase().replace(/[^a-z]/g,"");if(!m)return"";return m.startsWith("w")?"Wife of":m.startsWith("d")?"Daughter of":m.startsWith("h")?"Husband of":m.startsWith("f")?"Father of":m.startsWith("c")?"Care of":"Son of"}
@@ -2646,12 +2652,14 @@ function parseAadhaar(raw){
   return o}
 let lastOcrText="",tessWorker=null;
 async function loadTess(){if(window.Tesseract)return;await new Promise((ok,no)=>{const s=document.createElement("script");s.src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js";s.onload=ok;s.onerror=()=>no(new Error("OCR did not load"));document.head.appendChild(s)})}
-async function canvasesOf(files,say,maxPages=3){const out=[];let text="";
+async function canvasesOf(files,say,maxPages=3,opt={}){const out=[];let text="";
   for(const f of files){
     if(f.type==="application/pdf"||/\.pdf$/i.test(f.name)){await ensureKycEngine();const buf=await f.arrayBuffer();let doc;
       try{doc=await pdfjsLib.getDocument({data:buf.slice(0)}).promise}catch(e){if(e&&e.name==="PasswordException"){const pw=prompt("This e-Aadhaar PDF has a password.\nIt is the first 4 letters of the name in CAPITALS + year of birth (e.g. RAMA1985).");if(!pw)throw new Error("Password needed");doc=await pdfjsLib.getDocument({data:buf.slice(0),password:pw}).promise}else throw e}
-      for(let i=1;i<=Math.min(doc.numPages,maxPages);i++){const pg=await doc.getPage(i),vp=pg.getViewport({scale:2.5}),c=document.createElement("canvas");
-        try{const tc=await pg.getTextContent();text+=`\n[Page ${out.length+1}]\n`+tc.items.map(x=>x.str+(x.hasEOL?"\n":" ")).join("");
+      /* opt.tail: also the last N pages of a long document (12 Nov 2026: the MODT schedule is often at the end) */
+      const pgs=[];for(let i=1;i<=Math.min(doc.numPages,maxPages);i++)pgs.push(i);if(opt.tail&&doc.numPages>maxPages)for(let i=Math.max(maxPages+1,doc.numPages-opt.tail+1);i<=doc.numPages;i++)pgs.push(i);
+      for(const i of pgs){const pg=await doc.getPage(i),vp=pg.getViewport({scale:2.5}),c=document.createElement("canvas");c._pageNo=i;c._pageOf=doc.numPages;
+        try{const tc=await pg.getTextContent();text+=`\n[Page ${i} of ${doc.numPages}]\n`+tc.items.map(x=>x.str+(x.hasEOL?"\n":" ")).join("");
           c._items=tc.items.filter(x=>x.str&&x.str.trim()).map(x=>{const t=pdfjsLib.Util.transform(vp.transform,x.transform),h=Math.hypot(t[2],t[3]);return{s:x.str,x:t[4],y:t[5]-h,w:(x.width||0)*vp.scale,h}})}catch(e){}
         c.width=vp.width;c.height=vp.height;await pg.render({canvasContext:c.getContext("2d"),viewport:vp}).promise;out.push(c)}}
     else if(!/^image\//.test(f.type||"")&&!/\.(jpe?g|png|webp|gif|bmp)$/i.test(f.name||"")){console.warn("not a picture or PDF, skipped:",f.name);continue}
@@ -2660,7 +2668,7 @@ async function canvasesOf(files,say,maxPages=3){const out=[];let text="";
 function sharpen(c){const g=c.getContext("2d"),im=g.getImageData(0,0,c.width,c.height),d=im.data;let lo=255,hi=0;
   for(let i=0;i<d.length;i+=4){const y=(d[i]*299+d[i+1]*587+d[i+2]*114)/1000;d[i]=y;if(y<lo)lo=y;if(y>hi)hi=y}
   const k=255/Math.max(1,hi-lo-20);for(let i=0;i<d.length;i+=4){let y=(d[i]-lo)*k;y=y>200?255:y<60?0:y;d[i]=d[i+1]=d[i+2]=y}g.putImageData(im,0,0);return c}
-function jpegOf(c,max=1800){const k=Math.min(1,max/Math.max(c.width,c.height)),d=document.createElement("canvas");d.width=Math.round(c.width*k);d.height=Math.round(c.height*k);d.getContext("2d").drawImage(c,0,0,d.width,d.height);return d.toDataURL("image/jpeg",0.88)}
+function jpegOf(c,max=1800,q=0.88){const k=Math.min(1,max/Math.max(c.width,c.height)),d=document.createElement("canvas");d.width=Math.round(c.width*k);d.height=Math.round(c.height*k);d.getContext("2d").drawImage(c,0,0,d.width,d.height);return d.toDataURL("image/jpeg",q)}
 /* ---- doubts: Claude lists what it is unsure of with the image and spot; we cut out that spot so the person decides there and then ---- */
 function findBox(cv,needle){const it=cv&&cv._items;if(!it||!needle)return null;const w=String(needle).toLowerCase().split(/[\s,]+/).filter(x=>x.length>=3).sort((a,b)=>b.length-a.length)[0];if(!w)return null;
   const m=it.find(x=>x.s.toLowerCase().includes(w));if(!m)return null;return[m.x/cv.width,m.y/cv.height,(m.x+Math.max(m.w,m.h*3))/cv.width,(m.y+m.h)/cv.height]}
@@ -2854,10 +2862,10 @@ function parseModt(raw){const t=String(raw||"").replace(/[ \t]+/g," "),f=(re,g=1
   if(/^(mrs|ms)/i.test(d["Mortgagor salutation"]||""))d["Mortgagor gender"]="Female";else if(d["Mortgagor salutation"]==="Mr")d["Mortgagor gender"]="Male";
   if(/wife/i.test(d["Mortgagor relation"]||""))d["Mortgagor marital status"]="Married";
   return d}
-async function claudeModt(file){if(!window.__sb)return null;const{canvases,text}=await canvasesOf([file],()=>{},12);if(!canvases.length)return null;
+async function claudeModt(file){if(!window.__sb)return null;const{canvases,text}=await canvasesOf([file],()=>{},12,{tail:4});if(!canvases.length)return null;
   const hints=[...ruleHints(),...learned().slice(0,40).map(x=>`${x.field}: "${x.read}" → "${x.fixed}"`)].slice(0,40);
   const tx=String(text||"").replace(/\s+/g," ").trim(),junk=(tx.match(/[\u0080-\u00ff\ufffd]/g)||[]).length/Math.max(1,tx.length),useText=tx.length>=Math.max(1500,canvases.length*500)&&/\d{4}/.test(tx)&&/mortgag|deposit|loan|அடமான/i.test(tx)&&junk<0.01;
-  const{data,error}=await window.__sb.functions.invoke("read-aadhaar",{body:useText?{kind:"modt",pdfText:tx,hints}:{kind:"modt",images:canvases.slice(0,12).map(c=>jpegOf(c,1300)),hints}});
+  const{data,error}=await window.__sb.functions.invoke("read-aadhaar",{body:useText?{kind:"modt",pdfText:tx,hints}:{kind:"modt",images:canvases.slice(0,16).map(c=>jpegOf(c,1568,0.85)),labels:canvases.slice(0,16).map(c=>c._pageNo?`MODT page ${c._pageNo} of ${c._pageOf}`:""),hints}});
   if(error||!data||!data.fields){console.warn("Claude MODT",error||data);try{if(/credit balance/i.test(await error.context.text())){window.__noCredit=true;toast("Claude credit is finished — top up at console.anthropic.com (Plans & Billing).")}}catch(e){}return null}
   const f=data.fields,d={},put=(k,v)=>{v=String(v??"").trim();if(v)d[k]=v};
   (Array.isArray(f.co_mortgagors)?f.co_mortgagors:[]).slice(0,4).forEach((m,i)=>{const n=i+2;put(`Mortgagor ${n} name`,String(m.name||"").toUpperCase());put(`Mortgagor ${n} name (Tamil)`,m.name_ta);put(`Mortgagor ${n} age`,m.age);put(`Mortgagor ${n} relation`,m.rel_type);put(`Mortgagor ${n} relative name`,String(m.rel_name||"").toUpperCase())});
@@ -2934,10 +2942,10 @@ async function docBinText(file){const b=new Uint8Array(await file.arrayBuffer())
 async function readModtCase(c,force){window.__readRef=c.id+" · MODT case read";const D=c.docs||{};if(!(D.mdraft||[]).length&&!(D.deed||[]).length){toast("Upload the MODT draft and title deed first");return}
   const pg=readProg();pg.step("Step 1/4 · Opening the MODT draft…",5);
   try{let draft="";const imgs=[],labels=[],cvs=[];let dn=0;const dTot=["th_kyc","deed","revenue","photos","ec","sanction"].filter(k=>(D[k]||[]).length).length||1;
-    const add=async(list,label,maxPages,cap)=>{if((list||[]).length){dn++;pg.step(`Step 2/4 · Opening documents ${dn}/${dTot}: ${label.replace(/ page$/,"").toLowerCase()}…`,8+Math.round(dn/dTot*22))}let n=0;for(const f of list||[]){if(n>=cap)break;const file=await fileOfDoc(f);const{canvases}=await canvasesOf([file],()=>{},maxPages);for(const cv of canvases){if(n>=cap||imgs.length>=20)break;imgs.push(jpegOf(cv,1400));cvs.push(cv);labels.push(label);n++}}};
+    const add=async(list,label,maxPages,cap,opt={})=>{if((list||[]).length){dn++;pg.step(`Step 2/4 · Opening documents ${dn}/${dTot}: ${label.replace(/ page$/,"").toLowerCase()}…`,8+Math.round(dn/dTot*22))}let n=0;for(const f of list||[]){if(n>=cap)break;const file=await fileOfDoc(f);const{canvases}=await canvasesOf([file],()=>{},maxPages,opt);for(const cv of canvases){if(n>=cap||imgs.length>=20)break;imgs.push(jpegOf(cv,1568,0.85));cvs.push(cv);labels.push(label+(cv._pageNo&&cv._pageOf>1?` ${cv._pageNo} of ${cv._pageOf}`:""));n++}}};
     let lodHtml="";for(const f of D.mdraft||[]){const file=await fileOfDoc(f);if(/\.docx$/i.test(f.name)){draft+=await docxText(file)+"\n";if(!lodHtml)try{lodHtml=await docxLodTable(file)}catch(e){console.warn(e)}}else if(/\.doc$/i.test(f.name)||/msword/.test(file.type||"")){draft+=await docBinText(file)+"\n";if(!lodHtml&&docBinText.lod)lodHtml=docBinText.lod}else{const r=await canvasesOf([file],()=>{},4);draft+=r.text||"";if(!r.text.trim())r.canvases.slice(0,4).forEach(cv=>{imgs.push(jpegOf(cv,1400));cvs.push(cv);labels.push("MODT DRAFT page")})}}
     await add(D.th_kyc,"TITLE HOLDER AADHAAR / KYC",3,5);
-    await add(D.deed,"TITLE DEED page",6,7);
+    await add(D.deed,"TITLE DEED page",6,8,{tail:2});
     await add(D.revenue,"PATTA / REVENUE page",2,3);
     await add((D.photos||[]).slice(0,1),"PROPERTY PHOTO",1,1);
     await add(D.ec,"EC page",2,2);
