@@ -1008,6 +1008,16 @@ def mortgagor(P, job, page, t):
 
 
 def rep_witness_presenter(P, job, page, t):
+    # 12 Nov 2026: the company representative is optional - filled from the bank's saved rep when there is one,
+    # otherwise skipped (no Stop) and the mortgagor presents.
+    if g(t, "Rep name"):
+        add_representative(P, job, page, t)
+    else:
+        job.step("4 · Company representative: none saved for this bank - skipped", page)
+    add_witnesses_presenter(P, job, page, t)
+
+
+def add_representative(P, job, page, t):
     job.step("4 · Company representative", page)
     open_subtab(P, "Representative Details", "representedParty")
     P.sel("representedParty", "^Mortgagee", 1)
@@ -1027,6 +1037,9 @@ def rep_witness_presenter(P, job, page, t):
         errs = form_errors(P)
         raise Stop("Representative was not added. " + (f"TNREGINET wants: {'; '.join(errs)}." if errs else f"TNREGINET said '{msg.strip()[:200]}'"))
     job.step("4 · Representative added", page)
+
+
+def add_witnesses_presenter(P, job, page, t):
     open_subtab(P, "Witness Details", "chkWitnessType0")
     for n in (1, 2):
         if not g(t, f"Witness {n} name"):
@@ -1045,8 +1058,15 @@ def rep_witness_presenter(P, job, page, t):
     open_subtab(P, "Presenter Details", "cmb_presenter")
     job.step("7 · Presenter", page)
     wait_for(P, "()=>document.getElementById('cmb_presenter').options.length>1", 15)
-    P.fuzzy("cmb_presenter", g(t, "Rep name"), 1)
+    P.fuzzy("cmb_presenter", presenter_name(t), 1)
     grab_draft(P, job, P.click("btnMainSaveAsDraft", 4))
+
+
+def presenter_name(t):
+    """The company representative presents when there is one; otherwise the mortgagor."""
+    if g(t, "Rep name") and not re.match(r"mortgagor", g(t, "Presenter") or "", re.I):
+        return g(t, "Rep name")
+    return g(t, "Mortgagor") or g(t, "Rep name")
 
 
 ACTIVE_TAB_JS = """()=>{const clean=x=>(x.textContent||'').replace(/["\\s]+/g,' ').trim();

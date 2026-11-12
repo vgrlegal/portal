@@ -36,5 +36,12 @@ check("surveys_of junk survey", ns["surveys_of"]({"New survey no": "20 / 2B2 wit
 check("surveys_of 140/2A2", ns["surveys_of"]({"New survey no": "140/2A2"})[0][:2], ("140", "2A2"))
 # MODT upload: no title deed -> the bank letter goes in the title deed slot (12 Nov)
 check("modt_plan bank letter fallback", 'docs.get("deed") or docs.get("letter")' in src, True)
+# 12 Nov 2026: company representative optional - no rep -> skip the rep step, mortgagor presents
+a = src.index("def presenter_name("); exec(src[a:src.index("\n\n\n", a)], ns)
+check("presenter rep", ns["presenter_name"]({"Rep name": "R KUMAR", "Mortgagor": "A"}), "R KUMAR")
+check("presenter no rep -> mortgagor", ns["presenter_name"]({"Rep name": "", "Mortgagor": "A"}), "A")
+check("presenter chosen mortgagor", ns["presenter_name"]({"Rep name": "R", "Mortgagor": "A", "Presenter": "Mortgagor"}), "A")
+rw = src[src.index("def rep_witness_presenter("):src.index("def add_representative(")]
+check("rep step skipped when no rep", "if g(t, \"Rep name\")" in rw and "raise Stop" not in rw, True)
 print("worker tests:", "OK" if not fails else f"{fails} FAILED")
 sys.exit(1 if fails else 0)

@@ -1825,7 +1825,7 @@ async function readCaseWitnesses(c){const ks=witUnread(c);if(!ks.length){toast("
 /* 12 Nov 2026: Deed of Receipt "Draft done" checks like MODT does - every required field (representative and witnesses
    too), 12-digit Aadhaar numbers, and a Part survey with no new number. Same check on Approve for TP. */
 function dorDoneCheck(c,d){const P=[],v=k=>String(d[k]??"").trim();
-  DOR_REQ.forEach(k=>{if(!v(k))P.push(k+(/^Rep /.test(k)?" (save the company's representative in Clients & Staff, or fill it here)":""))});
+  DOR_REQ.forEach(k=>{if(!v(k))P.push(k)});
   ["Rep Aadhaar","Witness 1 Aadhaar","Witness 2 Aadhaar","Mortgagor Aadhaar"].forEach(k=>{if(v(k)&&digits(v(k)).length!==12)P.push(k+": must be 12 digits")});
   const ps=partSurvey({...c,tp:d});if(ps)P.push(`Survey number "${ps}" is Part and has no new sub-divided number - ask the bank for the patta / TSLR`);
   return P}
@@ -3184,7 +3184,8 @@ const DOR_PAGES=[
   ["8 · Property",[["Property district"],["Property SRO","sro"],["Village","vil"],["Survey number"],["Extent"],["Boundary North","w"],["Boundary East","w"],["Boundary West","w"],["Boundary South","w"]]],
   ["9 · Loan repayment",[["Loan Amount"],["Supp loan amount"],["Loan closure date"]]],
   ["10 · Place of execution",[["Execution SRO","sro"],["SRO Tamil"]]]];
-const DOR_REQ=["SRO","Doc No","Year","Company name","Mortgagor","Rep name","Rep Aadhaar","Witness 1 name","Witness 1 Aadhaar","Witness 2 name","Witness 2 Aadhaar","Loan Amount"];
+/* 12 Nov 2026: the company representative is NOT required - it is auto-selected from the bank's saved representative when there is one (Rep Aadhaar is checked for 12 digits only when filled) */
+const DOR_REQ=["SRO","Doc No","Year","Company name","Mortgagor","Witness 1 name","Witness 1 Aadhaar","Witness 2 name","Witness 2 Aadhaar","Loan Amount"];
 function dorFill(c,d){const set=(k,v)=>{if(v!=null&&String(v).trim()!==""&&!String(d[k]||"").trim())d[k]=String(v)};
   set("Deed type","Deed Of Receipt");set("Execution SRO",d.SRO);set("Book","1");set("Document type","Regular Document");set("Presenter","Company representative");
   set("Loan Amount",c.loanAmount);set("Mortgagor mobile",c.phone);

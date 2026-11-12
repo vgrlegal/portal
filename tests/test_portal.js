@@ -30,7 +30,11 @@ check("lodBoxOf numbered list is a table",/<table/.test(T.lodBoxOf("1. Sale deed
 // Deed of Receipt Draft done (12 Nov): missing representative / witnesses must stop it (Kalaiyarasi 0087)
 const full={"SRO":"Dusi","Doc No":"2111","Year":"2024","Company name":"X","Mortgagor":"A","Rep name":"R","Rep Aadhaar":"123456789012","Witness 1 name":"W1","Witness 1 Aadhaar":"123456789012","Witness 2 name":"W2","Witness 2 Aadhaar":"123456789012","Loan Amount":"100","Survey number":"S.No.12/3"};
 check("dorDoneCheck complete",T.dorDoneCheck({type:"Deed of Receipt"},full).length,0);
-check("dorDoneCheck no rep/witness",T.dorDoneCheck({type:"Deed of Receipt"},{...full,"Rep name":"","Witness 1 name":""}).length,2);
+check("dorDoneCheck no rep/witness -> only the witness",T.dorDoneCheck({type:"Deed of Receipt"},{...full,"Rep name":"","Witness 1 name":""}).length,1);
+// 12 Nov: company representative is optional (auto-selected from the saved rep) - never blocks Draft done
+check("dorDoneCheck no rep at all is fine",T.dorDoneCheck({type:"Deed of Receipt"},{...full,"Rep name":"","Rep Aadhaar":""}).length,0);
+check("dorDoneCheck rep Aadhaar wrong length still caught",T.dorDoneCheck({type:"Deed of Receipt"},{...full,"Rep Aadhaar":"12345"}).length,1);
+check("DOR_REQ has no Rep",/const DOR_REQ=\[[^\]]*Rep /.test(html),false);
 check("dorDoneCheck part only",T.dorDoneCheck({type:"Deed of Receipt"},{...full,"Survey number":"R.S.No.117/1 Part"}).length,1);
 check("dorDoneCheck part+new ok",T.dorDoneCheck({type:"Deed of Receipt"},{...full,"Survey number":"Old Sy.No.622/3 Part, New Survey No. 1025/12"}).length,0);
 // mail subject -> customer name, vetting / legal report mails are not cases (12 Nov)
