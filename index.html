@@ -1471,6 +1471,13 @@ async function addComment(){const t=fv("cmIn");if(!t||!editing)return;const c=ed
 
 /* ================= Review panel (Drafting / TP Generate) ================= */
 let rv={c:null,gen:false};
+/* 12 Nov 2026: which Drafting boxes the person typed in / changed - Save then closes those boxes' robot questions */
+["input","change"].forEach(ev=>document.addEventListener(ev,e=>{const t=e.target;if(rv&&rv.c&&t&&t.id&&t.id.startsWith("rv_"))(rv.touched=rv.touched||new Set()).add(t.id)},true));
+/* a robot question is settled when the person changed / typed in that box, or the box now holds a different value than Claude read */
+function settleQs(c,data,store,touched){const fid=f=>"rv_"+String(f).replace(/\W+/g,"_");let n=0;
+  const qs=(c.robotQs||[]).map(q=>{if(q.answer||!q.field||(q.store||"draft")!==store)return q;const v=String(data[q.field]??"").trim();
+    if(v&&((touched&&touched.has(fid(q.field)))||(q.read!==undefined&&v!==String(q.read).trim()))){n++;return{...q,answer:v,answeredAt:nowISO(),by:who(),how:"saved in Drafting"}}return q});
+  return{qs,n}}
 function openReview(c,gen){
   if(flowOf(c.type)!=="legal"&&!SF.G){(SF.loading||(SF.loading=sfLoad())).then(()=>openReview(c,gen)).catch(()=>{SF.loading=null;openReview(c,gen)});return}
   rv={c,gen};const dor=isRD(c.type),data=dor?dorFill(c,{...(c.tp||{})}):{...(c.draft||{})},sections=dor?DOR_PAGES:MODT_FIELDS;
@@ -1869,6 +1876,7 @@ function modtCoAddr(d,draftText){const w=officeWord(draftText)||d["Company offic
   return d}
 async function saveReview(done){
   const c=rv.c,dor=isRD(c.type),data=readReview(),ch=dor?{tp:data,...witPicks()}:{draft:data};if(!dor){modtCoAddr(data,c.draftText||"");surveyClean(data)}
+  {const st=settleQs(c,data,dor?"tp":"draft",rv.touched);if(st.n)ch.robotQs=st.qs}
   if(c.tpAuto){const fx=fixesOf(c,data);if(fx.length!==(c.fixes||[]).length||JSON.stringify(fx)!==JSON.stringify(c.fixes||[]))ch.fixes=fx}
   if(!dor&&data.SRO)ch.sro=data.SRO;if(dor&&data.SRO)ch.sro=data.SRO;
   if(done){const P=dor?dorDoneCheck(c,data):modtDoneCheck({...c,...ch},data);if(P.length){await patch(c,ch,"Draft saved (Draft done refused: "+P.length+" item(s) missing)");showDoneProblems(P);return}}
@@ -3015,7 +3023,11 @@ async function claudeModt(file){if(!window.__sb)return null;const{canvases,text}
 const MODT_KEY={sro:"SRO",sro_ta:"SRO Tamil",book:"Book",doc_no:"Doc No",year:"Year",mortgagor_sal:"Mortgagor salutation",mortgagor:"Mortgagor",mortgagor_ta:"Mortgagor name (Tamil)",age:"Mortgagor Age",rel_type:"Mortgagor relation",rel_name:"Mortgagor relative name",aadhaar:"Mortgagor Aadhaar",address:"Mortgagor address",pincode:"Mortgagor pincode",mobile:"Mortgagor mobile",bank_address:"Company address",bank_address_ta:"Company address (Tamil)",branch_address:"Company address",branch_address_ta:"Company address (Tamil)",bank_state:"Company state",bank_district:"Company district",bank_pincode:"Company pincode",loan_amount:"Loan Amount",loan_account:"Loan account",property_district:"Property district",property_sro:"Property SRO",village:"Village",survey_no:"Survey number",extent:"Extent",north:"Boundary North",east:"Boundary East",west:"Boundary West",south:"Boundary South",earlier_doc_no:"Supp MODT Doc No",earlier_year:"Supp MODT Year",earlier_sro:"Supp MODT SRO",earlier_loan_amount:"Supp loan amount"};
 function modtKey(k){k=String(k||"");if(MODT_KEY[k])return MODT_KEY[k];const m=k.match(/co_mortgagors\W*(\d)\W*(\w+)/);if(!m)return"";const n=+m[1]+2,sub={name:"name",name_ta:"name (Tamil)",age:"age",rel_type:"relation",rel_name:"relative name"}[m[2]];return sub?`Mortgagor ${n} ${sub}`:""}
 /* doubts become questions on the case, each with a picture of the exact spot (kept in storage, shown next to the question) */
-async function doubtQs(c,list,store,src){const out=[];for(const q of list||[]){let shot="";if(q.img){try{const r=await uploadFile(new File([await dataBlob(q.img)],`Doubt - ${q.field} - ${c.id||""}.jpg`,{type:"image/jpeg"}));shot=r&&r.url||""}catch(e){}}
+async function doubtQs(c,list,store,src){const out=[];
+  /* 12 Nov 2026: a re-read never asks again what was already answered (or saved in Drafting), unless Claude now reads a new value */
+  const nz=x=>String(x??"").trim().toLowerCase().replace(/\s+/g," "),done=(c.robotQs||[]).filter(x=>x.answer&&x.field&&(x.store||"draft")===store);
+  list=(list||[]).filter(q=>!done.some(x=>x.field===q.field&&(nz(x.read)===nz(q.read)||nz(x.answer)===nz(q.read)||nz((c[store]||{})[q.field])===nz(x.answer))));
+  for(const q of list||[]){let shot="";if(q.img){try{const r=await uploadFile(new File([await dataBlob(q.img)],`Doubt - ${q.field} - ${c.id||""}.jpg`,{type:"image/jpeg"}));shot=r&&r.url||""}catch(e){}}
     out.push({id:crypto.randomUUID(),kind:"doubt",q:`Check ${q.field}: is "${q.read}" right?`,options:[q.read,...q.options].filter((v,j,a)=>v&&a.indexOf(v)===j),field:q.field,store,read:q.read,hint:q.why,shot,src:src||""})}
   return[...(c.robotQs||[]).filter(x=>!(x.kind==="doubt"&&!x.answer&&x.store===store&&out.some(y=>y.field===x.field))),...out]}
 /* files are kept in memory for this session, so sorting + reading the same PDF downloads it once (less Supabase egress) */

@@ -12,8 +12,10 @@ src+=grab("const DOCS={","\nconst docsFor=")+"\n"+grab("const docsFor=","\n")+"\
 src="const flowOf=t=>/legal/i.test(t||'')?'legal':'modt';\n"+src;
 src+=grab("function modtUploads(","\n  return out}")+"\n  return out}\n";
 src+=grab("function surveyClean(","\nasync function readModtCase(")+"\n";
+src+="const nowISO=()=>'2026-11-12T00:00:00Z',who=()=>'Test';\n"+grab("function settleQs(","\nfunction ")+"\n";
+src+=grab("async function doubtQs(","\n/* files are kept")+"\n";
 const MSTATES=(html.match(/MSTATES=\[[^\]]*\]/)||["MSTATES=[]"])[0];
-const T={};new Function("T",`const ${MSTATES};${src};T.parseSurvey=parseSurvey;T.partSurvey=partSurvey;T.modtCoAddr=modtCoAddr;T.lodBoxOf=lodBoxOf;T.dorDoneCheck=dorDoneCheck;T.custFromSubject=custFromSubject;T.NOT_DOR_RE=NOT_DOR_RE;T.dupPlan=dupPlan;T.missingReq=missingReq;T.modtUploads=modtUploads;T.surveyClean=surveyClean;`)(T);
+const T={};new Function("T",`const ${MSTATES};${src};T.parseSurvey=parseSurvey;T.partSurvey=partSurvey;T.modtCoAddr=modtCoAddr;T.lodBoxOf=lodBoxOf;T.dorDoneCheck=dorDoneCheck;T.custFromSubject=custFromSubject;T.NOT_DOR_RE=NOT_DOR_RE;T.dupPlan=dupPlan;T.missingReq=missingReq;T.modtUploads=modtUploads;T.surveyClean=surveyClean;T.settleQs=settleQs;T.doubtQs=doubtQs;`)(T);
 let fails=0;const check=(n,g,w)=>{if(JSON.stringify(g)!==JSON.stringify(w)){fails++;console.log("FAIL",n,"got",JSON.stringify(g),"want",JSON.stringify(w))}};
 for(const [text,exp] of JSON.parse(fs.readFileSync(path.join(__dirname,"survey_cases.json"),"utf8"))){const r=T.parseSurvey(text);for(const k in exp)check(`parseSurvey(${JSON.stringify(text.slice(0,40))}).${k}`,r[k],exp[k])}
 check("partSurvey part+new",T.partSurvey({type:"Deed of Receipt",tp:{"Survey number":"Old Sy.No.622/3 Part, New Survey No. 1025/12"}}),"");
@@ -66,5 +68,12 @@ check("MODT with neither",T.missingReq("MODT",{th_kyc:[{}],w1_kyc:[{}],w2_kyc:[{
  const e=T.surveyClean({"New survey no":"140/2A2"});check("surveyClean 140/2A2",[e["New survey no"],e.Subdivision],["140","2A2"]);
  check("surveyClean plain kept",T.surveyClean({"New survey no":"42"})["New survey no"],"42");}
 check("file names: no (optional) in saved names",/DOC_NAME\[d\.k\]\|\|String\(d\.l\)\.replace/.test(html)&&/mdraft:"MODT draft \(Word copy\)"/.test(html),true);
+// robot questions settle on Save (12 Nov): changed value or typed box -> answered; untouched same value stays open
+{const c={robotQs:[{id:1,field:"Mortgagor 1 district",read:"Tiruvallur"},{id:2,field:"Deed 2 SRO",read:"Kundrathur"},{id:3,field:"Mortgagor 1 relative name",read:"Krishnan"}]};
+ const r=T.settleQs(c,{"Mortgagor 1 district":"Chennai","Deed 2 SRO":"Kundrathur","Mortgagor 1 relative name":"Krishnan"},"draft",new Set(["rv_Deed_2_SRO"]));
+ check("settleQs changed + typed settle, untouched stays",r.qs.map(q=>!!q.answer),[true,true,false]);}
 if(globalThis.__MORE__)globalThis.__MORE__(T,check,html);
-console.log("portal tests:",fails?fails+" FAILED":"OK");process.exit(fails?1:0);
+(async()=>{const c={draft:{"Mortgagor 1 district":"Chennai"},robotQs:[{id:1,field:"Mortgagor 1 district",read:"Tiruvallur",answer:"Chennai",store:"draft"}]};
+ const out=await T.doubtQs(c,[{field:"Mortgagor 1 district",read:"Tiruvallur",options:[]},{field:"Deed 2 SRO",read:"Kundrathur",options:[]}],"draft","MODT");
+ check("doubtQs: answered not asked again",out.filter(q=>!q.answer).map(q=>q.field),["Deed 2 SRO"]);
+ console.log("portal tests:",fails?fails+" FAILED":"OK");process.exit(fails?1:0)})();
