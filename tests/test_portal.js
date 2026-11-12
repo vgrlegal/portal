@@ -183,5 +183,12 @@ check("TP jobs carry the organisation (partner laptops take only their own)",(ht
  check("payments never go into settings (staff can read settings)",("claudePay" in d)||("x" in d),false);
  check("read keeps the Claude switches",cfgFrom({claudeOff:{dor:true}}).claudeOff,{dor:true});
  check("Claude payments kept Admin-only (usage/_claude_pay)",/db\.doc\("usage\/_claude_pay"\)\.set/.test(html)&&!/cfg\.claudePay/.test(html),true);}
+{/* 13 Nov 2026: fee rules - same cases as the TP Desk (tests/fee_cases.json) */
+ const FC=JSON.parse(fs.readFileSync(path.join(ROOT,"tests","fee_cases.json"),"utf8"));
+ const a=html.indexOf("const FEE_RULE="),b=html.indexOf("function feesHtml(c){");
+ for(const t of FC){const fc=new Function("profOf","isRD",html.slice(a,b)+";return feeCalc;")(()=>t.prof||null,x=>/receipt/i.test(x||""));check("fees: "+t.why,fc(t.c).total,t.total)}
+ check("Show money switch removed from Tools",/id="showMoney"/.test(html),false);
+ check("payment message: Tamil + English, total only",(()=>{const m=html.match(/function payMsg[\s\S]*?\n(?=function openPayment)/)[0];return /மொத்தம்/.test(m)&&/Total: /.test(m)&&!/Service charge|Registration fee/.test(m)})(),true);
+ check("fees shown to Admin and partner only",/const FEES_OK=\(\)=>!!\(isMD\|\|isPartner\(\)\)/.test(html),true);}
 check("Clean-up never touches cases or documents",/async function cleanPlan\(/.test(html)&&!/from\("kv"\)\.delete\(\)\.eq\("collection","cases"\)/.test(html),true);
 

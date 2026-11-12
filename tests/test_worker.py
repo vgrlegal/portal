@@ -128,5 +128,10 @@ if ps:
         fp = os.path.join(win, f).replace("'", "''")
         out = subprocess.run([ps, "-NoProfile", "-c", f"$e=$null;[System.Management.Automation.Language.Parser]::ParseFile('{fp}',[ref]$null,[ref]$e)|Out-Null;($e|%{{$_.Message}}) -join ' | '"], capture_output=True, text=True, timeout=120).stdout.strip()
         check(f"{f}: PowerShell parses it", out, "")
+# 13 Nov 2026: the MD's fee rules - the same cases are checked in the portal (tests/fee_cases.json)
+import math; ns["math"] = math
+a = src.index("FEE_RULE = {"); exec(src[a:src.index("def save_fees(", a)], ns)
+for t in json.load(open(os.path.join(ROOT, "tests", "fee_cases.json"), encoding="utf-8")):
+    check("fees: " + t["why"], ns["fee_calc"](t["c"], t.get("prof") or {})["total"], t["total"])
 print("worker tests:", "OK" if not fails else f"{fails} FAILED")
 sys.exit(1 if fails else 0)

@@ -1,0 +1,12 @@
+[
+ {"why":"Lendingkart MODT, loan 10 lakh, fees not read yet","c":{"type":"MODT","bank":"Lendingkart Finance Limited","draft":{"Loan amount":"10,00,000"}},"total":16210},
+ {"why":"other company MODT, loan 20 lakh (registration capped at 8,000)","c":{"type":"MODT","bank":"Veritas Finance Limited","draft":{"Loan amount":"2000000"}},"total":20710},
+ {"why":"MODT loan 1 crore (stamp capped at 40,000)","c":{"type":"MODT","bank":"L&T Finance Limited","draft":{"Loan amount":"10000000"}},"total":50710},
+ {"why":"MODT with TNREGINET fees read + 12 pages","c":{"type":"MODT","bank":"Veritas Finance Limited","draft":{"Loan amount":"1000000"},"fees":{"items":{"Stamp duty":5000,"Registration fee":8000,"Computer fee":200,"Other":10},"govTotal":13410,"extraFee":200,"pages":12}},"total":15910},
+ {"why":"MODT supplementary ticked","c":{"type":"MODT","bank":"Veritas Finance Limited","draft":{"Loan amount":"1000000"},"payment":{"supp":true}},"total":16210},
+ {"why":"Deed of Receipt, usual fees, 8 pages","c":{"type":"Deed of Receipt","bank":"Chola","fees":{"items":{"Registration fee":200,"Stamp duty":1,"Welfare":10},"govTotal":211,"extraFee":0,"pages":8}},"total":3000},
+ {"why":"Deed of Receipt + supplementary MODT, 13 pages","c":{"type":"Deed of Receipt","bank":"Chola","docs":{"modt2":[{"id":"x"}]},"fees":{"items":{"Registration fee":400,"Stamp duty":2,"Welfare":20},"govTotal":722,"extraFee":300,"pages":13}},"total":3800},
+ {"why":"Deed of Receipt, TNREGINET fees above the usual","c":{"type":"Deed of Receipt","bank":"Chola","fees":{"items":{"Registration fee":500,"Stamp duty":1,"Welfare":10},"govTotal":511,"extraFee":0,"pages":10}},"total":3300},
+ {"why":"company's own amounts","c":{"type":"Deed of Receipt","bank":"Own Co","fees":{"items":{"a":211},"govTotal":211,"pages":5}},"prof":{"fees":{"dor":2500}},"total":2500},
+ {"why":"company's own MODT service charge","c":{"type":"MODT","bank":"Own Co","draft":{"Loan amount":"500000"}},"prof":{"fees":{"modt":2000}},"total":9710}
+]
