@@ -2099,7 +2099,8 @@ def modt_problems(case):
     for i, r in enumerate(survey_rows(d)):
         if PART_WORD.search(r[1] or ""):
             out.append(f"survey row {i + 1}: sub-division '{r[1]}' has 'Part' - put the new sub-division number from the patta")
-    tot, ext = area_sqm(g(d, "Total survey extent")), area_sqm(g(d, "Extent"))
+    ext_full = g(d, "Extent") + (" " + case_unit(d) if re.fullmatch(r"\s*\d+(?:\.\d+)?\s*", g(d, "Extent")) and case_unit(d) else "")  # 12 Nov 2026: Extent may be the number only
+    tot, ext = area_sqm(g(d, "Total survey extent")), area_sqm(ext_full)
     ptype = ptype_of(d) or ""
     if "Agri" in ptype and tot and ext and ext > tot * 1.002:
         u = case_unit(d)
