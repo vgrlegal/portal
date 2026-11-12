@@ -1281,9 +1281,10 @@ function feeCalc(c,suppOverride){const R=FEE_RULE,S=feeSet(c.bank),f=c.fees||{},
   if(isRD(c.type)){const usual=R.dorGov*(supp?2:1);add("Deed of Receipt (all-in)",S.dor);if(supp)add("Supplementary MODT",S.supp);
     if(pageFee)add(`Pages above ${R.freePages} (${xp} × ₹${R.page})`,pageFee);if(read&&govRead>usual)add(`TNREGINET fees above the usual ₹${usual}`,Math.round(govRead-usual));}
   else{const loan=loanOf(c),stamp=Math.min(Math.round(loan*R.stampPct),R.stampMax),reg=Math.min(Math.round(loan*R.regPct),R.regMax),rule=stamp+reg+R.computer+R.welfare;
-    if(read){add("TNREGINET fees (read on the TP)",Math.round(govRead));if(loan&&Math.abs(govRead-rule)>1)warn.push(`By the rule the government fees are ₹${rule.toLocaleString("en-IN")} (loan ₹${loan.toLocaleString("en-IN")}) - TNREGINET showed ₹${Math.round(govRead).toLocaleString("en-IN")}. TNREGINET's figure is used.`)}
-    else{if(!loan)warn.push("Loan amount not in the draft - stamp duty and registration fee are 0. Add the loan amount.");
-      add("Stamp duty (0.5% of loan, max ₹40,000)",stamp);add("Registration fee (1% of loan, max ₹8,000)",reg);add("Computer charges",R.computer);add("Document writers welfare",R.welfare)}
+    /* TNREGINET's fee page on the TP shows only the computer fee + welfare (stamp duty and registration come from the loan) */
+    if(!loan)warn.push("Loan amount not in the draft - stamp duty and registration fee are 0. Add the loan amount.");
+    add("Stamp duty (0.5% of loan, max ₹40,000)",stamp);add("Registration fee (1% of loan, max ₹8,000)",reg);add("Computer charges",R.computer);add("Document writers welfare",R.welfare);
+    if(read&&govRead>R.computer+R.welfare+1)add("Other TNREGINET fees (read on the TP)",Math.round(govRead-R.computer-R.welfare));
     if(pageFee)add(`Pages above ${R.freePages} (${xp} × ₹${R.page})`,pageFee);add("Service charge",S.modt);if(supp)add("Supplementary MODT",S.supp)}
   if(read&&!pages)warn.push("Print page count not known - pages above 10 not added.");
   return{lines:L,total,warn,supp,pages,read}}

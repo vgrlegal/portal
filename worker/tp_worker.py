@@ -3948,13 +3948,13 @@ def fee_calc(c, prof, supp=None):
             add(f"TNREGINET fees above the usual ₹{usual}", _jsround(gov_read - usual))
     else:
         loan = _num((c.get("draft") or {}).get("Loan amount") or c.get("loanAmount") or "")
-        if read:
-            add("TNREGINET fees (read on the TP)", _jsround(gov_read))
-        else:
-            add("Stamp duty (0.5% of loan, max ₹40,000)", min(_jsround(loan * R["stampPct"]), R["stampMax"]))
-            add("Registration fee (1% of loan, max ₹8,000)", min(_jsround(loan * R["regPct"]), R["regMax"]))
-            add("Computer charges", R["computer"])
-            add("Document writers welfare", R["welfare"])
+        # TNREGINET's fee page on the TP shows only the computer fee + welfare; stamp duty and registration come from the loan
+        add("Stamp duty (0.5% of loan, max ₹40,000)", min(_jsround(loan * R["stampPct"]), R["stampMax"]))
+        add("Registration fee (1% of loan, max ₹8,000)", min(_jsround(loan * R["regPct"]), R["regMax"]))
+        add("Computer charges", R["computer"])
+        add("Document writers welfare", R["welfare"])
+        if read and gov_read > R["computer"] + R["welfare"] + 1:
+            add("Other TNREGINET fees (read on the TP)", _jsround(gov_read - R["computer"] - R["welfare"]))
         add(f"Pages above {R['freePages']} ({xp} × ₹{R['page']})", page_fee)
         add("Service charge", S["modt"])
         if supp:
