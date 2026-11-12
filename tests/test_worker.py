@@ -99,5 +99,6 @@ Q = [{"kind": "survey", "q": "Survey screen: X", "job": "j1"}, {"kind": "survey"
 check("same question waiting -> not added", ns["survey_qs_keep"](Q, "Survey  screen: x", "j2"), None)
 check("new run replaces old unanswered survey qs, keeps answered + others", [x["q"] for x in ns["survey_qs_keep"](Q, "Other", "j2")], ["Old", "D"])
 check("same run keeps its own questions", len(ns["survey_qs_keep"](Q, "Other", "j1")), 3)
+check("live / latest screen is the whole page, not only the top", src.count("full_page=False"), 0)
 print("worker tests:", "OK" if not fails else f"{fails} FAILED")
 sys.exit(1 if fails else 0)

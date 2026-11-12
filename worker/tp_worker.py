@@ -183,7 +183,7 @@ class Job:
         if page is not None:
             try:
                 # the screenshot lives in its own row, so polling the job row stays small
-                kv_set("tp_shots", self.id, {"shot": "data:image/jpeg;base64," + base64.b64encode(page.screenshot(type="jpeg", quality=55, full_page=False)).decode(), "at": now()})
+                kv_set("tp_shots", self.id, {"shot": "data:image/jpeg;base64," + base64.b64encode(page.screenshot(type="jpeg", quality=55, full_page=True)).decode(), "at": now()})
                 patch["shotAt"] = now()
             except Exception:
                 pass
@@ -283,7 +283,7 @@ class Portal:
         if getattr(self.job, "watching", False) and time.time() - getattr(self.job, "_live", 0) >= 3:
             self.job._live = time.time()
             try:
-                kv_set("tp_shots", self.job.id, {"shot": "data:image/jpeg;base64," + base64.b64encode(self.p.screenshot(type="jpeg", quality=50, full_page=False)).decode(), "at": now(), "live": True})
+                kv_set("tp_shots", self.job.id, {"shot": "data:image/jpeg;base64," + base64.b64encode(self.p.screenshot(type="jpeg", quality=50, full_page=True)).decode(), "at": now(), "live": True})
             except Exception as e:
                 log(self.job.id[:8], "live shot failed:", e)
 
