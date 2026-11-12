@@ -167,5 +167,6 @@ check("MODT off, Receipt on",[T.claudeOn("modt"),T.claudeOn("dor"),T.claudeOn("a
 check("area from the kind when no case",[T.claudeAreaOf({kind:"modt_case"}),T.claudeAreaOf({kind:"modt"}),T.claudeAreaOf({kind:"classify"}),T.claudeAreaOf({})],["modt","dor","dor","any"]);
 T.cfg.claudeOff={modt:true,dor:true};check("both off blocks everything",T.claudeOn("any"),false);T.cfg.claudeOff={};
 check("Claude plan tab: Admin only, switch checked in the reading wrapper and the mail reads",/if\(t==="__claude"\)return isMD;/.test(html)&&/if\(!claudeOn\(a\)\)return Promise\.resolve/.test(html)&&(html.match(/claudeOn\(areaOfCase\(x\)/g)||[]).length===2,true);
+check("Claude plan: old days show about how many cases were made (~)",/const MADE=\{\};cases\.forEach/.test(html)&&/cpN\(d,v,"modt"\)/.test(html)&&/cpN\(d,v,"dor"\)/.test(html),true);
 check("Clean-up never touches cases or documents",/async function cleanPlan\(/.test(html)&&!/from\("kv"\)\.delete\(\)\.eq\("collection","cases"\)/.test(html),true);
 
