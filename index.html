@@ -451,6 +451,7 @@ tr.hf input,tr.hf select{font-size:12.5px;padding:5px 7px;margin:2px 0}
       <div class="card"><h2>Witnesses</h2><div id="pp_wits"></div></div>
     </div>
   </section>
+  <section id="v-claude" hidden><div class="wrap" style="padding-top:16px" id="claudeBox"></div></section>
   <section id="v-rep" hidden><div class="wrap" style="padding-top:16px"><div class="card"><h2>Reports</h2>
     <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-bottom:10px"><label>Month<input type="month" id="repMonth"></label><label id="repOrgL">Show<select id="repOrg"><option value="all">Everything</option><option value="vgr">VGR office only</option><option value="oo">Opinion &amp; Ownership only</option></select></label><button class="btn" id="repCsv" type="button">⬇ Excel (CSV)</button></div>
     <div style="overflow-x:auto"><table class="mini" id="repTbl"></table></div><p class="sf-note" id="repNote"></p></div>
@@ -555,7 +556,9 @@ const SB_URL="https://kxngtgtgycatottekcwb.supabase.co",SB_KEY="sb_publishable_d
 const sb=window.supabase.createClient(SB_URL,SB_KEY,{auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:true}});
 window.__sb=sb;
 /* 12 Nov 2026: every Claude reading carries which case/file it was for (window.__readRef), so the cost report can show exact repeats */
-{const inv=sb.functions.invoke.bind(sb.functions);sb.functions.invoke=(name,o)=>{try{const b=o&&o.body;if(name==="read-aadhaar"&&b&&!b.ref&&(b.images||b.texts||b.pdfText)&&window.__readRef)b.ref=String(window.__readRef).slice(0,160)}catch(e){}return inv(name,o)}}
+{const inv=sb.functions.invoke.bind(sb.functions);sb.functions.invoke=(name,o)=>{try{const b=o&&o.body;if(name==="read-aadhaar"&&b&&!b.ref&&(b.images||b.texts||b.pdfText)&&window.__readRef)b.ref=String(window.__readRef).slice(0,160);
+  /* 12 Nov 2026: Claude plan tab - MODT / Deed of Receipt switched off = no Claude reading for that work anywhere (mail cases too) */
+  if(name==="read-aadhaar"&&b&&(b.images||b.texts||b.pdfText||b.draft)){const a=claudeAreaOf(b);if(!claudeOn(a))return Promise.resolve({data:null,error:new Error(`Claude reading is switched off for ${a==="modt"?"MODT":a==="dor"?"Deed of Receipt":"MODT and Deed of Receipt"} (Admin: Claude plan tab)`)})}}catch(e){}return inv(name,o)}}
 const uuid=()=>(crypto.randomUUID?crypto.randomUUID():"xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g,c=>{const r=crypto.getRandomValues(new Uint8Array(1))[0]&15;return(c==="x"?r:(r&3|8)).toString(16)}));
 const gate=document.getElementById("authGate"),msg=t=>document.getElementById("agMsg").textContent=t||"";
 let session=null,role=null,readyResolve;const ready=new Promise(r=>readyResolve=r);
@@ -785,7 +788,7 @@ function myOrg(){return myStaff?(myStaff.partner||myStaff.team||""):""}
 function isPartner(){return !!(myStaff&&myStaff.partner)}
 function canTp(){return isMD||!!(myStaff&&myStaff.tp===true)}
 function staffObj(x){return typeof x==="string"?{name:x,email:"",phone:"",tabs:TAB_KEYS.map(t=>t[0])}:{tabs:TAB_KEYS.map(t=>t[0]),...x}}
-function allowedTab(t){if(t==="__team")return isPartner();if(t==="__rep")return isMD||isPartner();if(t==="__tools")return isMD||isAdmin||isPartner();if(t==="__reg")return isMD||isAdmin||isPartner();if(isMD||isAdmin)return true;if(t==="__set"||t==="__ppl")return false;if(t==="dash"||t==="__all")return true;if(!myStaff)return false;return (myStaff.tabs||[]).includes(t)}
+function allowedTab(t){if(t==="__claude")return isMD;if(t==="__team")return isPartner();if(t==="__rep")return isMD||isPartner();if(t==="__tools")return isMD||isAdmin||isPartner();if(t==="__reg")return isMD||isAdmin||isPartner();if(isMD||isAdmin)return true;if(t==="__set"||t==="__ppl")return false;if(t==="dash"||t==="__all")return true;if(!myStaff)return false;return (myStaff.tabs||[]).includes(t)}
 
 /* ================= tabs & ranges ================= */
 function renderTabs(){
@@ -801,7 +804,8 @@ function renderTabs(){
     (isMD||isAdmin||isPartner()?`<button role="tab" data-t="__reg" aria-selected="${tab==="__reg"}">${isMD||isAdmin?"TNREGINET":"Reps, witnesses &amp; IDs"}</button>`:"")+
     (isMD||isAdmin||isPartner()?`<button role="tab" data-t="__tools" aria-selected="${tab==="__tools"}">Tools</button>`:"")+
     (isPartner()?`<button role="tab" data-t="__team" aria-selected="${tab==="__team"}">My team</button>`:"")+
-    (isMD||isPartner()?`<button role="tab" data-t="__rep" aria-selected="${tab==="__rep"}">Reports</button>`:"");
+    (isMD||isPartner()?`<button role="tab" data-t="__rep" aria-selected="${tab==="__rep"}">Reports</button>`:"")+
+    (isMD?`<button role="tab" data-t="__claude" aria-selected="${tab==="__claude"}">Claude plan</button>`:"");
 }
 $("tabs").onclick=e=>{const b=e.target.closest("button");if(!b)return;tab=b.dataset.t;page=0;lsSet("vgr.tab",tab);render()};
 $("ranges").onclick=e=>{const b=e.target.closest("button");if(!b)return;range=b.dataset.r;page=0;[...$("ranges").children].forEach(x=>x.setAttribute("aria-pressed",x===b));$("customRow").hidden=range!=="cus";render()};
@@ -921,7 +925,8 @@ function fillClientFilter(){const sel=$("fClient");if(!sel)return;const v=sel.va
 function render(){
   renderTabs();fillClientFilter();
   if(!allowedTab(tab))tab="dash";
-  ["v-dash","v-list","v-set","v-sro","v-kyc","v-ppl","v-team","v-rep"].forEach(id=>$(id).hidden=true);
+  ["v-dash","v-list","v-set","v-sro","v-kyc","v-ppl","v-team","v-rep","v-claude"].forEach(id=>$(id).hidden=true);
+  if(tab==="__claude"){$("v-claude").hidden=false;$("ranges").style.visibility="hidden";$("customRow").hidden=true;renderClaudePlan();return}
   if(tab==="__rep"){$("v-rep").hidden=false;$("ranges").style.visibility="hidden";$("customRow").hidden=true;renderReport();return}
   const tool=tab==="__set"||tab==="__reg"||tab==="__tools"||tab==="__sro"||tab==="__kyc"||tab==="__ppl"||tab==="__team";
   if(tab==="__team"){$("v-team").hidden=false;renderTeam();$("ranges").style.visibility="hidden";return}
@@ -1202,12 +1207,12 @@ async function bankReads(){try{await fixBankNames()}catch(e){}if(!(isMD||isAdmin
       const ch={mailBankDone:true};if(b){ch.bank=b;const who2=cfg.staff.map(staffObj).filter(m=>m.team&&(m.banks||[]).includes(b));if(who2.length===1&&!c.assignee)ch.assignee=who2[0].name}
       await db.collection("cases").doc(c._doc).update(ch)}catch(e){BR.delete("b"+c._doc)}}
   if(window.__noCredit)return;
-  for(const c of cases.filter(x=>x.source==="mail"&&!x.classified&&!x.classifyFailed&&!BR.has("k"+x._doc))){if(window.__noCredit)break;BR.add("k"+c._doc);
+  for(const c of cases.filter(x=>x.source==="mail"&&!x.classified&&!x.classifyFailed&&!x.notCase&&!x.mergedInto&&claudeOn(areaOfCase(x)==="legal"?"any":areaOfCase(x))&&!BR.has("k"+x._doc))){if(window.__noCredit)break;BR.add("k"+c._doc);
     if(!await claimRead(c,"lockCls"))continue;
     try{await classifyMail(c)}catch(e){console.warn(e);const n=(c.classifyFails||0)+1;
       await db.collection("cases").doc(c._doc).update(n>=2?{classifyFails:n,classifyFailed:true,lockCls:null,log:[...(c.log||[]),{at:nowISO(),by:"Claude",text:"Mail files could not be sorted automatically (tried twice): "+String(e.message||e).slice(0,120)+". Open the case and put the files in their boxes by hand."}].slice(-80)}:{classifyFails:n,lockCls:null}).catch(()=>{});
       if(n<2)setTimeout(()=>BR.delete("k"+c._doc),10*60000)}}
-  for(const c of cases.filter(x=>x.needsRead&&!x.readFailed&&!(x.source==="mail"&&!x.classified)&&!BR.has(x._doc))){BR.add(c._doc);
+  for(const c of cases.filter(x=>x.needsRead&&!x.readFailed&&!(x.source==="mail"&&!x.classified)&&!x.notCase&&!x.mergedInto&&claudeOn(areaOfCase(x)==="legal"?"any":areaOfCase(x))&&!BR.has(x._doc))){BR.add(c._doc);
   if(window.__noCredit)break;if(!await claimRead(c,"lockRead"))continue;
   try{if(c.needsRead==="modt2")await readSuppModt(c);else if(c.modtReadOf&&c.modtReadOf===(((c.docs||{}).modt||[])[0]||{}).url&&c.tpAuto){}else if(!await rereadModt(c,false)){const n=(c.readFails||0)+1;
       await db.collection("cases").doc(c._doc).update(n>=2?{readFails:n,needsRead:null,readFailed:true,log:[...(c.log||[]),{at:nowISO(),by:"Claude",text:"MODT could not be read automatically (tried twice). Open Drafting: check the MODT file, upload a clearer copy, or press Read MODT again."}].slice(-80)}:{readFails:n});continue}
@@ -1667,6 +1672,12 @@ function applyBrand(){const o=ORGS[myOrg()];const h=document.querySelector("head
 /* 12 Nov 2026: cost worked out from tokens with prices that match the Claude Console bill (checked day by day 9-11 Nov):
    stronger model $2 in / $10 out, cheaper model $0.80 / $4 per million tokens. ₹ per credit dollar = what the card paid
    (₹2,867 for $24.41 incl. GST and bank charges ≈ ₹117). */
+/* 12 Nov 2026: Claude on / off per work (Admin, Claude plan tab). Nothing stops by itself - only the Admin switches. */
+const claudeOn=a=>{const o=(typeof cfg!=="undefined"&&cfg&&cfg.claudeOff)||{};return a==="any"?!(o.modt&&o.dor):!o[a]};
+const caseOfRef=ref=>{const id=String(ref||"").split(" · ")[0].trim();return id&&typeof cases!=="undefined"?cases.find(c=>c.id===id):null};
+const areaOfCase=c=>c?(isRD(c.type)?"dor":flowOf(c.type)==="legal"?"legal":"modt"):"";
+function claudeAreaOf(b){const c=caseOfRef(b.ref||window.__readRef);if(c)return areaOfCase(c)==="legal"?"any":areaOfCase(c);
+  return b.kind==="modt_case"?"modt":["modt","classify","english","tamil"].includes(b.kind)?"dor":"any"}
 const USD_INR=117,AI_PRICE={s:[2,10],h:[0.8,4]};let REP_ROWS=[];
 function aiUsd(u){const h=/haiku/i.test(u.model||"")||["classify","english","tamil"].includes(u.kind),p=AI_PRICE[h?"h":"s"];return((+u.inTok||0)*p[0]+(+u.outTok||0)*p[1])/1e6}
 function orgOfName(n){const m=cfg.staff.map(staffObj).find(x=>x.name===n);return m?(m.partner||m.team||"vgr"):(n===MD_NAME||n===MD_OLD?"vgr":"vgr")}
@@ -1707,6 +1718,69 @@ function renderAiCost(U,mon){const card=$("aiCard"),el=$("aiCost");if(!card)retu
    <div style="overflow-x:auto"><table class="mini"><tr><th>Work</th><th class="c">Calls</th><th class="c">Pages</th><th class="c">Cost</th><th class="c">Per call</th><th class="c">Repeats</th></tr>${Object.entries(K).sort((a,b)=>b[1].usd-a[1].usd).map(([k,v])=>`<tr><td>${esc(AI_KIND[k]||k)}</td><td class="c">${v.n}</td><td class="c">${v.img}</td><td class="c">${r(v.usd)}</td><td class="c">${r2(v.usd/v.n)}</td><td class="c">${v.rep?`${v.rep} (${r(v.repU)})`:"0"}</td></tr>`).join("")}</table></div>
    <div style="overflow-x:auto;margin-top:10px"><table class="mini"><tr><th>Day</th><th class="c">Calls</th><th class="c">Repeats</th><th class="c">Cost</th></tr>${Object.entries(D).sort((a,b)=>b[0].localeCompare(a[0])).map(([d,v])=>`<tr><td>${d}</td><td class="c">${v.n}</td><td class="c">${v.rep}</td><td class="c">${r(v.usd)}</td></tr>`).join("")}</table></div>
    <p class="sf-note">Changes on 12 Nov 2026 to cut waste: one portal window reads a new mail case (15-minute lock, so Admin, Raja and extra tabs don't all read it); an error counts as a try (2 tries, then stop - no instant retry loop); the Deed of Receipt MODT reply limit raised from 3000 to 6000 tokens so it is not cut off and read again; each reading now records its case and file.</p>`}
+/* 12 Nov 2026: storage clean-up (Admin), reminded every 2 days. Removes only the robot's working data of finished work:
+   finished robot jobs (older than 2 days), their screens (tp_shots), screen notes (tp_diag), survey screenshots and old recordings.
+   Never touches cases, uploaded documents, settings or anything of an open case. */
+const CLEAN_DAYS=2,cleanDue=()=>isMD&&(!cfg.cleanAt||Date.now()-new Date(cfg.cleanAt).getTime()>CLEAN_DAYS*86400000);
+const openCase=c=>!FINAL.has(c.stage)&&!c.notCase&&!c.mergedInto;
+async function cleanPlan(){const old=Date.now()-CLEAN_DAYS*86400000,DONE=new Set(["done","error","cancelled","review"]);
+  const keep=new Set(["_worker"]);cases.filter(openCase).forEach(c=>{if(c.tpJob)keep.add(c.tpJob);(c.surveyShots||[]).forEach(s=>s.job&&keep.add(s.job));(c.robotQs||[]).forEach(q=>{const m=/survey\/([^/]+)\//.exec(q.shot||"");if(m)keep.add(m[1])})});
+  const{data:jobs}=await window.__sb.from("kv").select("id,updated_at,st:data->>status").eq("collection","tp_jobs").limit(5000);
+  (jobs||[]).forEach(j=>{if(!DONE.has(j.st)||new Date(j.updated_at).getTime()>old)keep.add(j.id)});
+  const delJobs=(jobs||[]).filter(j=>!keep.has(j.id)).map(j=>j.id);
+  const ids=async col=>((await window.__sb.from("kv").select("id").eq("collection",col).limit(5000)).data||[]).map(r=>r.id).filter(id=>!keep.has(id));
+  const delShots=await ids("tp_shots"),delDiag=await ids("tp_diag");
+  const files=[];const sv=(await window.__sb.storage.from("docs").list("survey",{limit:1000})).data||[];
+  for(const f of sv){if(keep.has(f.name))continue;const L=(await window.__sb.storage.from("docs").list("survey/"+f.name,{limit:1000})).data||[];L.forEach(x=>x.name&&files.push(`survey/${f.name}/${x.name}`))}
+  const rec=(await window.__sb.storage.from("docs").list("rec",{limit:1000})).data||[];
+  for(const f of rec){if(keep.has(f.name))continue;const L=(await window.__sb.storage.from("docs").list("rec/"+f.name,{limit:1000})).data||[];L.forEach(x=>x.name&&files.push(`rec/${f.name}/${x.name}`))}
+  return{delJobs,delShots,delDiag,files}}
+async function cleanUp(){let P;try{toast("Counting what can be cleaned…");P=await cleanPlan()}catch(e){toast("Could not count: "+(e.message||e));return}
+  const n=P.delJobs.length+P.delShots.length+P.delDiag.length+P.files.length;
+  if(!n){await saveCfg({...cfg,cleanAt:nowISO()});toast("Nothing to clean - all tidy");renderClaudePlan&&tab==="__claude"&&renderClaudePlan();return}
+  ask("Clean up the robot's old working data?",`<p class="sf-note">This deletes only the robot's working data of finished work. Cases, uploaded documents, settings and everything of open cases stay.</p>
+    <ul style="margin:6px 0 0 18px"><li>${P.delJobs.length} finished robot jobs (older than ${CLEAN_DAYS} days)</li><li>${P.delShots.length} saved robot screens</li><li>${P.delDiag.length} screen notes</li><li>${P.files.length} survey screenshots / recording files</li></ul><p class="sf-note">This cannot be undone.</p>`,async()=>{
+    const del=async(col,L)=>{for(let i=0;i<L.length;i+=100)await window.__sb.from("kv").delete().eq("collection",col).in("id",L.slice(i,i+100))};
+    try{await del("tp_shots",P.delShots);await del("tp_diag",P.delDiag);await del("tp_jobs",P.delJobs);for(let i=0;i<P.files.length;i+=100)await window.__sb.storage.from("docs").remove(P.files.slice(i,i+100));
+      await saveCfg({...cfg,cleanAt:nowISO()});toast(`Cleaned: ${n} items`);render()}catch(e){toast("Clean-up stopped: "+(e.message||e))}},"Delete")}
+/* 12 Nov 2026: Claude plan tab (Admin only) - on / off per work, plan payments, daily use per case, wasted reads.
+   Reports is not changed; this tab shows the Claude cost whether or not "Show money on screens" is on. */
+const CP={range:"today"};
+function cpWaste(U){/* wasted = the same case + file read again within 6 h, a reply cut off (read again), or a read for a removed / merged case */
+  const S={},rep=new Set(),LIM={modt_case:16000,modt:6000};U.slice().sort((a,b)=>String(a.at).localeCompare(String(b.at))).forEach(u=>{if(!u.ref)return;const k=u.kind+"|"+u.ref,L=S[k];if(L&&new Date(u.at)-new Date(L)<6*3600000)rep.add(u);S[k]=u.at});
+  const cut=u=>u.cut!==undefined?!!u.cut:(+u.outTok||0)>=(LIM[u.kind]||3000)-5;
+  return u=>{const c=caseOfRef(u.ref);return rep.has(u)?"read again":cut(u)?"reply cut off":c&&(c.notCase||c.mergedInto)?"case removed / merged":""}}
+function cpArea(u){const c=caseOfRef(u.ref);if(c)return areaOfCase(c);return u.kind==="modt_case"?"modt":["modt","classify","english","tamil"].includes(u.kind)?"dor":"other"}
+async function renderClaudePlan(){const box=$("claudeBox");if(!box||!isMD)return;
+  const off=cfg.claudeOff||{},pays=(cfg.claudePay||[]).slice().sort((a,b)=>String(b.date).localeCompare(String(a.date)));
+  const ist=t=>new Date(new Date(t).getTime()+19800000).toISOString().slice(0,10),today=ist(Date.now());
+  const from=CP.range==="today"?today:CP.range==="7d"?ist(Date.now()-6*86400000):today.slice(0,8)+"01";
+  const rs=v=>"₹"+(v*USD_INR).toLocaleString("en-IN",{maximumFractionDigits:v*USD_INR<10?1:0});
+  box.innerHTML=`<div class="card"><h2>Claude plan</h2><p class="sf-note">Only you see this tab. Switch Claude reading on or off for each work - nothing switches off by itself. When off, no Claude reading happens anywhere for that work (Drafting buttons, mail cases, the robot's translations); you see a message instead.</p>
+    <div style="display:flex;gap:10px;flex-wrap:wrap">${[["modt","MODT"],["dor","Deed of Receipt"]].map(([k,l])=>`<div class="kv" style="border:1px solid var(--line);border-radius:10px;padding:10px 14px;min-width:240px"><span>${l}</span><b style="color:${off[k]?"#b42318":"#067647"}">${off[k]?"Off":"On"}</b> <button type="button" class="btn ${off[k]?"primary":"danger"}" data-cpsw="${k}">${off[k]?"Switch on":"Switch off"}</button></div>`).join("")}</div></div>
+   <div class="card" style="margin-top:14px"><h2>Plan payments</h2><div id="cpPays">${pays.length?`<table class="mini"><tr><th>Date</th><th class="c">Amount</th><th>Note</th><th></th></tr>${pays.map(p=>`<tr><td>${esc(p.date)}</td><td class="c">₹${Number(p.amt||0).toLocaleString("en-IN")}</td><td>${esc(p.note||"")}</td><td><button type="button" class="btn danger" data-cpdel="${esc(p.id)}">Delete</button></td></tr>`).join("")}</table>`:`<p class="sf-note">No payments entered yet.</p>`}</div>
+    <div class="fgrid" style="margin-top:8px"><label>Date paid<input type="date" id="cpDate" value="${today}"></label><label>Amount (₹)<input type="number" id="cpAmt" min="0" step="1"></label><label class="full">Note (plan, card, invoice no.)<input id="cpNote"></label></div>
+    <button type="button" class="btn primary" id="cpAdd" style="margin-top:6px">Add payment</button></div>
+   <div class="card" style="margin-top:14px"><h2>Storage clean-up</h2><p class="sf-note">Last clean-up: ${cfg.cleanAt?esc(new Date(cfg.cleanAt).toLocaleString("en-IN")):"never"}. Every ${CLEAN_DAYS} days the Dashboard reminds you. Removes only the robot's old working data (finished jobs, saved screens, screen notes, survey screenshots, recordings) - never cases or documents, and nothing of an open case.</p><button type="button" class="btn" id="cpClean">🧹 Clean up now</button></div>
+   <div class="card" style="margin-top:14px"><h2>Use and waste</h2><div style="display:flex;gap:6px;margin-bottom:8px">${[["today","Today"],["7d","Last 7 days"],["month","This month"]].map(([k,l])=>`<button type="button" class="btn ${CP.range===k?"primary":""}" data-cprange="${k}">${l}</button>`).join("")}</div><div id="cpUse"><p class="sf-note">Loading…</p></div></div>`;
+  box.querySelectorAll("[data-cpsw]").forEach(b=>b.onclick=async()=>{const k=b.dataset.cpsw,now={...(cfg.claudeOff||{}),[k]:!(cfg.claudeOff||{})[k]};b.disabled=true;await saveCfg({...cfg,claudeOff:now});toast(`Claude for ${k==="modt"?"MODT":"Deed of Receipt"} is ${now[k]?"OFF":"ON"}`);renderClaudePlan()});
+  box.querySelectorAll("[data-cpdel]").forEach(b=>b.onclick=()=>ask("Delete this payment entry?",`<p class="sf-note">Only the entry in this list is removed.</p>`,async()=>{await saveCfg({...cfg,claudePay:(cfg.claudePay||[]).filter(p=>p.id!==b.dataset.cpdel)});renderClaudePlan()},"Delete"));
+  $("cpAdd").onclick=async()=>{const date=$("cpDate").value,amt=+$("cpAmt").value;if(!date||!(amt>0)){toast("Enter the date and the amount");return}
+    await saveCfg({...cfg,claudePay:[...(cfg.claudePay||[]),{id:uuid(),date,amt,note:$("cpNote").value.trim(),by:me||"",at:nowISO()}]});toast("Payment added");renderClaudePlan()};
+  box.querySelectorAll("[data-cprange]").forEach(b=>b.onclick=()=>{CP.range=b.dataset.cprange;renderClaudePlan()});$("cpClean").onclick=cleanUp;
+  let U=[];try{const fromUtc=new Date(new Date(from+"T00:00:00+05:30").getTime()).toISOString();const{data}=await window.__sb.from("kv").select("data").eq("collection","usage").gte("data->>at",fromUtc).limit(5000);U=(data||[]).map(r=>r.data)}catch(e){$("cpUse").innerHTML=`<p class="banner">Could not load the use: ${esc(e.message||e)}</p>`;return}
+  const usd=u=>+u.usd||aiUsd(u),why=cpWaste(U),D={},C={},A={modt:"MODT",dor:"Deed of Receipt",legal:"Legal report",other:"Other (KYC Master, no case)"};let tot=0,waste=0;
+  U.forEach(u=>{const v=usd(u),a=cpArea(u),w=why(u),day=ist(u.at),c=caseOfRef(u.ref);tot+=v;if(w)waste+=v;
+    const d=D[day]||(D[day]={modt:new Set(),dor:new Set(),usd:{modt:0,dor:0,legal:0,other:0},n:0,w:0,wu:0});d.n++;d.usd[a]=(d.usd[a]||0)+v;if(c&&d[a])d[a].add(c.id);if(w){d.w++;d.wu+=v}
+    const key=c?c.id:"(no case recorded)",x=C[key]||(C[key]={c,area:a,n:0,usd:0,w:0,wu:0,why:{},by:new Set()});x.n++;x.usd+=v;x.by.add(u.name||u.email||"?");if(w){x.w++;x.wu+=v;x.why[w]=(x.why[w]||0)+1}});
+  const paidM=(cfg.claudePay||[]).filter(p=>String(p.date).slice(0,7)===today.slice(0,7)).reduce((t,p)=>t+(+p.amt||0),0);
+  const kv=(l,v)=>`<div class="kv"><span>${l}</span><b>${v}</b></div>`;
+  $("cpUse").innerHTML=`<div class="kvs">${kv("Spent",rs(tot)+` · ${U.length} readings`)}${kv("Wasted",`<span style="color:${waste?"#b42318":""}">${rs(waste)}</span> (read again, reply cut off, removed case)`)}${kv("Paid this month",paidM?"₹"+paidM.toLocaleString("en-IN"):"-")}</div>
+    <h3 style="margin:12px 0 4px">Each day</h3><div style="overflow-x:auto"><table class="mini"><tr><th>Day</th><th class="c">MODT cases</th><th class="c">MODT cost</th><th class="c">Receipt cases</th><th class="c">Receipt cost</th><th class="c">Other</th><th class="c">Readings</th><th class="c">Wasted</th></tr>
+    ${Object.entries(D).sort((a,b)=>b[0].localeCompare(a[0])).map(([d,v])=>`<tr><td>${d}</td><td class="c">${v.modt.size}</td><td class="c">${rs(v.usd.modt||0)}</td><td class="c">${v.dor.size}</td><td class="c">${rs(v.usd.dor||0)}</td><td class="c">${rs((v.usd.legal||0)+(v.usd.other||0))}</td><td class="c">${v.n}</td><td class="c">${v.w?`${v.w} · ${rs(v.wu)}`:"0"}</td></tr>`).join("")||`<tr><td colspan="8">No Claude reading in this period.</td></tr>`}</table></div>
+    <h3 style="margin:12px 0 4px">Each case (most wasted first)</h3><div style="overflow-x:auto"><table class="mini"><tr><th>Case</th><th>Work</th><th class="c">Readings</th><th class="c">Cost</th><th class="c">Wasted</th><th>Why wasted</th><th>Login</th></tr>
+    ${Object.entries(C).sort((a,b)=>b[1].wu-a[1].wu||b[1].usd-a[1].usd).map(([k,x])=>`<tr><td>${esc(k)}${x.c?`<span class="sub">${esc(x.c.applicant||"")}</span>`:""}</td><td>${esc(A[x.area]||x.area)}</td><td class="c">${x.n}</td><td class="c">${rs(x.usd)}</td><td class="c">${x.w?`<b style="color:#b42318">${x.w} · ${rs(x.wu)}</b>`:"0"}</td><td>${esc(Object.entries(x.why).map(([w,n])=>`${w} ×${n}`).join(", "))}</td><td>${esc([...x.by].join(", "))}</td></tr>`).join("")}</table></div>
+    <p class="sf-note">Readings made before 12 Nov 2026 (or from an old portal window) do not record their case, so they show as "(no case recorded)". Cost is worked out from the tokens at ₹${USD_INR} a dollar.</p>`}
 async function renderTime(from,to,want,on){const t=$("timeTbl");if(!t)return;let rows=[];
   try{const{data}=await window.__sb.from("kv").select("data").eq("collection","presence").gte("data->>date",from).lt("data->>date",to).limit(5000);rows=(data||[]).map(r=>r.data)}catch(e){}
   if(isMD&&want!=="all")rows=rows.filter(r=>want==="vgr"?!r.org:r.org===want);
@@ -2315,9 +2389,10 @@ function healthIssues(){const I=[],add=(k,txt,list)=>{if(list.length)I.push({k,t
   add("warn","Duplicate warnings",live.filter(c=>c.dupWarn).map(c=>c.id+" - "+c.dupWarn));
   return I}
 function renderHealth(){const box=$("healthBox");if(!box)return;if(!(isMD||isAdmin)){box.innerHTML="";return}const I=healthIssues();
-  box.innerHTML=I.length?`<div class="card" style="margin:0 0 12px;padding:12px 16px;border:2px solid #c0392b;background:#fdecea"><b style="color:#a01c1c">⚠ Portal health check · ${I.reduce((t,x)=>t+x.list.length,0)} item(s) need you</b>
+  const due=cleanDue()?`<div class="card" style="margin:0 0 12px;padding:10px 16px;border:1px solid #d0a300;background:#fff8e1;display:flex;gap:10px;align-items:center;flex-wrap:wrap"><span>🧹 <b>Storage clean-up is due</b> (every ${CLEAN_DAYS} days) - the robot's old working data of finished work. Cases and documents are not touched.</span><button type="button" class="btn" id="dashClean">Clean up</button></div>`:"";
+  box.innerHTML=due+(I.length?`<div class="card" style="margin:0 0 12px;padding:12px 16px;border:2px solid #c0392b;background:#fdecea"><b style="color:#a01c1c">⚠ Portal health check · ${I.reduce((t,x)=>t+x.list.length,0)} item(s) need you</b>
     ${I.map(x=>`<details style="margin-top:6px"><summary><b>${esc(x.txt)}</b> (${x.list.length})</summary><ul style="margin:4px 0 0 18px">${x.list.slice(0,25).map(l=>`<li class="sub">${esc(l)}</li>`).join("")}</ul></details>`).join("")}</div>`
-    :`<div class="sf-note" style="margin:0 0 10px">✓ Portal health check: nothing needs you.</div>`}
+    :`<div class="sf-note" style="margin:0 0 10px">✓ Portal health check: nothing needs you.</div>`);if($("dashClean"))$("dashClean").onclick=cleanUp}
 function renderDash(){if(Date.now()-BIOJ.t>20000){BIOJ.t=Date.now();setTimeout(bioPoll,300)}else setTimeout(renderBioBox,0);setTimeout(()=>{renderHealth();healthJobs()},0);
   const vis=cases.filter(c=>allowedTab(c.type)),cs=vis.filter(inRange),open=vis.filter(c=>!FINAL.has(c.stage));
   const now=new Date(),hr=now.getHours(),greet=hr<12?"Good morning":hr<17?"Good afternoon":"Good evening";
@@ -3448,7 +3523,7 @@ setInterval(()=>{if(!$("v-list").hidden||!$("v-dash").hidden)render()},60000);
   db.doc("config/lists").onSnapshot(s=>{const d=s.exists?s.data():{};
     CFG_OK=true;cfg={banks:d.banks||[],staff:(d.staff||[]).map(staffObj),types:(d.types&&d.types.length)?d.types:DEFAULT_TYPES.slice(),pay:d.pay||{},profiles:d.profiles||{},wit:d.wit||[],clients:d.clients||[],rules:d.rules||[],domains:d.domains||{}};
     myStaff=!isMD&&SELF_EMAIL?cfg.staff.find(x=>x.email&&x.email.toLowerCase()===SELF_EMAIL)||null:null;if(myStaff)me=myStaff.name;
-    applyBrand();if(!["dash","__all","__set","__reg","__tools","__sro","__ppl","__team","__rep"].includes(tab)&&!cfg.types.includes(tab))tab="dash";fillStatic();render()},()=>{});
+    applyBrand();if(!["dash","__all","__set","__reg","__tools","__sro","__ppl","__team","__rep","__claude"].includes(tab)&&!cfg.types.includes(tab))tab="dash";fillStatic();render()},()=>{});
   db.doc("tp_jobs/_worker").onSnapshot(s=>{const w=s.exists?(s.data()||{}):{};W.at=w.at||null;W.busy=w.busy||[];W.tn=w.tnOk;if(!$("tpbar").hidden)renderHelperChip()},()=>{});
   db.collection("cases").onSnapshot(s=>{if(!s.metadata.fromCache)clearTimeout(timer);{const all=s.docs.map(d=>({...d.data(),_doc:d.id})).filter(c=>!c.mergedInto);cases=all.filter(c=>!c.notCase);REMOVED=all.filter(c=>c.notCase)}
     if(editing){const fresh=cases.find(c=>c._doc===editing._doc);if(fresh){editing=fresh;if($("timeline"))renderTimeline(fresh)}}

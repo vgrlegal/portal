@@ -2,7 +2,7 @@
 const fs=require("fs"),path=require("path"),ROOT=path.join(__dirname,"..");
 const html=fs.readFileSync(path.join(ROOT,"index.html"),"utf8");
 const grab=(start,end)=>{const a=html.indexOf(start);if(a<0)throw new Error("not found: "+start);const b=html.indexOf(end,a+start.length);return html.slice(a,b)};
-let src="const isRD=t=>/receipt/i.test(t||'');const esc=x=>String(x);const cfg={wit:[],banks:[],profiles:{}};var profOf=b=>(cfg.profiles||{})[b]||null;\n";
+let src="var window=globalThis;const isRD=t=>/receipt/i.test(t||'');const esc=x=>String(x);const cfg={wit:[],banks:[],profiles:{}};var profOf=b=>(cfg.profiles||{})[b]||null;\n";
 src+=grab("const PART_RE=","\n")+"\n"+grab("/* 12 Nov 2026 - same reader","const PART_REASON=")+"\n";
 const extra=(globalThis.__EXTRA__||[]);
 for(const [a,b] of [["function lodBoxOf(","\nconst OFF_TA="],["const OFF_TA=","\nasync function saveReview("]])src+=grab(a,b)+"\n";
@@ -13,11 +13,12 @@ src="const flowOf=t=>/legal/i.test(t||'')?'legal':'modt';\n"+src;
 src+=grab("function modtUploads(","\n  return out}")+"\n  return out}\n";
 src+=grab("const DOC_NAME=","async function addDocs(")+"\n";
 src+=grab("const AREA_SQM=","function modtFill(")+"\n";
+src+=grab("/* 12 Nov 2026: Claude on / off per work","const USD_INR=")+"\n";
 src+=grab("function surveyClean(","\nasync function readModtCase(")+"\n";
 src+="const nowISO=()=>'2026-11-12T00:00:00Z',who=()=>'Test';\n"+grab("function settleQs(","\nfunction ")+"\n";
 src+=grab("async function doubtQs(","\n/* files are kept")+"\n";
 const MSTATES=(html.match(/MSTATES=\[[^\]]*\]/)||["MSTATES=[]"])[0];
-const T={};new Function("T",`const ${MSTATES};${src};T.parseSurvey=parseSurvey;T.partSurvey=partSurvey;T.modtCoAddr=modtCoAddr;T.lodBoxOf=lodBoxOf;T.dorDoneCheck=dorDoneCheck;T.custFromSubject=custFromSubject;T.NOT_DOR_RE=NOT_DOR_RE;T.dupPlan=dupPlan;T.missingReq=missingReq;T.modtUploads=modtUploads;T.surveyClean=surveyClean;T.settleQs=settleQs;T.doubtQs=doubtQs;T.svRowsOf=svRowsOf;T.svFix=svFix;T.legalSecurity=legalSecurity;T.secText=secText;T.deedProblems=deedProblems;T.applySecurity=applySecurity;T.legalBlock=legalBlock;T.lodParse=lodParse;T.lodSplit=lodSplit;T.lodRowsFromText=lodRowsFromText;T.lodBuild=lodBuild;T.lodSync=lodSync;T.lodTextOf=lodTextOf;T.docNames=docNames;T.remarksStreet=remarksStreet;T.extNum=extNum;T.extFull=extFull;T.cfg=cfg;T.modtRule=modtRule;`)(T);
+const T={};new Function("T",`const ${MSTATES};${src};T.parseSurvey=parseSurvey;T.partSurvey=partSurvey;T.modtCoAddr=modtCoAddr;T.lodBoxOf=lodBoxOf;T.dorDoneCheck=dorDoneCheck;T.custFromSubject=custFromSubject;T.NOT_DOR_RE=NOT_DOR_RE;T.dupPlan=dupPlan;T.missingReq=missingReq;T.modtUploads=modtUploads;T.surveyClean=surveyClean;T.settleQs=settleQs;T.doubtQs=doubtQs;T.svRowsOf=svRowsOf;T.svFix=svFix;T.legalSecurity=legalSecurity;T.secText=secText;T.deedProblems=deedProblems;T.applySecurity=applySecurity;T.legalBlock=legalBlock;T.lodParse=lodParse;T.lodSplit=lodSplit;T.lodRowsFromText=lodRowsFromText;T.lodBuild=lodBuild;T.lodSync=lodSync;T.lodTextOf=lodTextOf;T.docNames=docNames;T.remarksStreet=remarksStreet;T.extNum=extNum;T.extFull=extFull;T.cfg=cfg;T.modtRule=modtRule;T.claudeOn=claudeOn;T.claudeAreaOf=claudeAreaOf;`)(T);
 let fails=0;const check=(n,g,w)=>{if(JSON.stringify(g)!==JSON.stringify(w)){fails++;console.log("FAIL",n,"got",JSON.stringify(g),"want",JSON.stringify(w))}};
 for(const [text,exp] of JSON.parse(fs.readFileSync(path.join(__dirname,"survey_cases.json"),"utf8"))){const r=T.parseSurvey(text);for(const k in exp)check(`parseSurvey(${JSON.stringify(text.slice(0,40))}).${k}`,r[k],exp[k])}
 check("partSurvey part+new",T.partSurvey({type:"Deed of Receipt",tp:{"Survey number":"Old Sy.No.622/3 Part, New Survey No. 1025/12"}}),"");
@@ -158,4 +159,13 @@ check("Sheet name box removed from Drafting",/"Sheet name"/.test(html),false);
 check("New captcha button next to every captcha box",(html.match(/\$\{capNewBtn\(/g)||[]).length,4);
 
 check("Watch robot: Admin-only button, live screen refresh",/isMD&&!ended&&j\.status!=="cancel"\)h\+=`<div style="margin-top:8px"><button type="button" class="btn" id="rvWatch">/.test(html)&&/function liveWatch\(/.test(html),true);
+
+// 12 Nov 2026: Claude on / off per work (only the Admin switches; nothing stops by itself)
+check("Claude on by default",[T.claudeOn("modt"),T.claudeOn("dor"),T.claudeOn("any")],[true,true,true]);
+T.cfg.claudeOff={modt:true};
+check("MODT off, Receipt on",[T.claudeOn("modt"),T.claudeOn("dor"),T.claudeOn("any")],[false,true,true]);
+check("area from the kind when no case",[T.claudeAreaOf({kind:"modt_case"}),T.claudeAreaOf({kind:"modt"}),T.claudeAreaOf({kind:"classify"}),T.claudeAreaOf({})],["modt","dor","dor","any"]);
+T.cfg.claudeOff={modt:true,dor:true};check("both off blocks everything",T.claudeOn("any"),false);T.cfg.claudeOff={};
+check("Claude plan tab: Admin only, switch checked in the reading wrapper and the mail reads",/if\(t==="__claude"\)return isMD;/.test(html)&&/if\(!claudeOn\(a\)\)return Promise\.resolve/.test(html)&&(html.match(/claudeOn\(areaOfCase\(x\)/g)||[]).length===2,true);
+check("Clean-up never touches cases or documents",/async function cleanPlan\(/.test(html)&&!/from\("kv"\)\.delete\(\)\.eq\("collection","cases"\)/.test(html),true);
 
