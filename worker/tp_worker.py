@@ -2604,6 +2604,10 @@ def surveys_of(d):
     out = []
     sn, sub = g(d, "New survey no"), g(d, "Subdivision")
     if sn:
+        # 12 Nov 2026: "20 / 2B2 with linked 20/2C1A" -> survey 20 (sub-division from Subdivision or after the '/')
+        m = re.match(r"^\s*(\d+[A-Za-z]?)\s*(?:/\s*([0-9A-Za-z]+))?", sn)
+        if m and m.group(0).strip() != sn.strip():
+            sn, sub = m.group(1), sub or (m.group(2) or "")
         if not sub and "/" in sn:
             sn, sub = sn.split("/", 1)
         out.append((sn.strip(), sub.strip(), g(d, "Extent")))

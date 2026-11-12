@@ -11,8 +11,9 @@ src+=grab("const NOT_DOR_RE=","async function bankReads(){")+"\n";
 src+=grab("const DOCS={","\nconst docsFor=")+"\n"+grab("const docsFor=","\n")+"\n"+grab("function missingReq(","\n}\n")+"\n}\n";
 src="const flowOf=t=>/legal/i.test(t||'')?'legal':'modt';\n"+src;
 src+=grab("function modtUploads(","\n  return out}")+"\n  return out}\n";
+src+=grab("function surveyClean(","\nasync function readModtCase(")+"\n";
 const MSTATES=(html.match(/MSTATES=\[[^\]]*\]/)||["MSTATES=[]"])[0];
-const T={};new Function("T",`const ${MSTATES};${src};T.parseSurvey=parseSurvey;T.partSurvey=partSurvey;T.modtCoAddr=modtCoAddr;T.lodBoxOf=lodBoxOf;T.dorDoneCheck=dorDoneCheck;T.custFromSubject=custFromSubject;T.NOT_DOR_RE=NOT_DOR_RE;T.dupPlan=dupPlan;T.missingReq=missingReq;T.modtUploads=modtUploads;`)(T);
+const T={};new Function("T",`const ${MSTATES};${src};T.parseSurvey=parseSurvey;T.partSurvey=partSurvey;T.modtCoAddr=modtCoAddr;T.lodBoxOf=lodBoxOf;T.dorDoneCheck=dorDoneCheck;T.custFromSubject=custFromSubject;T.NOT_DOR_RE=NOT_DOR_RE;T.dupPlan=dupPlan;T.missingReq=missingReq;T.modtUploads=modtUploads;T.surveyClean=surveyClean;`)(T);
 let fails=0;const check=(n,g,w)=>{if(JSON.stringify(g)!==JSON.stringify(w)){fails++;console.log("FAIL",n,"got",JSON.stringify(g),"want",JSON.stringify(w))}};
 for(const [text,exp] of JSON.parse(fs.readFileSync(path.join(__dirname,"survey_cases.json"),"utf8"))){const r=T.parseSurvey(text);for(const k in exp)check(`parseSurvey(${JSON.stringify(text.slice(0,40))}).${k}`,r[k],exp[k])}
 check("partSurvey part+new",T.partSurvey({type:"Deed of Receipt",tp:{"Survey number":"Old Sy.No.622/3 Part, New Survey No. 1025/12"}}),"");
@@ -59,5 +60,11 @@ check("MODT with neither",T.missingReq("MODT",{th_kyc:[{}],w1_kyc:[{}],w2_kyc:[{
  const need=U.filter(x=>(x.need&&!x.v)||(x.miss||[]).length).map(x=>x.l);check("MODT uploads: no EC, no photo -> nothing missing",need,[]);
  const U2=T.modtUploads({docs:{th_kyc:[{name:"a"}],deed:[{name:"d"}]},caseWit:{1:{name:"x"},2:{name:"y"}}},{"Title holders":"1"});
  check("MODT uploads: patta still needed",U2.some(x=>(x.miss||[]).includes("patta")),true);}
+// survey number cleaned after reading (Rajeswari 0088, 12 Nov)
+{const d=T.surveyClean({"New survey no":"20 / 2B2 with linked 20/2C1A","Subdivision":"2B2","Linked survey numbers":"20/2C1A=1690"});
+ check("surveyClean number only",[d["New survey no"],d.Subdivision,d["Linked survey numbers"]],["20","2B2","20/2C1A=1690"]);
+ const e=T.surveyClean({"New survey no":"140/2A2"});check("surveyClean 140/2A2",[e["New survey no"],e.Subdivision],["140","2A2"]);
+ check("surveyClean plain kept",T.surveyClean({"New survey no":"42"})["New survey no"],"42");}
+check("file names: no (optional) in saved names",/DOC_NAME\[d\.k\]\|\|String\(d\.l\)\.replace/.test(html)&&/mdraft:"MODT draft \(Word copy\)"/.test(html),true);
 if(globalThis.__MORE__)globalThis.__MORE__(T,check,html);
 console.log("portal tests:",fails?fails+" FAILED":"OK");process.exit(fails?1:0);

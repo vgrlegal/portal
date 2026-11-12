@@ -4,8 +4,9 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 src = open(os.path.join(ROOT, "worker", "tp_worker.py"), encoding="utf-8").read()
 ns = {"re": re}
 exec("def g(t,*k):\n    for x in k:\n        v=t.get(x)\n        if v not in (None,''): return str(v).strip()\n    return ''\n", ns)
-for start, end in (("SV_KW = ", "def run_dor("), ("def survey_list(", "def ask_captcha(")):
-    exec(src[src.index(start):src.index(end)], ns)
+for start, end in (("SV_KW = ", "def run_dor("), ("def survey_list(", "def ask_captcha("), ("def surveys_of(", "\ndef ", )):
+    a = src.index(start)
+    exec(src[a:src.index(end, a + len(start))], ns)
 fails = 0
 def check(name, got, want):
     global fails
@@ -30,6 +31,9 @@ check("dor_survey_change none for part only", ns["dor_survey_change"]({"Survey n
 # EC search reads every written form, new number first
 check("survey_list T.S", ns["survey_list"]({"Survey number": "Old T.S.No.334/2 Part, New T.S.No.57/1"})[0], ("57", "1"))
 check("survey_list Sy", ns["survey_list"]({"Survey number": "Sy.No.622/3"}), [("622", "3")])
+# survey number cleaned by the robot too (Rajeswari 0088)
+check("surveys_of junk survey", ns["surveys_of"]({"New survey no": "20 / 2B2 with linked 20/2C1A", "Subdivision": "2B2", "Extent": "5 Cent"})[0][:2], ("20", "2B2"))
+check("surveys_of 140/2A2", ns["surveys_of"]({"New survey no": "140/2A2"})[0][:2], ("140", "2A2"))
 # MODT upload: no title deed -> the bank letter goes in the title deed slot (12 Nov)
 check("modt_plan bank letter fallback", 'docs.get("deed") or docs.get("letter")' in src, True)
 print("worker tests:", "OK" if not fails else f"{fails} FAILED")

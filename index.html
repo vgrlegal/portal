@@ -1419,12 +1419,12 @@ function removeDoc(k,i,type){const f=(draftDocs[k]||[])[i];if(!f)return;const la
     if(editing&&infoMode==="view")await patch(editing,{docs:draftDocs},`${lab} removed (${f.name})`);
     if(isMD&&String(f.url).startsWith("sb:")&&!f.from&&window.__sb)window.__sb.storage.from("docs").remove([f.url.slice(3)]).catch(()=>{});
     toast("File removed")},"Remove")}
-const DOC_NAME={th_kyc:"Title Holder KYC",w1_kyc:"Witness 1 KYC",w2_kyc:"Witness 2 KYC",revenue:"Patta TSLR",photos:"Property Photo",ec:"EC",legal:"Legal Report",sanction:"Sanction Letter",deed:"Title Deed",modt:"MODT",noc:"NOC",letter:"SRO Letter",report:"Legal Report",tpcopy:"TP Copy",payshot:"Payment Screenshot",rep_kyc:"Bank Rep KYC",rep_id:"Bank Rep ID"};
+const DOC_NAME={th_kyc:"Title Holder KYC",w1_kyc:"Witness 1 KYC",w2_kyc:"Witness 2 KYC",revenue:"Patta TSLR",photos:"Property Photo",ec:"EC",legal:"Legal Report",sanction:"Sanction Letter",deed:"Title Deed",modt:"MODT",noc:"NOC",letter:"Letter",mdraft:"MODT draft (Word copy)",report:"Legal Report",tpcopy:"TP Copy",payshot:"Payment Screenshot",rep_kyc:"Bank Rep KYC",rep_id:"Bank Rep ID"};
 async function addDocs(d,files,type){
   if(!files.length)return;
   if(d.k==="modt"&&isRD(type)){const pf=files.find(f=>f.type==="application/pdf"||/\.pdf$/i.test(f.name));if(pf)autoBankFrom(pf)}
   const cust=(fv("f_applicant")||(editing&&editing.applicant)||"Customer").replace(/[\\/:*?"<>|]+/g," ").trim();
-  const base=`${cust} - ${DOC_NAME[d.k]||d.l}`;
+  const base=`${cust} - ${DOC_NAME[d.k]||String(d.l).replace(/\s*\((optional|if [^)]*)\)/ig,"")}`;
   const ext=f=>((f.name.match(/\.[a-z0-9]+$/i)||[""])[0]||(f.type==="application/pdf"?".pdf":"")).toLowerCase();
   const isPdf=f=>f.type==="application/pdf"||/\.pdf$/i.test(f.name);
   let list;
@@ -1868,7 +1868,7 @@ function modtCoAddr(d,draftText){const w=officeWord(draftText)||d["Company offic
   if(t.ho){let br=t.br;if(br&&!/கிளை/.test(br)&&br.split(",").length<2)br+=" கிளை";const ho=stripStPin(t.ho,st);d["Company address Tamil"]=br?`${br}, ${OFF_TA[w]||OFF_TA["Registered Office"]} - ${ho}`:`${OFF_TA[w]||OFF_TA["Registered Office"]} - ${ho}`}
   return d}
 async function saveReview(done){
-  const c=rv.c,dor=isRD(c.type),data=readReview(),ch=dor?{tp:data,...witPicks()}:{draft:data};if(!dor)modtCoAddr(data,c.draftText||"");
+  const c=rv.c,dor=isRD(c.type),data=readReview(),ch=dor?{tp:data,...witPicks()}:{draft:data};if(!dor){modtCoAddr(data,c.draftText||"");surveyClean(data)}
   if(c.tpAuto){const fx=fixesOf(c,data);if(fx.length!==(c.fixes||[]).length||JSON.stringify(fx)!==JSON.stringify(c.fixes||[]))ch.fixes=fx}
   if(!dor&&data.SRO)ch.sro=data.SRO;if(dor&&data.SRO)ch.sro=data.SRO;
   if(done){const P=dor?dorDoneCheck(c,data):modtDoneCheck({...c,...ch},data);if(P.length){await patch(c,ch,"Draft saved (Draft done refused: "+P.length+" item(s) missing)");showDoneProblems(P);return}}
@@ -1876,7 +1876,7 @@ async function saveReview(done){
   if(await patch(c,ch,done?"Draft done":"Draft saved")){if(done)closeReview()}
 }
 async function approveReview(){
-  const c=rv.c,dor=isRD(c.type),data=readReview();if(!dor)modtCoAddr(data,c.draftText||"");
+  const c=rv.c,dor=isRD(c.type),data=readReview();if(!dor){modtCoAddr(data,c.draftText||"");surveyClean(data)}
   if(dor){const P=dorDoneCheck(c,data);if(P.length){showDoneProblems(P);return}}
   if(!dor){const P=modtDoneCheck(c,data);if(P.length){showDoneProblems(P);return}}
   await patch(c,dor?{tp:data,...witPicks()}:{draft:data},"Draft approved for TP");
@@ -3061,6 +3061,14 @@ async function docBinText(file){const b=new Uint8Array(await file.arrayBuffer())
       return out.join("\n")}}
   docBinText.lod="";
   return (score(u16)>=score(u8)*0.6?u16:u8).replace(/\x07\x07/g,"\n").replace(/\x07/g," | ").replace(/\r/g,"\n").replace(/\t/g," ").replace(/\n{3,}/g,"\n\n").trim()}
+/* 12 Nov 2026 (Rajeswari 0088): Claude wrote "20 / 2B2 with linked 20/2C1A" as the New survey no. New survey no = the
+   number only; the sub-division to Subdivision; extra numbers belong to Linked survey numbers (kept if already there). */
+function surveyClean(d){const raw=String(d["New survey no"]||"").trim();if(!raw||/^\d+[A-Za-z]?$/.test(raw))return d;
+  const m=/^(\d+[A-Za-z]?)\s*(?:\/\s*([0-9A-Za-z]+(?:\/[0-9A-Za-z]+)*))?/.exec(raw);if(!m)return d;
+  d["New survey no"]=m[1];if(m[2]&&!String(d.Subdivision||"").trim())d.Subdivision=m[2];
+  const extra=(raw.slice(m[0].length).match(/\d+[A-Za-z]?\s*\/\s*[0-9A-Za-z]+(?:\/[0-9A-Za-z]+)*/g)||[]).map(x=>x.replace(/\s+/g,""));
+  const have=String(d["Linked survey numbers"]||"");const add=extra.filter(x=>!have.replace(/\s+/g,"").includes(x));if(add.length)d["Linked survey numbers"]=[have,...add].filter(Boolean).join(", ");
+  return d}
 async function readModtCase(c,force){window.__readRef=c.id+" · MODT case read";const D=c.docs||{};if(!(D.deed||[]).length&&!(D.letter||[]).length){toast("Upload the title deed or the bank letter first (the MODT draft is optional)");return}
   const pg=readProg();pg.step((D.mdraft||[]).length?"Step 1/4 · Opening the MODT draft…":"Step 1/4 · No MODT draft - reading the title deed, Aadhaar, patta and EC…",5);
   try{let draft="";const imgs=[],labels=[],cvs=[];let dn=0;const dTot=["th_kyc","deed","revenue","photos","ec","sanction"].filter(k=>(D[k]||[]).length).length||1;
@@ -3083,8 +3091,10 @@ async function readModtCase(c,force){window.__readRef=c.id+" · MODT case read";
     {const u=caseUnit({...(c.draft||{}),...Object.fromEntries(Object.entries(F).filter(([,v])=>String(v||"").trim()))}),t=String(F["Total survey extent"]||"").trim(),v=t&&u?areaIn(t,u):"";
       if(v&&unitKey(t)!==unitKey(u)){F["Total survey extent (patta)"]=t;F["Total survey extent"]=`${v} ${u}`}}
     Object.keys(F).forEach(k=>{const m=/^Mortgagor (\d+) address$/.exec(k);if(m)cleanAddrPair(F,k,`Mortgagor ${m[1]} address Tamil`,`Mortgagor ${m[1]} district`)});
+    surveyClean(F);
     const d={...(c.draft||{})};let n=0;Object.entries(F).forEach(([k,v])=>{v=Array.isArray(v)?v.join("\n"):String(v??"").trim();if(!v)return;if(force||!String(d[k]||"").trim()){if(d[k]!==v)n++;d[k]=v}});
-    modtCoAddr(d,draft);
+    modtCoAddr(d,draft);surveyClean(d);
+    if(lodHtml)for(let i=dq.length-1;i>=0;i--)if(dq[i].field==="List of documents deposited")dq.splice(i,1);/* the Word table is pasted as it is - no question */
     const ch={draft:d,draftText:draft.slice(0,20000),tpAuto:{...(c.tpAuto||{}),...Object.fromEntries(Object.entries(F).map(([k,v])=>[k,String(v??"")]))},tpNotes:doubts};if(lodHtml)ch.lodHtml=lodHtml;
     if(dq.length)ch.robotQs=await doubtQs(c,dq,"draft","MODT documents");
     {const u=caseUnit(d),a=areaSqm(d.Extent),b=areaSqm(d["Total survey extent"]);if(a&&b&&a>b*1.002&&/agri/i.test(d["Property type"]||""))ch.robotQs=[...(ch.robotQs||c.robotQs||[]),{id:crypto.randomUUID(),q:`Mortgaged extent (MODT) ${d.Extent} is MORE than the patta total ${areaIn(d["Total survey extent"],u)} ${u}. Which is right?`,options:[`MODT is right: ${d.Extent}`,"Patta is right - I will correct the MODT extent"],hint:"The mortgaged extent cannot be more than the whole survey extent in the patta",src:"Extent check",at:nowISO()}]}
