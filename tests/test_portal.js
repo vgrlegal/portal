@@ -43,5 +43,9 @@ check("dupPlan supplementary",[p&&p.how,p&&p.keep.id],["supp","A1"]);
 p=T.dupPlan(mk("A1",{tp:{Mortgagor:"Ravi","Doc No":"1",Year:"2024"}}),mk("B2",{tp:{Mortgagor:"Selvi","Doc No":"2",Year:"2024"}}));
 check("dupPlan different owner warns",!!(p&&p.warn),true);
 check("dupPlan different loan",T.dupPlan(mk("A1",{}),{...mk("B2",{}),loanNo:"999999999"}),null);
+// MODT draft (Word copy) is optional (12 Nov): office New case and client New case
+check("MODT draft not required (office)",/\{k:"mdraft"[^}]*req:1/.test(html),false);
+check("MODT draft not required (client)",/"MODT":\[\["mdraft",[^\]]*,1\]/.test(html),false);
+check("MODT read starts without the draft",/if\(!\(D\.deed\|\|\[\]\)\.length\)\{toast\("Upload the title deed first/.test(html),true);
 if(globalThis.__MORE__)globalThis.__MORE__(T,check,html);
 console.log("portal tests:",fails?fails+" FAILED":"OK");process.exit(fails?1:0);

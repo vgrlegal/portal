@@ -675,7 +675,7 @@ const TRACKED=new Set(["Submitted Online","Under Verification","Under Processing
 const tone=s=>({"Draft Pending":"p-info","TP Creation":"p-info","Docs Received":"p-info","Drafting":"p-info","Photo/Biometric":"p-warn","Payment":"p-warn","Submitted Online":"p-warn","Under Verification":"p-warn","Under Processing":"p-warn","Report Sent":"p-warn","TP On Hold":"p-bad","Returned":"p-bad","Query Raised":"p-bad","Registered":"p-ok","Completed":"p-ok"}[s]||"p-info");
 const DOCS={
   modt:[
-    {k:"mdraft",l:"MODT draft (Word copy)",h:"Loan amount, company address, extent, boundaries, legal conditions, list of documents",req:1},
+    {k:"mdraft",l:"MODT draft (Word copy) (optional)",h:"If the bank sends it: loan amount, company address, extent, boundaries, legal conditions, list of documents. Without it Claude reads the title deed, Aadhaar, patta and EC."},
     {k:"th_kyc",l:"Title holder Aadhaar + signature",h:"A ready KYC PDF is used as it is. Photos (front, back, signature) are made into one KYC PDF with the signature background erased.",kyc:1,req:1},
     {k:"revenue",l:"Revenue documents",h:"Online Patta or TSLR"},
     {k:"photos",l:"Property photographs",h:"With GPS location · photos or PDF",multi:1},
@@ -1031,7 +1031,7 @@ const cStage=s=>s==="Refused"?"Refused by SRO":s==="Returned"?"Returned by SRO":
 const C_DOCS=[["modt","MODT copy",1],["noc","NOC",1],["modt2","Supplementary MODT (if any)",0],["revenue","Revenue documents (if asked)",0]];
 /* 12 Nov 2026: clients can file all three services; the boxes they upload into depend on the service */
 const C_DOCS_BY={"Deed of Receipt":C_DOCS,
-  "MODT":[["mdraft","MODT draft (Word copy)",1],["deed","Title deed (colour copy)",1],["th_kyc","Title holder Aadhaar (front, back, signature)",1],["revenue","Patta / TSLR",0],["ec","EC",0],["photos","Property photo",0],["w1_kyc","Witness 1 Aadhaar (only if your own witness)",0],["w2_kyc","Witness 2 Aadhaar (only if your own witness)",0],["sanction","Sanction letter",0],["other","Other documents",0]],
+  "MODT":[["mdraft","MODT draft (Word copy), if you have it",0],["deed","Title deed (colour copy)",1],["th_kyc","Title holder Aadhaar (front, back, signature)",1],["revenue","Patta / TSLR",0],["ec","EC",0],["photos","Property photo",0],["w1_kyc","Witness 1 Aadhaar (only if your own witness)",0],["w2_kyc","Witness 2 Aadhaar (only if your own witness)",0],["sanction","Sanction letter",0],["other","Other documents",0]],
   "Legal Report":[["deed","Title deed / parent documents",1],["ec","EC",0],["revenue","Patta / revenue documents",0],["other","Other documents",0]]};
 const cDocsOf=t=>C_DOCS_BY[t]||C_DOCS,C_SVC_ALL=["Deed of Receipt","MODT","Legal Report"];
 const CA={me:null,key:"",list:[],q:"",st:"",br:""};
@@ -1070,7 +1070,7 @@ async function cUpload(file){const safe=(file.name||"file").replace(/[^\w.\- ]+/
   const{error}=await window.__sb.storage.from("docs").upload(path,file,{contentType:file.type||"application/octet-stream",upsert:false});if(error)throw error;return{name:file.name,url:"sb:"+path}}
 function cNewCase(){const me=CA.me||{},svcs=CA.svcs||["Deed of Receipt"];let typ=svcs[0];
   const docBoxes=t=>cDocsOf(t).map(([k,l,r])=>`<label>${esc(l)}${r===1?" *":""}<input type="file" id="cn_${k}" accept="${k==="mdraft"?".doc,.docx,.pdf,image/*":".pdf,image/*"}" ${["revenue","deed","photos","other","th_kyc"].includes(k)?"multiple":""}></label>`).join("");
-  const note=t=>t==="MODT"?"Send the MODT draft (Word copy), the title deed and the title holder Aadhaar. We use our own witnesses unless you upload yours.":t==="Legal Report"?"Send the title deed / parent documents; EC and patta help us finish faster.":"The MODT is needed. Company and representative details are already with us; you don't need to send them.";
+  const note=t=>t==="MODT"?"Send the title deed and the title holder Aadhaar (the MODT draft only if you have it). We use our own witnesses unless you upload yours.":t==="Legal Report"?"Send the title deed / parent documents; EC and patta help us finish faster.":"The MODT is needed. Company and representative details are already with us; you don't need to send them.";
   ask("New case",`${svcs.length>1?`<label>Service *<select id="cn_t">${svcs.map(x=>`<option>${esc(x)}</option>`).join("")}</select></label>`:`<p class="sf-note"><b>${esc(typ)}</b></p>`}
     <label>Customer name *<input id="cn_a" required></label><label>Loan number<input id="cn_l"></label><label id="cn_amtL" ${typ==="MODT"?"":"hidden"}>Loan amount (₹)<input id="cn_amt" inputmode="numeric"></label><label>Customer phone<input id="cn_p" inputmode="tel"></label>
     ${me.branch?"":`<label>Branch *<input id="cn_b" list="cn_bl" required><datalist id="cn_bl">${[...new Set(CA.list.map(c=>c.branch).filter(Boolean))].map(b=>`<option value="${esc(b)}">`).join("")}</datalist></label>`}
@@ -1548,7 +1548,7 @@ function openReview(c,gen){
     const ins=[...document.querySelectorAll('#rvBody input[id*="Aadhaar"]')];ins.forEach(e=>e.addEventListener("input",()=>chk(e)));
     if(ins.map(chk).some(Boolean))$("rvBody").insertAdjacentHTML("afterbegin",`<p class="banner" style="background:#fde8e6;color:#8a1c1c">⚠ An Aadhaar number below is wrong (shown in red). The TP robot will not start until it is corrected.</p>`)}
   if($("rvMread")){$("rvMread").onclick=()=>readModtCase(c,false);$("rvMreadAll").onclick=()=>ask("Replace all fields?",`<p class="sf-note">Every field Claude reads will replace what is in Drafting now, including your corrections.</p>`,()=>readModtCase(c,true),"Replace");
-    if(!c.tpAuto&&!MREAD.has(c._doc)&&((c.docs||{}).mdraft||[]).length&&((c.docs||{}).deed||[]).length&&canWrite){MREAD.add(c._doc);setTimeout(()=>readModtCase(c,false),300)}}
+    if(!c.tpAuto&&!MREAD.has(c._doc)&&((c.docs||{}).deed||[]).length&&(((c.docs||{}).mdraft||[]).length||((c.docs||{}).th_kyc||[]).length)&&canWrite){MREAD.add(c._doc);setTimeout(()=>readModtCase(c,false),300)}}
   $("rvSplit").onclick=()=>$("rvDocPane").hidden?openDocPane(c):closeDocPane();
   if($("rvReread")){$("rvReread").onclick=()=>rereadModt(c,false);$("rvRereadAll").onclick=()=>ask("Replace all fields?",`<p class="sf-note">Every field the MODT has will replace what is in Drafting now, including your corrections.</p>`,()=>rereadModt(c,true),"Replace")}
   const wantWide=(()=>{try{return localStorage.getItem("vgrFormWide")==="1"}catch(e){return false}})();
@@ -3054,8 +3054,8 @@ async function docBinText(file){const b=new Uint8Array(await file.arrayBuffer())
       return out.join("\n")}}
   docBinText.lod="";
   return (score(u16)>=score(u8)*0.6?u16:u8).replace(/\x07\x07/g,"\n").replace(/\x07/g," | ").replace(/\r/g,"\n").replace(/\t/g," ").replace(/\n{3,}/g,"\n\n").trim()}
-async function readModtCase(c,force){window.__readRef=c.id+" · MODT case read";const D=c.docs||{};if(!(D.mdraft||[]).length&&!(D.deed||[]).length){toast("Upload the MODT draft and title deed first");return}
-  const pg=readProg();pg.step("Step 1/4 · Opening the MODT draft…",5);
+async function readModtCase(c,force){window.__readRef=c.id+" · MODT case read";const D=c.docs||{};if(!(D.deed||[]).length){toast("Upload the title deed first (the MODT draft is optional)");return}
+  const pg=readProg();pg.step((D.mdraft||[]).length?"Step 1/4 · Opening the MODT draft…":"Step 1/4 · No MODT draft - reading the title deed, Aadhaar, patta and EC…",5);
   try{let draft="";const imgs=[],labels=[],cvs=[];let dn=0;const dTot=["th_kyc","deed","revenue","photos","ec","sanction"].filter(k=>(D[k]||[]).length).length||1;
     const add=async(list,label,maxPages,cap,opt={})=>{if((list||[]).length){dn++;pg.step(`Step 2/4 · Opening documents ${dn}/${dTot}: ${label.replace(/ page$/,"").toLowerCase()}…`,8+Math.round(dn/dTot*22))}let n=0;for(const f of list||[]){if(n>=cap)break;const file=await fileOfDoc(f);const{canvases}=await canvasesOf([file],()=>{},maxPages,opt);for(const cv of canvases){if(n>=cap||imgs.length>=20)break;imgs.push(jpegOf(cv,1568,0.85));cvs.push(cv);labels.push(label+(cv._pageNo&&cv._pageOf>1?` ${cv._pageNo} of ${cv._pageOf}`:""));n++}}};
     let lodHtml="";for(const f of D.mdraft||[]){const file=await fileOfDoc(f);if(/\.docx$/i.test(f.name)){draft+=await docxText(file)+"\n";if(!lodHtml)try{lodHtml=await docxLodTable(file)}catch(e){console.warn(e)}}else if(/\.doc$/i.test(f.name)||/msword/.test(file.type||"")){draft+=await docBinText(file)+"\n";if(!lodHtml&&docBinText.lod)lodHtml=docBinText.lod}else{const r=await canvasesOf([file],()=>{},4);draft+=r.text||"";if(!r.text.trim())r.canvases.slice(0,4).forEach(cv=>{imgs.push(jpegOf(cv,1400));cvs.push(cv);labels.push("MODT DRAFT page")})}}
