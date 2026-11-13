@@ -1,0 +1,28 @@
+# Every day at 6:00 AM India time (00:30 UTC) GitHub runs all the portal and TP Desk tests on its own computer
+# (the MD's Mac need not be on). Also runs on every push to main. The Admin Dashboard shows the latest result.
+# A failed scheduled run makes GitHub email the account that owns this repository's notifications.
+name: Daily tests
+on:
+  schedule:
+    - cron: "30 0 * * *"
+  push:
+    branches: [main]
+  workflow_dispatch:
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install test tools
+        run: |
+          pip install playwright requests pypdf pillow
+          python -m playwright install --with-deps chromium
+      - name: Run all tests
+        run: bash tests/run_all.sh

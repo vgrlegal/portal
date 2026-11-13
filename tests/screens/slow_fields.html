@@ -1,0 +1,18 @@
+<html><body>
+<!-- 13 Nov 2026 slow TNREGINET mock: every field / list / box appears or fills late -->
+<label for="dist">District</label><select id="dist"><option>- Select -</option></select>
+<label for="sro">SRO</label><select id="sro"><option>- Select -</option></select>
+<div id="later"></div>
+<label for="purpose">Purpose of Loan</label><select id="purpose"><option>- Select -</option></select>
+<label><input type="checkbox" id="consent" onclick="if(this.checked){this.checked=false;box.hidden=false}"> I agree</label>
+<div id="box" hidden style="position:fixed;top:10px;z-index:999" class="modal">Agree to Aadhaar consent? <button onclick="consent.checked=true;box.hidden=true">OK</button></div>
+<label for="resetme">Year</label><select id="resetme"><option>- Select -</option><option>2023</option></select>
+<script>
+window.resets=0;
+setTimeout(()=>{dist.innerHTML='<option>- Select -</option><option>Chengalpattu</option><option>Kancheepuram</option>'},5000);
+dist.onchange=()=>setTimeout(()=>{sro.innerHTML='<option>- Select -</option><option>Thiruporur</option><option>Thirukazhukundram</option>'},4000);
+setTimeout(()=>{later.innerHTML='<label for="docno">Doc No</label><input id="docno">'},3000);
+setTimeout(()=>{purpose.innerHTML='<option>- Select -</option><option>Loan which does not have concession</option>'},4000);
+/* the page "reloads" the year once - the first choice is lost */
+resetme.onchange=()=>{if(!resets++)setTimeout(()=>{resetme.selectedIndex=0},300)};
+</script></body></html>

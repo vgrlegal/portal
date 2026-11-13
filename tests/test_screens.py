@@ -103,6 +103,21 @@ with sync_playwright() as pw:
         err = str(e)
     check("dor link: a wrong number still says not found (after a 2nd search)", (err.startswith("TNREGINET could not find the MODT Thiruporur 99999/2023"), p.evaluate("()=>searches")), (True, 2))
     p.close()
+    # 13 Nov 2026 - slow TNREGINET: every helper waits, checks the value really took, and names the field when it never does
+    p = b.new_page(); p.goto("file://" + os.path.join(ROOT, "tests", "screens", "slow_fields.html")); P = W.Portal(p, job)
+    P.sel("dist", "^Chengalpattu$", 0.2, need=True); P.fuzzy("sro", "Thiruporur", 0.2, need=True); P.set("docno", "17280", need=True)
+    P.sel("resetme", "^2023$", 0.2); P.tick("consent", need=True)
+    lr = W.label_select(p, "Purpose of Loan", "does not have concession")
+    check("slow: every field took", p.evaluate("()=>[dist.value,sro.value,docno.value,resetme.value,consent.checked]") + [lr[:2], P.warn],
+          ["Chengalpattu", "Thiruporur", "17280", "2023", True, "ok", []])
+    try:
+        P.sel("dist", "^Madurai$", 0.2, need=True); err = ""
+    except W.Stop as e:
+        err = str(e)
+    check("slow: a value that never comes names the field", err.startswith("TNREGINET field 'dist' did not take"), True)
+    P.warn.clear(); P.set("nosuchbox", "x")
+    check("slow: an optional missing field only warns", [w[:40] for w in P.warn], ["TNREGINET field 'nosuchbox' did not take"])
+    p.close()
     b.close()
 print("robot screen tests (survey):", "OK" if not fails else f"{fails} FAILED")
 sys.exit(1 if fails else 0)

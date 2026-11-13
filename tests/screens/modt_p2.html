@@ -1,0 +1,25 @@
+<html><body>
+<a class="tab">Survey Details</a><a class="tab active">Boundary Details</a>
+<h4>Property Survey Details</h4>
+<label>Unit of Measurement*</label><select id="unit"><option>- Select -</option><option>Square Feet</option><option>Square Metre</option></select>
+<span><input type="radio" name="u"> Urban</span><span><input type="radio" name="u"> Natham</span><span><input type="radio" name="u"> Rural</span>
+<table><tr><th>Sr. No.</th><th>Survey No./Sub Division No.</th><th>Extent</th><th>Old Survey No.</th></tr><tr><td>1</td><td>73/2</td><td>1292.0 Sq.Ft</td><td></td></tr></table>
+<label><input type="radio" name="st"> Single Survey</label><label><input type="radio" name="st"> Linked Survey</label>
+<div><label>Survey No.<span>*</span></label><select id="sn"><option>- Select -</option><option>72</option><option>73</option></select></div>
+<div><label>Sub Divison No.<span>*</span></label><select id="sd"><option>- Select -</option><option>9</option><option>10</option></select></div>
+<div><label>Street Name</label><select id="street"><option>- Select -</option><option>MAIN ROAD</option></select></div>
+<div><label>Old Survey No.</label><input type="text" id="old"><button onclick="var t=document.getElementById('ot');t.insertRow().innerHTML='<td>'+document.getElementById('old').value+'</td>'">Add Old Survey Number</button><button>Reset</button></div>
+<table id="ot"><tr><th>Sr. No.</th><th>Old Survey No.</th><th>Action</th></tr></table>
+<div><label>Pymash No.</label><input type="text" id="py"></div>
+<div><div>Total Survey Extent(of Su ..</div><label>Square Feet</label><input type="text" id="tot"></div>
+<div><div>Mortgaged Survey Extent<span>*</span></div><label>Square Feet</label><input type="text" id="mort"></div>
+<div><label>Market Value of Mortgaged ..</label><input type="text" id="mv"></div>
+<button id="addsv" onclick="document.getElementById('svt').insertRow().innerHTML='<td>Single Survey</td><td>'+sn.value+'/'+sd.value+'</td><td>'+mort.value+' Sq.Ft</td><td><i class=\'fa fa-trash\' onclick=\'this.closest(&quot;tr&quot;).remove()\'></i></td>'">Add</button><button>Reset</button>
+<table id="svt"><tr><th>Survey Type</th><th>Survey No.</th><th>Mortgaged Survey Extent</th><th>Action</th></tr></table>
+<div><label>Plot Number</label><input type="text" id="plot"><button id="addplot" onclick="window.plotAdded=plot.value">Add</button></div>
+<div>What is in the North? (In English)</div><input type="text" id="ne"><div>What is in the North? (In Tamil)</div><input type="text" id="nt">
+<div>North Measurement</div><input type="text" id="nm">
+<div>Remarks</div><textarea id="re"></textarea><div>Remarks (in Tamil)</div><textarea id="rt"></textarea>
+<div contenteditable="true" id="ed"><p>3. That the depositor ...</p></div>
+<table><tr><td>Stamp Duty</td><td>₹ 400</td></tr><tr><td>Registration Fee</td><td>₹ 400</td></tr><tr><td>Computer Fee</td><td>₹ 100</td></tr><tr><td>Total</td><td>₹ 900</td></tr></table>
+</body></html>

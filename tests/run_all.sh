@@ -14,6 +14,7 @@ python3 -c "import ast;ast.parse(open('worker/tp_worker.py',encoding='utf-8').re
 node tests/test_portal.js || fail=1
 python3 tests/test_worker.py || fail=1
 python3 -c "import playwright" 2>/dev/null && { python3 tests/test_screens.py || fail=1; }
-[ -f "$MODT_HARNESS" ] && { n=$(python3 "$MODT_HARNESS" 2>&1 | grep -vc PASS); echo "robot screen tests: $n not passing"; [ "$n" = "0" ] || fail=1; }
+python3 -c "import playwright" 2>/dev/null && { n=$(python3 tests/test_modt_screens.py 2>&1 | grep -vc PASS); echo "MODT screen tests: $n not passing"; [ "$n" = "0" ] || fail=1; }
+[ -f "$MODT_HARNESS" ] && [ "$MODT_HARNESS" != "tests/test_modt_screens.py" ] && { n=$(python3 "$MODT_HARNESS" 2>&1 | grep -vc PASS); echo "robot screen tests: $n not passing"; [ "$n" = "0" ] || fail=1; }
 [ $fail = 0 ] && echo "ALL TESTS PASS" || echo "SOME TESTS FAILED"
 exit $fail

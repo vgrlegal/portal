@@ -133,5 +133,16 @@ import math; ns["math"] = math
 a = src.index("FEE_RULE = {"); exec(src[a:src.index("def save_fees(", a)], ns)
 for t in json.load(open(os.path.join(ROOT, "tests", "fee_cases.json"), encoding="utf-8")):
     check("fees: " + t["why"], ns["fee_calc"](t["c"], t.get("prof") or {})["total"], t["total"])
+# 13 Nov 2026: TP print check - the case details must be on TNREGINET's print
+a = src.index("def tp_print_items("); exec(src[a:src.index("def save_print(", a)], ns)
+C = {"type": "Deed of Receipt", "loanNo": "FED/CHE/0012345", "tp": {"Doc No": "17280", "Year": "2023", "Survey number": "320/1A1, 320/1E1", "Extent": "2387.00"}}
+items = ns["tp_print_items"](C, "TP/325099999/2026")
+check("print items (Deed of Receipt)", [l for l, _ in items], ["TP number", "Loan number", "MODT document number", "Survey number", "Survey number", "Extent"])
+good = ("Temporary Document Number TP/325099999/2026 Loan Account FED/CHE/0012345 linked R/Thiruporur/BOOK 1/17280/2023 " * 3) + " S.No. 320/1A1 , 320/1E1 extent 2387 sq.ft"
+check("print check: all found", ns["tp_print_check"](good, items)[1], [])
+check("print check: a wrong doc number is reported", ns["tp_print_check"](good.replace("17280", "17208"), items)[1], ["MODT document number 17280/2023"])
+check("print check: unreadable print flags nothing", ns["tp_print_check"]("x" * 50, items), ([], []))
+M = {"type": "MODT", "draft": {"Loan amount": "10,10,000", "New survey no": "20/2B2", "Extent": "2499"}}
+check("print items (MODT): loan amount digits", ("Loan amount", "1010000") in ns["tp_print_items"](M, "TP/1/2026"), True)
 print("worker tests:", "OK" if not fails else f"{fails} FAILED")
 sys.exit(1 if fails else 0)

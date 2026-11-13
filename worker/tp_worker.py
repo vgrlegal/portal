@@ -315,33 +315,68 @@ class Portal:
             time.sleep(1.2)
         return txt
 
-    def set(self, fid, val):
+    # 13 Nov 2026 (the MD: "TNREGINET is slow at times - every step must wait and check"): set / sel / fuzzy / tick
+    # read the value back after doing it. Slow site: try again every SLOW_STEP s, up to SLOW_MAX s (a field that is not
+    # on the page at all: up to SLOW_ABSENT s - optional fields must not slow every TP). Still not taken: a clear
+    # warning naming the field; with need=True the TP Desk stops and names the field instead of going on.
+    SLOW_MAX, SLOW_ABSENT, SLOW_STEP = 20, 6, 2
+
+    def _retry(self, do, check, fid, what, need):
+        t0, r = time.time(), ""
+        while True:
+            r = str(do() or "")
+            if not r.startswith("NO") and check():
+                return r
+            limit = self.SLOW_ABSENT if r.startswith("NOFIELD") else self.SLOW_MAX
+            if time.time() - t0 >= limit:
+                break
+            time.sleep(self.SLOW_STEP)
+            if self.job.cancelled():
+                raise Stop("Stopped from the portal")
+        msg = f"TNREGINET field '{fid}' did not take {what}" + (" (field not on the page)" if r.startswith("NOFIELD") else " (option not in the list)" if r.startswith("NOOPT") else "")
+        if need:
+            raise Stop(msg + ". TNREGINET may be slow - start the TP again; if it repeats, send the screen to Claude.")
+        self.warn.append(msg)
+        return r
+
+    def _val(self, fid):
+        return self.p.evaluate("(id)=>{const e=[...document.querySelectorAll('[id=\"'+id+'\"]')].find(e=>e.offsetParent)||document.getElementById(id);"
+                               "if(!e)return null;if(e.tagName==='SELECT')return e.selectedIndex>=0?(e.options[e.selectedIndex].text||'').trim():'';"
+                               "return e.type==='checkbox'||e.type==='radio'?String(e.checked):String(e.value)}", fid)
+
+    def set(self, fid, val, need=False):
         if val in ("", None):
             return
-        r = self.js(f"setv({fid!r},{str(val)!r})")
-        if r != "ok":
-            self.warn.append(r)
+        v = str(val)
+        # taken = the box now holds a value (TNREGINET may re-format it, e.g. dates / amounts); empty again = page was not ready
+        return self._retry(lambda: self.js(f"setv({fid!r},{v!r})"), lambda: bool(str(self._val(fid) or "").strip()), fid, repr(v[:40]), need)
 
-    def sel(self, fid, pattern, wait=1.5):
-        r = self.js(f"selre({fid!r},{pattern!r})")
+    def sel(self, fid, pattern, wait=1.5, need=False):
+        try:
+            rx = re.compile(pattern, re.I)
+        except re.error:
+            rx = re.compile(".")
+        # read back after a moment: TNREGINET sometimes reloads the part and the first choice is lost
+        r = self._retry(lambda: self.js(f"selre({fid!r},{pattern!r})"), lambda: time.sleep(0.6) or bool(rx.search(self._val(fid) or "")), fid, repr(pattern), need)
         self.wait(wait)
-        if not str(r).startswith("ok"):
-            self.warn.append(r)
         return r
 
-    def fuzzy(self, fid, text, wait=2):
+    def fuzzy(self, fid, text, wait=2, need=False):
         if not text:
             return
-        # the list (e.g. districts after the state) may still be loading: try again a few times
-        for _ in range(4):
-            r = self.js(f"selfuzzy({fid!r},{str(text)!r})")
-            if str(r).startswith("ok") or str(r).startswith("NOFIELD"):
-                break
-            time.sleep(1.5)
+        # the list (e.g. districts after the state) may still be loading: try again until it takes
+        r = self._retry(lambda: self.js(f"selfuzzy({fid!r},{str(text)!r})"), lambda: time.sleep(0.6) or not re.match(r"^\W*(-+\s*)?select\b|^$", self._val(fid) or "", re.I), fid, repr(str(text)), need)
         self.wait(wait)
-        if not str(r).startswith("ok"):
-            self.warn.append(r)
         return r
+
+    def tick(self, fid, need=False):
+        def ok():
+            if self._val(fid) == "true":
+                return True
+            time.sleep(1)
+            self.popup_ok()  # a tick may first open a TNREGINET confirm box
+            return self._val(fid) == "true"
+        return self._retry(lambda: self.js(f"tick({fid!r})"), ok, fid, "a tick", need)
 
     def tamil(self, fid, tamil_text, english_text):
         if tamil_text and re.search(r"[஀-௿]", tamil_text):
@@ -583,7 +618,7 @@ def person(P, t, pre, designation=True):
     if designation and g(t, f"{pre} designation"):
         P.set("designation", g(t, f"{pre} designation"))
         P.tamil("designationLL", "", g(t, f"{pre} designation"))
-    P.js("tick('aadhaarConsentCheckBox')")
+    P.tick("aadhaarConsentCheckBox")
 
 
 def address(P, state="Tamil Nadu", district="", taluk="", village="", addr="", addr_ta="", pin="", mobile=""):
@@ -932,8 +967,8 @@ def dor_nature(P, job, page):
     else:
         job.step("Nature of Document not selected", page)
         raise Stop("TNREGINET's Nature of Document list did not take 'Deed Of Receipt'. The page may be slow - start the TP again.")
-    P.js("tick('isPrevDocReg')"); P.wait(1.5)
-    P.js("tick('linkPrevDoc')"); P.wait(2)
+    P.tick("isPrevDocReg"); P.wait(1.5)
+    P.tick("linkPrevDoc"); P.wait(2)
 
 
 LINK_FOUND_JS = """(()=>{const t=[...document.querySelectorAll('table')].find(t=>t.offsetParent && /Nature of Document/.test(t.innerText) && t.querySelector('input[type=radio],input[type=checkbox]'));
@@ -951,11 +986,11 @@ def link_doc(P, job, page, sro, book, no, year, dtype, label):
             if not re.match(r"deed of receipt", P.p.evaluate(NATURE_NOW_JS) or "", re.I):
                 dor_nature(P, job, page)
             job.step(f"{label} not found yet - searching again", page)
-        r = P.fuzzy("sub_reg_off", sro, 2)
+        r = P.fuzzy("sub_reg_off", sro, 2, need=True)
         tried.append(str(r or ""))
-        P.sel("sub_book_no", f"Book {book}$", 0.5)
-        P.set("sub_doc_no", no)
-        P.sel("sub_year", f"^{year}$", 0.5)
+        P.sel("sub_book_no", f"Book {book}$", 0.5, need=True)
+        P.set("sub_doc_no", no, need=True)
+        P.sel("sub_year", f"^{year}$", 0.5, need=True)
         P.sel("cmb_doc_type", "^" + dtype, 0.5)
         P.click("changeBookDocSearchForLinkDoc", 2)
         ok = "NOTFOUND"
@@ -1048,7 +1083,7 @@ def mortgagor(P, job, page, t):
                 english_pass(P, job, f"Mortgagor {i + 1}")
                 current_age(P, t)
                 fill_missing_district(P, g(t, "Mortgagor district"), g(t, "Property district"))
-                P.js("tick('aadhaarConsentCheckBox')")
+                P.tick("aadhaarConsentCheckBox")
                 b = click_btn_text(P, r"^update$")
                 P.wait(3); msg = P.popup_ok()
                 errs = [] if re.search(r"success|updated|also going to execute", msg or "", re.I) else form_errors(P)
@@ -1116,7 +1151,7 @@ def add_witnesses_presenter(P, job, page, t):
         if not g(t, f"Witness {n} name"):
             continue
         job.step(f"{4 + n} · Witness {n}", page)
-        P.js("tick('chkWitnessType0')")
+        P.tick("chkWitnessType0")
         person(P, t, f"Witness {n}", designation=False)
         address(P, "Tamil Nadu", g(t, f"Witness {n} district"), addr=g(t, f"Witness {n} address"), pin=g(t, f"Witness {n} pincode"))
         msg = P.click("addExecutantDetailsInGrid", 3)
@@ -1251,6 +1286,16 @@ def property_step(P, job, page, t):
 
 # ---------------- Loan → Place of execution → Preview → Create Document → Uploads → Print ----------------
 def label_fill(page, label_re, value):
+    """13 Nov 2026: slow TNREGINET - the box may appear late: try again every 2 s, up to 6 s."""
+    t0 = time.time()
+    while True:
+        r = _label_fill_once(page, label_re, value)
+        if r or value in ("", None) or time.time() - t0 >= 6:
+            return r
+        time.sleep(2)
+
+
+def _label_fill_once(page, label_re, value):
     """Fill the visible textbox whose label matches (TNREGINET labels are long: 'Loan Amount as per Regist .. *')."""
     if value in ("", None):
         return False
@@ -1704,6 +1749,52 @@ def _click_text_any(ctx, pattern):
     return None
 
 
+def tp_print_items(case, tp):
+    """What must appear on TNREGINET's TP print for this case (numbers only - names may be printed in Tamil)."""
+    t = case.get("tp") or {}
+    d = {**(case.get("draft") or {}), **{k: v for k, v in t.items() if v not in (None, "")}}
+    rd = bool(re.search(r"receipt", case.get("type") or "", re.I))
+    items = [("TP number", tp)]
+    if case.get("loanNo"):
+        items.append(("Loan number", case["loanNo"]))
+    if rd and g(d, "Doc No"):
+        items.append(("MODT document number", f"{g(d, 'Doc No')}/{g(d, 'Year')}" if g(d, "Year") else g(d, "Doc No")))
+    if not rd:
+        amt = re.sub(r"[^\d]", "", g(d, "Loan amount", "Loan Amount").split(".")[0])
+        if len(amt) >= 4:
+            items.append(("Loan amount", amt))
+    for key in ("New survey no", "Survey number", "Survey No"):
+        v = g(d, key)
+        if v:
+            for n in re.findall(r"\d+[A-Za-z0-9/]*", v)[:4]:
+                if len(re.sub(r"\D", "", n)) >= 2:
+                    items.append(("Survey number", n))
+            break
+    ext = re.match(r"\s*(\d+(?:\.\d+)?)", g(d, "Extent"))
+    if ext:
+        items.append(("Extent", ext.group(1).rstrip("0").rstrip(".") if "." in ext.group(1) else ext.group(1)))
+    return items
+
+
+def tp_print_check(text, items):
+    """13 Nov 2026 (the MD): after the TP is made, read TNREGINET's own print and check the case details are on it.
+    Returns (checked, missing). Too little text (scanned / Tamil-only font) = nothing checked, nothing flagged."""
+    flat = re.sub(r"[\s,]", "", (text or "")).lower()
+    if len(flat) < 300:
+        return [], []
+    key = lambda v: re.sub(r"[\s,]", "", str(v)).lower()
+    checked, missing = [], []
+    for label, v in items:
+        k = key(v)
+        if not k:
+            continue
+        checked.append(label)
+        alt = k.replace("/", "")  # "20/2B2" may print as "20 / 2B2" or split
+        if k not in flat and alt not in flat.replace("/", ""):
+            missing.append(f"{label} {v}")
+    return checked, missing
+
+
 def save_print(P, job, page, case_id, tp):
     """My Documents → select TP → Print → Acknowledgement 'Document Created Successfully!' (TP no. must match)
     → Preview Document Details → 'Your PDF has been generated successfully! Click here to download PDF'
@@ -1801,7 +1892,18 @@ def save_print(P, job, page, case_id, tp):
     c = kv_get("cases", case_id) or {}
     docs = c.get("docs") or {}
     docs["tpcopy"] = [{"name": tp.replace("/", "_") + " print.pdf", "url": url, "at": now()}]
-    kv_merge("cases", case_id, {"docs": docs, "tpPrint": url})
+    ch = {"docs": docs, "tpPrint": url}
+    # 13 Nov 2026: compare TNREGINET's print with the case (shown on the case; never stops anything)
+    try:
+        from pypdf import PdfReader
+        txt = " ".join((pg.extract_text() or "") for pg in PdfReader(out).pages)
+        checked, miss = tp_print_check(txt, tp_print_items(c, tp))
+        ch["tpPrintCheck"] = {"at": now(), "tp": tp, "checked": checked, "missing": miss, "readable": bool(checked)}
+        job._print_miss = [f"Not seen on TNREGINET's TP print: {m}" for m in miss]
+        job.step(f"14 · Print check: {len(checked) - len(miss)}/{len(checked)} details match" if checked else "14 · Print check: the print text could not be read", page)
+    except Exception as e:
+        log("print check failed", e)
+    kv_merge("cases", case_id, ch)
     return ""
 
 
@@ -2352,7 +2454,7 @@ def modt_party(P, job, page, d, n):
     P.sel("genderId", "^Female" if sal.lower().startswith(("mrs", "ms", "miss")) else "^Male")
     P.sel("identificationTypeId", "Aadhaar")
     P.set("identificationNo", re.sub(r"\D", "", g(d, f"{pre} Aadhaar")))
-    P.js("tick('aadhaarConsentCheckBox')")
+    P.tick("aadhaarConsentCheckBox")
     dist = g(d, f"{pre} district")
     address(P, "Tamil Nadu", dist, addr=clean_addr(g(d, f"{pre} address"), dist),
             addr_ta=clean_addr(g(d, f"{pre} address Tamil"), dist, True), pin=g(d, f"{pre} pincode"), mobile=g(d, f"{pre} phone"))
@@ -2472,7 +2574,7 @@ def run_modt(page, job, case):
         job.step("Create Document page not found", page)
         raise Stop("The Create Document page did not open. Send the screen to Claude.")
     P.sel("deedType", "Deposit of Title", 2)
-    P.js("tick('linkPrevDoc')"); P.wait(2)
+    P.tick("linkPrevDoc"); P.wait(2)
     deeds = [n for n in (1, 2, 3) if g(d, f"Deed {n} Doc No")]
     if not deeds:
         raise Stop("No title deed in Drafting (1 · Linked documents). Fill Deed 1 SRO, Doc No and Year.")
@@ -2538,7 +2640,7 @@ def run_modt(page, job, case):
         if not t.get(f"Witness {n} name"):
             continue
         job.step(f"5 · Witness {n}: {t[f'Witness {n} name']}", page)
-        P.js("tick('chkWitnessType0')")
+        P.tick("chkWitnessType0")
         person(P, t, f"Witness {n}", designation=False)
         address(P, "Tamil Nadu", t.get(f"Witness {n} district", ""), addr=t.get(f"Witness {n} address", ""), pin=t.get(f"Witness {n} pincode", ""))
         msg = P.click("addExecutantDetailsInGrid", 3)
@@ -2582,6 +2684,27 @@ def modt_after_parties(P, job, page, d, case, comments):
 
 
 def label_select(page, label_re, opt_re):
+    """13 Nov 2026: slow TNREGINET - the list may still be loading: try again every 2 s (missing list: 6 s, missing
+    option: 20 s) and read the choice back before saying ok."""
+    t0 = time.time()
+    while True:
+        r = str(_label_select_once(page, label_re, opt_re) or "")
+        if r.startswith("ok"):
+            time.sleep(0.5)
+            now_txt = page.evaluate("""([pat])=>{const re=new RegExp(pat,'i');const s=[...document.querySelectorAll('select')].find(e=>{if(!e.offsetParent)return false;let l=e.labels&&e.labels[0]?e.labels[0].innerText:'';
+              if(!l){let p=e.parentElement;for(let i=0;i<3&&p&&!l;i++){const x=p.querySelector('label');if(x)l=x.innerText;p=p.parentElement}}return re.test(l)||re.test(e.id||'')});
+              return s&&s.selectedIndex>=0?s.options[s.selectedIndex].text.trim():''}""", [label_re]) or ""
+            try:
+                if re.search(opt_re, now_txt, re.I):
+                    return r
+            except re.error:
+                return r
+        if time.time() - t0 >= (6 if r.startswith("NOFIELD") else 20):
+            return r if not r.startswith("ok") else "NOTTAKEN " + r
+        time.sleep(2)
+
+
+def _label_select_once(page, label_re, opt_re):
     """Pick an option in the visible dropdown whose label matches (e.g. Purpose of Loan)."""
     return page.evaluate("""([pat,op])=>{const re=new RegExp(pat,'i'),ro=new RegExp(op,'i');
         const s=[...document.querySelectorAll('select')].find(e=>{if(!e.offsetParent)return false;let l=e.labels&&e.labels[0]?e.labels[0].innerText:'';
@@ -4149,6 +4272,7 @@ def modt_second_half(P, job, page, d, case, comments):
         err = str(e)
     if err:
         comments.append(err)
+    comments.extend(getattr(job, "_print_miss", []))
     f = save_fees(job, cid, tp, fees, comments)
     miss = tp_ready(job, cid, tp, done, err)
     if miss:
@@ -4206,6 +4330,7 @@ def finish_dor(P, job, page, t, case, comments):
     err = save_print(P, job, page, job.d.get("case", ""), tp)
     if err:
         comments.append(err)
+    comments.extend(getattr(job, "_print_miss", []))
     miss = tp_ready(job, job.d.get("case", ""), tp, done, err)
     if miss:
         comments.append("Stays at TP Creation, missing: " + ", ".join(miss))

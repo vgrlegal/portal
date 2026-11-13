@@ -197,5 +197,7 @@ check("TP jobs carry the organisation (partner laptops take only their own)",(ht
  check("partner sees only his org's companies",pb(()=>"oo",{banks:["Chola","ICICI","Muthoot","Jana"],profiles:{Jana:{org:"oo"},Chola:{}}},C,c=>c.org==="oo"),["ICICI","Muthoot","Jana"]);
  check("partner: witnesses hidden in KYC Master, reps saved with his org",/wc\.hidden=pplMine\(\)/.test(html)&&/if\(pplMine\(\)&&!p\.org\)p\.org=myOrg\(\)/.test(html),true);
  check("a representative can be removed (last one too)",/p\.reps\.length>1\|\|r\.name\|\|\(r\.kyc\|\|\[\]\)\.length\?/.test(html),true);}
+check("TP print check mismatch shown on the case",/TP print check · not seen/.test(html),true);
+check("Dashboard shows the daily test result (Admin)",/id="dashTests"/.test(html)&&/actions\/workflows\/daily-tests\.yml\/runs/.test(html),true);
 check("Clean-up never touches cases or documents",/async function cleanPlan\(/.test(html)&&!/from\("kv"\)\.delete\(\)\.eq\("collection","cases"\)/.test(html),true);
 

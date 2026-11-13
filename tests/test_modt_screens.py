@@ -1,0 +1,53 @@
+"""MODT screen helper tests (property type, unit, survey lists, old survey numbers, extent boxes) on mock TNREGINET pages. Prints PASS/FAIL lines."""
+import sys,os,re,types
+sys.argv=['x']
+os.environ.setdefault("SUPABASE_URL","http://x");os.environ.setdefault("SUPABASE_SERVICE_KEY","x")
+ROOT=os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0,os.path.join(ROOT,'worker'))
+import tp_worker as W
+from playwright.sync_api import sync_playwright
+T=os.path.join(ROOT,'tests','screens')+os.sep
+ok=lambda c,m: print(("PASS " if c else "FAIL ")+m)
+with sync_playwright() as pw:
+    b=pw.chromium.launch(); p=b.new_page()
+    p.goto('file://'+T+'modt_p1.html')
+    ok(p.evaluate(W.RADIO_JS,"^Plot$")=="Plot" and p.evaluate("()=>document.querySelectorAll('input[name=pt]')[1].checked"),"property type 'Plot' radio (not 'Plot with Building')")
+    ok(p.evaluate(W.RADIO_JS,"^Plot with Building$") and p.evaluate("()=>document.querySelectorAll('input[name=pt]')[0].checked"),"Plot with Building radio")
+    ok(p.evaluate(W.CHECK_JS,["Copy Property From Linked Document",True])=="ok" and p.evaluate("()=>cp.checked"),"copy tick")
+    r=p.evaluate(W.TABLE_PICK_JS,["Document No","",True]); ok(r and '2019' in r['row'] and p.evaluate("()=>document.getElementById('new').checked"),"newest linked deed picked: "+str(r))
+    r=p.evaluate(W.TABLE_PICK_JS,["Registration Village|Local Body","Sellap",False]); ok(r and p.evaluate("()=>pp1.checked"),"previous property row")
+    ok(W.click_btn_text(types.SimpleNamespace(p=p),r"^Copy$")!="","Copy button")
+    p.goto('file://'+T+'modt_p2.html')
+    ok(W.label_select(p,r"Unit of Measurement",W.unit_re("Sq.ft")).startswith("ok Square Feet"),"unit Sq.ft")
+    ok(W.label_select(p,r"Unit of Measurement",W.unit_re("Sq.m")).startswith("ok Square Met"),"unit Sq.m")
+    ok(p.evaluate(W.RADIO_JS,"^Natham$")=="Natham","Natham radio")
+    ok(p.evaluate(W.RADIO_JS,"^Single Survey$"),"Single survey")
+    ok(p.evaluate("()=>[...document.querySelectorAll('label,span,div')].some(e=>e.offsetParent&&/^Sub Divi?si?on No/i.test((e.innerText||'').trim()))"),"separate subdivision dropdown detected")
+    ok(p.evaluate(W.SELECT_AFTER_JS,["^Survey No\\.?\\s*\\*?$","^0*73$"]).startswith("ok 73"),"survey 73 picked")
+    ok(p.evaluate(W.SELECT_AFTER_JS,["^Sub Divi?si?on No","^0*10$"]).startswith("ok 10"),"subdivision 10 picked")
+    for o in ["73/2","73/2A"]:
+        p.evaluate(W.FILL_AFTER_JS,["^Old Survey No\\.?$",o,""]); p.evaluate(W.CLICK_AFTER_JS,["^Old Survey No\\.?$","^Add Old Survey Number$"])
+    t=p.evaluate(W.TABLE_TEXT_JS,"Old Survey No"); ok("73/2A" in t and "73/2 " in t+" ","old surveys added: "+t)
+    ok(p.evaluate(W.FILL_AFTER_JS,["^Mortgaged Survey Extent","555",""])=="mort","mortgaged extent goes to the right box (not Total)")
+    ok(p.evaluate(W.FILL_AFTER_JS,["^Total Survey Extent","9",""])=="tot","total extent box")
+    p.evaluate("()=>tot.value=''")
+    ok(p.evaluate(W.CLICK_AFTER_JS,["^Market Value of Mortgaged","^Add$"]).startswith("addsv"),"main survey Add")
+    ok("73/10" in p.evaluate(W.TABLE_TEXT_JS,"Mortgaged Survey Extent"),"survey row in table")
+    p.evaluate(W.FILL_AFTER_JS,["^Plot Number$","12",""]); ok(p.evaluate(W.CLICK_AFTER_JS,["^Plot Number$","^Add$"]).startswith("addplot") and p.evaluate("()=>window.plotAdded")=="12","plot number add")
+    ok(p.evaluate(W.FILL_AFTER_JS,["What is in the North\\? \\(In English\\)","Ramasamy land",""])=="ne" and p.evaluate(W.FILL_AFTER_JS,["What is in the North\\? \\(In Tamil\\)","ராமசாமி நிலம்",""])=="nt","boundary EN/TA boxes")
+    ok(p.evaluate(W.FILL_AFTER_JS,["^North Measurement$","33",""])=="nm","linear north")
+    ok(p.evaluate(W.FILL_AFTER_JS,["^Remarks$","EN","textarea"])=="re" and p.evaluate(W.FILL_AFTER_JS,["^Remarks \\(in Tamil\\)$","TA","textarea"])=="rt","remarks EN/TA")
+    ok(p.evaluate(W.SUBTAB_JS)=="Boundary Details","active sub-tab read")
+    ok(p.evaluate(W.DEL_ICONS_JS)!="" and "73/10" not in p.evaluate(W.TABLE_TEXT_JS,"Mortgaged Survey Extent"),"delete row icon")
+    f=p.evaluate(W.FEES_JS); ok(f.get("Stamp Duty")==400 and f.get("Registration Fee")==400 and f.get("Computer Fee")==100,"fees read: "+str(f))
+    ok(p.evaluate(W.INSERT_HTML_JS,"<p>&nbsp;</p><p>&nbsp;</p><table><tr><td>1</td><td>Sale deed 221/2019</td></tr></table>")=="editable" and "221/2019" in p.evaluate(W.EDITOR_TEXT_JS),"LOD table pasted into the box")
+    b.close()
+d={"Property type":"Vacant plot","New survey no":"73","Subdivision":"10","Old survey numbers":"73/2, 73/2A","Extent":"555","Unit":"Sq.ft","Village":"Sellappampatti","Building type":"RCC house","Deed 1 Doc No":"221","Deed 1 Year":"2019","Patta No":"165","Loan amount":"400000","Sanction loan amount":"400000","LOD corrections":"221/2018 -> 221/2019 (EC shows 2019)"}
+ok(W.ptype_of(d)=="Plot" and W.ptype_of({"Property type":"Agricultural land with building"})=="Agriculture Land with Building","property type mapping old→new")
+ok(W.surveys_of(d)==[("73","10","555")] and len(W.surveys_of({**d,"Linked survey numbers":"74/2=300"}))==2,"single / linked survey")
+en,_=W.remarks_text(d); ok(en=="Sellappampatti Village, New Survey No. 73/10 (Old Survey No. 73/2, 73/2A), an extent of 555 Sq.ft, together with the RCC house and all the land therein.","remarks: "+en)
+c=[]; ok(W.loan_check(d,{"loanAmount":"400000"},c)=="400000" and not c,"loan same → no remark")
+c=[]; W.loan_check(d,{"loanAmount":"450000"},c); ok(c and "differs" in c[0],"loan differs → remark: "+(c[0] if c else ""))
+c=[]; h=W.lod_html({"lodHtml":"<table><tr><td>Sale deed 221/2018</td></tr></table>","tpAuto":{}},{**d,"List of documents deposited":"x"},c); ok("221/2019" in h and any("corrected" in x for x in c),"LOD correction applied: "+"; ".join(c))
+c=[]; h=W.lod_html({},{**d,"List of documents deposited":"1 | Sale deed | 221/2019\n2 | Patta | 165","LOD corrections":""},c); ok("<table" in h and not c,"LOD text → table, deed+patta check ok "+str(c))
+c=[]; W.lod_html({},{**d,"List of documents deposited":"1 | Sale deed | 222/2019","LOD corrections":""},c); ok(any("not found" in x for x in c),"LOD wrong deed no. flagged: "+str(c))
