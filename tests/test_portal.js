@@ -190,5 +190,12 @@ check("TP jobs carry the organisation (partner laptops take only their own)",(ht
  check("Show money switch removed from Tools",/id="showMoney"/.test(html),false);
  check("payment message: Tamil + English, total only",(()=>{const m=html.match(/function payMsg[\s\S]*?\n(?=function openPayment)/)[0];return /மொத்தம்/.test(m)&&/Total: /.test(m)&&!/Service charge|Registration fee/.test(m)})(),true);
  check("fees shown to Admin and partner only",/const FEES_OK=\(\)=>!!\(isMD\|\|isPartner\(\)\)/.test(html),true);}
+{/* 13 Nov 2026: KYC Master for the partner - his org's companies only */
+ check("KYC Master tab shown to the partner",/\(isMD\|\|isAdmin\|\|isPartner\(\)\?`<button role="tab" data-t="__ppl"/.test(html)&&/if\(t==="__ppl"&&isPartner\(\)\)return true;/.test(html),true);
+ const pb=new Function("myOrg","cfg","cases","teamCase",html.match(/function partnerBanks\(\)\{[\s\S]*?\n  return cfg\.banks\.filter\(b=>S\.has\(b\)\)\}/)[0]+";return partnerBanks()");
+ const C=[{bank:"Muthoot",org:"oo"},{bank:"Chola",org:""},{bank:"ICICI",org:"oo"}];
+ check("partner sees only his org's companies",pb(()=>"oo",{banks:["Chola","ICICI","Muthoot","Jana"],profiles:{Jana:{org:"oo"},Chola:{}}},C,c=>c.org==="oo"),["ICICI","Muthoot","Jana"]);
+ check("partner: witnesses hidden in KYC Master, reps saved with his org",/wc\.hidden=pplMine\(\)/.test(html)&&/if\(pplMine\(\)&&!p\.org\)p\.org=myOrg\(\)/.test(html),true);
+ check("a representative can be removed (last one too)",/p\.reps\.length>1\|\|r\.name\|\|\(r\.kyc\|\|\[\]\)\.length\?/.test(html),true);}
 check("Clean-up never touches cases or documents",/async function cleanPlan\(/.test(html)&&!/from\("kv"\)\.delete\(\)\.eq\("collection","cases"\)/.test(html),true);
 
