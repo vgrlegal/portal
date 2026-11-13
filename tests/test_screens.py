@@ -89,6 +89,20 @@ with sync_playwright() as pw:
     check("ids: rows by id", p.evaluate("()=>rowsAdded"), [["20/2B2", "KUPPUSAMY NAICKER STREET", "20/2"], ["20/2C1A", "KUPPUSAMY NAICKER STREET", "20/2C1"]])
     check("ids: extent by id", p.evaluate("()=>window.extAdded"), "2499")
     p.close()
+    # 13 Nov 2026 - Deed of Receipt link (Rajamani 0114): Nature of Document loads late, search answers slowly
+    p = b.new_page(); p.goto("file://" + os.path.join(ROOT, "tests", "screens", "dor_link.html")); P = W.Portal(p, job)
+    try:
+        W.dor_nature(P, job, p); W.link_doc(P, job, p, "Thiruporur", "1", "17280", "2023", "Regular Document", "MODT"); err = ""
+    except W.Stop as e:
+        err = str(e)
+    check("dor link: found and added", (err, p.evaluate("()=>[!!window.added, refused]")), ("", [True, 0]))
+    p.goto("file://" + os.path.join(ROOT, "tests", "screens", "dor_link.html")); P = W.Portal(p, job)
+    try:
+        W.dor_nature(P, job, p); W.link_doc(P, job, p, "Thiruporur", "1", "99999", "2023", "Regular Document", "MODT"); err = ""
+    except W.Stop as e:
+        err = str(e)
+    check("dor link: a wrong number still says not found (after a 2nd search)", (err.startswith("TNREGINET could not find the MODT Thiruporur 99999/2023"), p.evaluate("()=>searches")), (True, 2))
+    p.close()
     b.close()
 print("robot screen tests (survey):", "OK" if not fails else f"{fails} FAILED")
 sys.exit(1 if fails else 0)

@@ -899,9 +899,7 @@ def run_dor(page, job, case):
     if not page.locator("#deedType").count():
         job.step("Create Document page not found", page)
         raise Stop("The Create Document page did not open. Send the screen to Claude.")
-    P.sel("deedType", "^Deed Of Receipt")
-    P.js("tick('isPrevDocReg')"); P.wait(1.5)
-    P.js("tick('linkPrevDoc')"); P.wait(2)
+    dor_nature(P, job, page)
     link_doc(P, job, page, g(t, "SRO"), g(t, "Book") or "1", g(t, "Doc No"), g(t, "Year"), g(t, "Document type") or "Regular Document", "MODT")
     if g(t, "Supp MODT Doc No"):
         # Supplementary MODT: same party / property / company - link it too (loan amounts are added later)
@@ -919,20 +917,60 @@ def run_dor(page, job, case):
     return finish_dor(P, job, page, t, case, comments)
 
 
+NATURE_NOW_JS = "()=>{const s=vis('deedType');return s&&s.selectedIndex>=0?(s.options[s.selectedIndex].text||'').trim():''}"
+
+
+def dor_nature(P, job, page):
+    """13 Nov 2026 (Rajamani 0114): Nature of Document stayed '- Select -' (the list was still loading), so TNREGINET
+    refused the linked-document search ('Please Select Nature Of Document') and the TP Desk said the MODT was not found.
+    Now: pick Deed Of Receipt and CHECK it is picked (try for ~20 s), then tick 'registered earlier' + 'link'."""
+    for _ in range(10):
+        P.sel("deedType", "^Deed Of Receipt", 1)
+        if re.match(r"deed of receipt", P.p.evaluate(NATURE_NOW_JS) or "", re.I):
+            break
+        P.wait(1)
+    else:
+        job.step("Nature of Document not selected", page)
+        raise Stop("TNREGINET's Nature of Document list did not take 'Deed Of Receipt'. The page may be slow - start the TP again.")
+    P.js("tick('isPrevDocReg')"); P.wait(1.5)
+    P.js("tick('linkPrevDoc')"); P.wait(2)
+
+
+LINK_FOUND_JS = """(()=>{const t=[...document.querySelectorAll('table')].find(t=>t.offsetParent && /Nature of Document/.test(t.innerText) && t.querySelector('input[type=radio],input[type=checkbox]'));
+        if(!t) return 'NOTFOUND'; const r=t.querySelector('input[type=radio],input[type=checkbox]'); if(!r.checked) r.click(); return t.innerText.split('\\n')[1]||'row'})()"""
+
+
 def link_doc(P, job, page, sro, book, no, year, dtype, label):
-    """Search one registered document (SRO / Book / Doc No / Year), tick its row and press Add so it is saved as linked."""
+    """Search one registered document (SRO / Book / Doc No / Year), tick its row and press Add so it is saved as linked.
+    13 Nov 2026: wait up to ~20 s for the result (TNREGINET is slow at times) and, if the Nature of Document was lost,
+    pick it again and search once more before saying 'not found'."""
     job.step(f"1 · Linking {label} {sro} {no}/{year}", page)
-    P.fuzzy("sub_reg_off", sro, 2)
-    P.sel("sub_book_no", f"Book {book}$", 0.5)
-    P.set("sub_doc_no", no)
-    P.sel("sub_year", f"^{year}$", 0.5)
-    P.sel("cmb_doc_type", "^" + dtype, 0.5)
-    P.click("changeBookDocSearchForLinkDoc", 5)
-    ok = P.js("""(()=>{const t=[...document.querySelectorAll('table')].find(t=>t.offsetParent && /Nature of Document/.test(t.innerText));
-        if(!t) return 'NOTFOUND'; const r=t.querySelector('input[type=radio],input[type=checkbox]'); if(!r) return 'NOROW'; if(!r.checked) r.click(); return t.innerText.split('\\n')[1]})()""")
+    ok, tried = "NOTFOUND", []
+    for attempt in range(2):
+        if attempt:
+            if not re.match(r"deed of receipt", P.p.evaluate(NATURE_NOW_JS) or "", re.I):
+                dor_nature(P, job, page)
+            job.step(f"{label} not found yet - searching again", page)
+        r = P.fuzzy("sub_reg_off", sro, 2)
+        tried.append(str(r or ""))
+        P.sel("sub_book_no", f"Book {book}$", 0.5)
+        P.set("sub_doc_no", no)
+        P.sel("sub_year", f"^{year}$", 0.5)
+        P.sel("cmb_doc_type", "^" + dtype, 0.5)
+        P.click("changeBookDocSearchForLinkDoc", 2)
+        ok = "NOTFOUND"
+        for _ in range(10):  # every 2 s, up to 20 s
+            ok = P.js(LINK_FOUND_JS)
+            if ok not in ("NOTFOUND", "NOROW"):
+                break
+            P.wait(2)
+        if ok not in ("NOTFOUND", "NOROW"):
+            break
     if ok in ("NOTFOUND", "NOROW"):
         job.step(f"{label} not found in search", page)
-        raise Stop(f"TNREGINET could not find the {label} {sro} {no}/{year}. Check SRO, Doc No and Year in Drafting.")
+        why = "; ".join(x for x in (tried[-1:] + P.warn[-3:]) if x)[:200]
+        raise Stop(f"TNREGINET could not find the {label} {sro} {no}/{year}. Check SRO, Doc No and Year in Drafting."
+                   + (f" (TP Desk notes: {why})" if why else ""))
     P.wait(1)
     # The linked document must be ADDED (saved) before Proceed - otherwise the draft has no linked document.
     added = click_btn_text(P, r"^(add|link|add document|சேர்)$")

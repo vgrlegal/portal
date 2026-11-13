@@ -1,0 +1,19 @@
+<html><body>
+<!-- 13 Nov 2026 mock (Rajamani 0114): the Nature of Document list loads late; the linked-document search is refused
+     while it is "- Select -", and the result comes back slowly (4 s). -->
+<label>Nature of Document</label><select id="deedType"><option>- Select -</option></select><div id="err" style="color:red"></div>
+<label><input type="checkbox" id="isPrevDocReg"> registered earlier</label><label><input type="checkbox" id="linkPrevDoc"> link</label>
+<select id="sub_reg_off"><option>- Select -</option><option>Thirukazhukundram</option><option>Thiruporur</option><option>Tiruppur</option></select>
+<select id="sub_book_no"><option>Book 1</option><option>Book 4</option></select><input id="sub_doc_no">
+<select id="sub_year"><option>- Select -</option><option>2022</option><option>2023</option></select>
+<select id="cmb_doc_type"><option>Regular Document</option></select>
+<input type="button" id="changeBookDocSearchForLinkDoc" value="Search" onclick="search()">
+<div id="res"></div>
+<script>
+window.searches=0;window.refused=0;
+setTimeout(()=>{deedType.innerHTML='<option>- Select -</option><option>Deed Of Receipt</option><option>Sale</option>'},3000);
+function search(){searches++;res.innerHTML='';
+  if(!/Receipt/.test(deedType.options[deedType.selectedIndex].text)){refused++;err.textContent='Please Select Nature Of Document';return}
+  err.textContent='';const ok=sub_reg_off.value==='Thiruporur'&&sub_doc_no.value==='17280'&&sub_year.value==='2023';
+  setTimeout(()=>{if(ok)res.innerHTML='<table><tr><th></th><th>Document No.</th><th>Nature of Document</th></tr><tr><td><input type="radio" name="r"></td><td>R/Thiruporur/BOOK 1/17280/2023</td><td>Deposit Of Title Deeds</td></tr></table><input type="button" value="Add" onclick="window.added=1">'},4000)}
+</script></body></html>
