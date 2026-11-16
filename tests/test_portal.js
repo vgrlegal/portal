@@ -216,3 +216,17 @@ check("Clean-up never touches cases or documents",/async function cleanPlan\(/.t
  check("split: KYC Master tab shown to ticked staff",/isPartner\(\)\|\|canSplit\(\)\?`<button role="tab" data-t="__ppl"/.test(html)&&/if\(t==="__ppl"&&canSplit\(\)\)return true;/.test(html),true);
  check("split: access list only the Admin edits",/\$\("sp_accD"\)\.hidden=!isMD/.test(html),true);
  check("split: normal KYC maker still reads 4 pages",/async function readPdf\(buf,maxP=4\)/.test(html)&&/window\.kycHeadless=async\(files\)=>\{if\(!cv\)cv=\(await waitCv\(\)\)\[0\];const its=\[\];\n  for\(const f of files\)\{const cs=await readFile\(f\)/.test(html),true);}
+{/* 16 Nov 2026: MODT case - more than one title holder (+ Add title holder) */
+ const ti=new Function("isRD","flowOf",html.match(/function thInit\(c\)\{[\s\S]*?\n  return\[[^\n]*\}/)[0]+";return thInit")(t=>/receipt/i.test(t||""),t=>/legal/i.test(t||"")?"legal":"modt");
+ check("title holders: new case starts with one",ti(null),[""]);
+ check("title holders: from the case",ti({thCount:3,thNames:["A","B"]}),["A","B",""]);
+ check("title holders: from uploaded Aadhaars and Drafting names",ti({docs:{th_kyc:[{},{}]},draft:{"Mortgagor 2 name":"RAVI"}}),["","RAVI"]);
+ check("title holders: never more than 4",ti({thCount:9}).length,4);
+ const mf=new Function("profOf","cleanAddrPair",html.match(/function modtFill\(c,d\)\{[\s\S]*?\n  return d\}/)[0]+";return modtFill")(()=>null,()=>{});
+ const d1=mf({thCount:2,thNames:["kumar","devi"],docs:{}},{});
+ check("Drafting gets the holder count from the case",d1["Title holders"],"2");
+ check("Drafting gets the holder names",[d1["Mortgagor 1 name"],d1["Mortgagor 2 name"]],["KUMAR","DEVI"]);
+ check("Drafting: names already read are kept",mf({thCount:2,thNames:["kumar","devi"]},{"Mortgagor 1 name":"K. KUMAR","Title holders":"3"})["Mortgagor 1 name"]+"|"+mf({thCount:2},{"Title holders":"3"})["Title holders"],"K. KUMAR|3");
+ check("one title holder case unchanged",mf({docs:{th_kyc:[{}]}},{})["Title holders"],"1");
+ check("case saves the title holders (MODT only)",/if\(isModtT\(b\.type\)\)\{b\.thCount=draftTh\.length;b\.thNames=/.test(html),true);}
+check("MODT type gets the title holder rows",new Function(html.match(/const isRD=[^\n]*/)[0]+";"+html.match(/const flowOf=[^\n]*/)[0]+";"+html.match(/const isModtT=[^\n]*/)[0]+";return [isModtT('MODT'),isModtT('Deed of Receipt'),isModtT('Legal Report')]")(),[true,false,false]);

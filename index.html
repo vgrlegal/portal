@@ -762,6 +762,8 @@ function modtFill(c,d){const set=(k,v)=>{if(v!=null&&String(v).trim()!==""&&!Str
   /* the customer (borrower) need not be the title holder: title holder names come only from the title deed / Aadhaar;
      title holder 1's phone is the phone given in the case */
   set("Mortgagor 1 phone",c.phone||d.Phone);for(let k=1;k<=8;k++)if(d[`Mortgagor ${k} address`]||d[`Mortgagor ${k} address Tamil`])cleanAddrPair(d,`Mortgagor ${k} address`,`Mortgagor ${k} address Tamil`,`Mortgagor ${k} district`);set("Mortgagor 1 Aadhaar",d.Aadhaar);set("Mortgagor 1 address",d.Address);set("Mortgagor 1 pincode",d.Pincode);set("Mortgagor 1 relative name",d["Relative name"]);
+  {const n=Math.min(4,Math.max(+c.thCount||0,((c.docs||{}).th_kyc||[]).length));if(n>(parseInt(d["Title holders"])||0))d["Title holders"]=String(n);
+    (c.thNames||[]).forEach((x,i)=>{if(x&&i<4)set(`Mortgagor ${i+1} name`,String(x).toUpperCase())})}
   set("Loan amount",c.loanAmount);set("Title holders","1");set("Presenter","Title holder 1");set("Property SRO",d.SRO||c.sro);set("Execution SRO",d["Property SRO"]||c.sro);
   ["North","South","East","West"].forEach(x=>set("Boundary "+x,d["Boundary "+x]));set("Extent",d.Extent);set("New survey no",d["Survey number"]);
   const p=profOf(c.bank)||{},co=p.company||{};set("Govt Body Name",co.full_name||d["Company name"]||c.bank);set("Company state",co.state);set("Company address",co.addr_en||d["Branch address"]);set("Company address Tamil",co.addr_ta);set("Company pincode",co.pincode);
@@ -1389,10 +1391,17 @@ function opts(sel,list,first){const v=sel.value;sel.innerHTML=(first!==undefined
 const SERIES=["OO","VGR"];const seriesOf=id=>(String(id||"").match(/^([A-Z]+)-/)||[])[1]||"OO";const withSeries=(id,p)=>String(id||"").replace(/^[A-Z]+-/,p+"-");
 function newId(p){const d=localDT(new Date()).slice(0,10).replace(/-/g,"");const n=cases.map(c=>(String(c.id||"").match(/^[A-Z]+-\d{8}-(\d+)$/)||[])[1]).filter(Boolean).map(Number);return`${p||"OO"}-${d}-${String((n.length?Math.max(...n):0)+1).padStart(4,"0")}`}
 const FF=["type","bank","branch","loanNo","applicant","phone","loanAmount","assignee","rep","w1","w2"];
-function openInfo(c){window.__showSupp=0;editing=c;infoMode="view";draftDocs={...(c.docs||{})};paintInfo();showDrawer()}
+/* 16 Nov 2026: MODT title holders on the case - one row per holder (name + own Aadhaar), "+ Add title holder" up to 4.
+   draftDocs.th_kyc[i] is holder i+1's KYC; c.thCount / c.thNames go to Drafting (Title holders, Mortgagor n name) and so to the TP Desk */
+let draftTh=[""];
+const isModtT=t=>!isRD(t)&&flowOf(t)==="reg";
+function thInit(c){if(!c)return[""];const d=c.draft||{},n=Math.min(4,Math.max(1,+c.thCount||0,((c.docs||{}).th_kyc||[]).length,parseInt(d["Title holders"])||0));
+  return[...Array(n).keys()].map(i=>String((c.thNames||[])[i]||d[`Mortgagor ${i+1} name`]||""))}
+async function thSave(){if(editing&&infoMode==="view"){await patch(editing,{thCount:draftTh.length,thNames:draftTh.map(x=>x.trim())},`Title holders: ${draftTh.length}`);editing={...editing,thCount:draftTh.length,thNames:draftTh.map(x=>x.trim())}}}
+function openInfo(c){window.__showSupp=0;editing=c;infoMode="view";draftDocs={...(c.docs||{})};draftTh=thInit(c);paintInfo();showDrawer()}
 function openNew(){modtAuto=null;
   if(!cfg.banks.length&&!isMD){toast("Ask the Admin to add clients first");return}
-  editing=null;infoMode="edit";draftDocs={};paintInfo();showDrawer();
+  editing=null;infoMode="edit";draftDocs={};draftTh=[""];paintInfo();showDrawer();
 }
 function showDrawer(){$("scrim").hidden=false;$("drawer").hidden=false}
 function closeDrawer(){$("scrim").hidden=true;$("drawer").hidden=true;editing=null}
@@ -1445,7 +1454,7 @@ function paintInfo(){
   ["f_rep","f_w1","f_w2"].forEach(id=>{if($(id))$(id).addEventListener("change",()=>{applyMasters(true);renderDocs($("f_type")?$("f_type").value:type)})});
   if(edit&&!c){[1,2].forEach(n=>{const d=witDefault("",n);if(d&&$("f_w"+n))$("f_w"+n).value=d});applyMasters(true);renderDocs(type)}
   if($("editInfo"))$("editInfo").onclick=()=>{infoMode="edit";paintInfo()};
-  $("cancelEdit").onclick=()=>{if(c&&edit){infoMode="view";draftDocs={...(c.docs||{})};paintInfo()}else closeDrawer()};
+  $("cancelEdit").onclick=()=>{if(c&&edit){infoMode="view";draftDocs={...(c.docs||{})};draftTh=thInit(c);paintInfo()}else closeDrawer()};
   if($("saveBtn"))$("saveBtn").onclick=saveCase;
   if($("delBtn"))$("delBtn").onclick=()=>ask("Delete this case?",`<p class="sf-note">${esc(c.applicant)} · ${esc(c.id)} will be removed for everyone.</p>`,async()=>{try{await db.collection("cases").doc(c._doc).delete();toast("Deleted");closeDrawer()}catch(err){fail(err)}},"Delete");
   if(c&&$("qRaise"))$("qRaise").onclick=()=>ask("Raise a query to the bank",`<label>What is needed?<textarea id="m_q" rows="3" placeholder="e.g. Please upload the NOC / revenue document, or reply if not needed"></textarea></label>`,async()=>{const t=fv("m_q");if(!t)return false;
@@ -1472,7 +1481,12 @@ function renderDocs(type){
   const mrows=[["rep_kyc","rep_id"]].filter(g=>g.every(k=>list.some(d=>d.k===k))&&g.some(fromM)).map(g=>{const[sel,lab]=MASTER[g[0]];const nm=fv(sel)||(editing&&editing[sel.slice(2)])||"";
     return`<div class="docrow"><div class="docl"><b>${lab}: ${esc(nm)}</b><span class="sub">${g.map(k=>`${fromM(k)?"✓":"○"} ${MASTER[k][2]}`).join(" · ")} · saved details attached automatically</span></div></div>`});
   const hideK=new Set(["rep_kyc","rep_id"].filter(fromM));
-  $("docList").innerHTML=mrows.join("")+list.filter(d=>!hideK.has(d.k)).map(d=>{const files=draftDocs[d.k]||[];
+  const thRows=d=>{const F=draftDocs.th_kyc||[],n=draftTh.length;return draftTh.map((nm,i)=>{const f=F[i],can=canWrite&&i<=F.length;
+      return`<div class="docrow"><div class="docl"><b>Title holder ${i+1} · Aadhaar + signature${i===0&&d.req?" *":""}</b><input class="thn" data-thi="${i}" value="${esc(nm)}" placeholder="Name (read from the Aadhaar if left empty)" aria-label="Title holder ${i+1} name" style="margin:4px 0"${canWrite?"":" readonly"}>
+        ${f?`<span class="docf"><a href="${esc(f.url)}" target="_blank" rel="noopener" title="View">${f.kyc?"🗂 ":""}${esc(f.name)}</a><button type="button" class="xbtn" data-dl="${esc(f.url)}" data-name="${esc(f.name)}" title="Download" aria-label="Download ${esc(f.name)}">⬇</button>${canWrite&&i===F.length-1?`<button type="button" class="xbtn" data-rmk="th_kyc" data-rmi="${i}" title="Remove this file" aria-label="Remove ${esc(f.name)}">×</button>`:""}</span>`:`<span class="sub">${can?"Not uploaded":`Upload title holder ${F.length+1}'s Aadhaar first`}</span>`}${i===0&&d.h?`<span class="sub">${esc(d.h)}</span>`:""}</div>
+        <span style="display:flex;gap:6px;align-items:center">${can?`<label class="btn" for="up_th_${i}">${f?"Replace":"Upload"}</label><input type="file" id="up_th_${i}" multiple accept="image/*,application/pdf,.pdf" hidden>`:""}${canWrite&&i>0&&i===n-1&&!f?`<button type="button" class="btn" data-thx="${i}" title="Remove this title holder">Remove</button>`:""}</span></div>`}).join("")+
+      (canWrite&&n<4?`<div class="docrow"><button type="button" class="btn" id="thAdd">+ Add title holder</button><span class="sub" style="margin-left:8px">When the property has 2–4 title holders · ஒருவருக்கு மேல் இருந்தால்</span></div>`:"")};
+  $("docList").innerHTML=mrows.join("")+list.filter(d=>!hideK.has(d.k)).map(d=>{if(d.k==="th_kyc"&&isModtT(type))return thRows(d);const files=draftDocs[d.k]||[];
     return`<div class="docrow"><div class="docl"><b>${esc(d.l)}${d.req?" *":""}${d.grp?" †":""}</b>${d.h?`<span class="sub">${esc(d.h)}</span>`:""}
       ${files.map((f,i)=>`<span class="docf"><a href="${esc(f.url)}" target="_blank" rel="noopener" title="View">${f.kyc?"🗂 ":""}${esc(f.name)}</a><button type="button" class="xbtn" data-dl="${esc(f.url)}" data-name="${esc(f.name)}" title="Download" aria-label="Download ${esc(f.name)}">⬇</button>${canWrite&&!d.auto?`<button type="button" class="xbtn" data-rmk="${d.k}" data-rmi="${i}" title="Remove this file" aria-label="Remove ${esc(f.name)}">×</button>`:""}</span>${f.from?`<span class="sub">auto · saved ${f.from==="rep"?"bank rep":"witness"}</span>`:""}`).join("")||`<span class="sub">${d.auto?"Added automatically":"Not uploaded"}</span>`}</div>
       ${canWrite&&!d.auto?`<label class="btn" for="up_${d.k}">${files.length?(d.multi?"Add more":"Replace"):"Upload"}</label><input type="file" id="up_${d.k}" data-k="${d.k}" ${d.kyc||d.multi?"multiple":""} accept="${d.k==="photos"?"image/*,application/pdf,.pdf":d.k==="mdraft"?".doc,.docx,application/pdf,image/*":"image/*,application/pdf,.pdf"}" hidden>`:""}</div>`}).join("")+
@@ -1480,6 +1494,11 @@ function renderDocs(type){
     (list.some(d=>d.grp)?`<p class="sf-note">† ${esc(list.filter(d=>d.grp).map(d=>d.l.replace(/\s*\(.*\)$/,"")).join(" or "))}: one is enough to create the case.</p>`:"");
   if($("addSupp"))$("addSupp").onclick=()=>{window.__showSupp=1;renderDocs(type)};
   list.forEach(d=>{const el=$("up_"+d.k);if(el)el.onchange=e=>addDocs(d,[...e.target.files],type)});
+  const thD=list.find(d=>d.k==="th_kyc");if(thD&&isModtT(type)){
+    draftTh.forEach((_,i)=>{const el=$("up_th_"+i);if(el)el.onchange=e=>addDocs({...thD,idx:i,l:`Title holder ${i+1} Aadhaar + signature`},[...e.target.files],type)});
+    document.querySelectorAll("#docList .thn").forEach(el=>{el.oninput=()=>{draftTh[+el.dataset.thi]=el.value};el.onchange=()=>{draftTh[+el.dataset.thi]=el.value.trim();thSave()}});
+    if($("thAdd"))$("thAdd").onclick=async()=>{draftTh.push("");renderDocs(type);await thSave();const ins=document.querySelectorAll("#docList .thn");if(ins.length)ins[ins.length-1].focus()};
+    document.querySelectorAll("#docList [data-thx]").forEach(b=>b.onclick=async()=>{draftTh.splice(+b.dataset.thx,1);renderDocs(type);await thSave()})}
   document.querySelectorAll("#docList [data-rmk]").forEach(b=>b.onclick=()=>removeDoc(b.dataset.rmk,+b.dataset.rmi,type));
 }
 function removeDoc(k,i,type){const f=(draftDocs[k]||[])[i];if(!f)return;const lab=(docsFor(type).find(d=>d.k===k)||{}).l||k;
@@ -1511,7 +1530,8 @@ async function addDocs(d,files,type){
   if(!files.length)return;
   if(d.k==="modt"&&isRD(type)){const pf=files.find(f=>f.type==="application/pdf"||/\.pdf$/i.test(f.name));if(pf)autoBankFrom(pf)}
   const cust=(fv("f_applicant")||(editing&&editing.applicant)||"Customer").replace(/[\\/:*?"<>|]+/g," ").trim();
-  const base=`${cust} - ${DOC_NAME[d.k]||String(d.l).replace(/\s*\((optional|if [^)]*)\)/ig,"")}`;
+  const thNm=d.idx!=null?String(draftTh[d.idx]||"").replace(/[\\/:*?"<>|]+/g," ").trim():"";
+  const base=d.idx!=null?`${thNm||cust} - Title Holder ${d.idx+1} KYC`:`${cust} - ${DOC_NAME[d.k]||String(d.l).replace(/\s*\((optional|if [^)]*)\)/ig,"")}`;
   const ext=f=>((f.name.match(/\.[a-z0-9]+$/i)||[""])[0]||(f.type==="application/pdf"?".pdf":"")).toLowerCase();
   const isPdf=f=>f.type==="application/pdf"||/\.pdf$/i.test(f.name);
   let list;
@@ -1528,6 +1548,7 @@ async function addDocs(d,files,type){
     list=d.multi?[...(draftDocs[d.k]||[]),...up]:up;
   }
   if(!list||!list.length)return;
+  if(d.idx!=null){const arr=[...(draftDocs[d.k]||[])];if(list.length>1)toast("Saved the first file only for this title holder. Upload one KYC PDF, or the front, back and signature photos together.");arr[Math.min(d.idx,arr.length)]=list[0];list=arr}
   draftDocs={...draftDocs,[d.k]:list};renderDocs(type);
   if(editing&&infoMode==="view"){await patch(editing,{docs:draftDocs},`${d.l} uploaded`);if(H.ok)autoCapture();
     if(d.k==="modt"&&isRD(editing.type)){const c2=cases.find(x=>x._doc===editing._doc)||{...editing,docs:draftDocs};rereadModt({...c2,docs:draftDocs},false)}
@@ -1540,6 +1561,7 @@ async function saveCase(){
   if(!b.bank)return err("Choose the company.");if(!b.branch)return err("Enter the branch.");if(!b.applicant)return err("Enter the customer name.");
   const miss=missingReq(b.type,draftDocs,b.bank);if(miss.length&&!editing)return err("Needed to create the case: "+miss.join(", "));
   b.requestedAt=new Date($("f_requestedAt").value).toISOString();b.docs=draftDocs;b.updatedAt=nowISO();b.state="Tamil Nadu";
+  if(isModtT(b.type)){b.thCount=draftTh.length;b.thNames=draftTh.map(x=>String(x||"").trim())}
   $("saveBtn").disabled=true;
   try{
     if(editing){const ser=$("f_series")?$("f_series").value:seriesOf(editing.id),nid=withSeries(editing.id,ser),moved=nid!==editing.id;
