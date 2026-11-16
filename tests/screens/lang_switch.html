@@ -1,0 +1,10 @@
+<!doctype html><html><head><meta charset="utf-8"></head><body>
+<!-- 16 Nov 2026: slow TNREGINET language switch (VGR-20261116-0155). Tamil menu; English link asks OK; the English menu comes 4 s later -->
+<div id="top"><a href="#" id="en">English</a></div>
+<ul id="menu"><li><a href="#">முகப்புப் பக்கம்</a></li><li><a href="#">பதிவு செய்தல்</a></li><li><a href="#">சுற்றறிக்கைகள்</a></li></ul>
+<div id="ok" style="display:none"><button id="okb">OK</button></div>
+<script>
+document.getElementById('en').onclick=()=>{document.getElementById('ok').style.display='block'};
+document.getElementById('okb').onclick=()=>{document.getElementById('ok').style.display='none';window.__clicks=(window.__clicks||0)+1;
+  setTimeout(()=>{document.getElementById('menu').innerHTML='<li><a href="#">Home</a></li><li><a href="#">Registration</a></li><li><a href="#">Circulars</a></li>';document.getElementById('top').innerHTML='<a href="#">தமிழ்</a>'},4000)};
+</script></body></html>

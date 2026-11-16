@@ -118,6 +118,12 @@ with sync_playwright() as pw:
     P.warn.clear(); P.set("nosuchbox", "x")
     check("slow: an optional missing field only warns", [w[:40] for w in P.warn], ["TNREGINET field 'nosuchbox' did not take"])
     p.close()
+    # 16 Nov 2026 (VGR-20261116-0155): Tamil → English switch is slow; the TP Desk must wait for the English menu
+    p = b.new_page(); p.goto("file://" + os.path.join(ROOT, "tests", "screens", "lang_switch.html"))
+    check("language: Tamil page seen", W.ui_lang(p), "ta")
+    check("language: waits for the slow switch to English", (W.to_english(p), W.ui_lang(p), p.evaluate("()=>window.__clicks")), (True, "en", 1))
+    check("language: English page left alone", W.to_english(p), True)
+    p.close()
     b.close()
 print("robot screen tests (survey):", "OK" if not fails else f"{fails} FAILED")
 sys.exit(1 if fails else 0)

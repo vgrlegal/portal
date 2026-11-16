@@ -697,20 +697,50 @@ def click_text(page, pattern):
         const e=els[0]; if(!e) return ''; (e.closest('a,button,[onclick],.card,.tile')||e).click(); return (e.textContent||'').trim().slice(0,60)}""", pattern)
 
 
+UI_LANG_JS = """()=>{const t=[...document.querySelectorAll('a,li,span,button')].filter(e=>e.offsetParent).map(e=>(e.textContent||'').trim());
+    const ta=t.some(x=>/^(முகப்புப் பக்கம்|பதிவு செய்தல்|மின்னணு சேவைகள்|சுற்றறிக்கைகள்|வரைவுப் பட்டியல்)$/.test(x)),
+          en=t.some(x=>/^(Home|Registration|E-Services|Circulars|Draft List)$/i.test(x));
+    if(ta&&!en)return 'ta';if(en&&!ta)return 'en';return t.some(x=>/^English$/i.test(x))?'ta':'en'}"""
+
+
+def ui_lang(page):
+    try:
+        return page.evaluate(UI_LANG_JS)
+    except Exception:
+        return ""  # page is loading
+
+
 def to_english(page):
-    """TNREGINET remembers the language; the form option names must be English for our matching."""
-    if page.evaluate("()=>/[\\u0B80-\\u0BFF]{4}/.test((document.querySelector('h1,h2,h3,.breadcrumb,nav')||document.body).innerText)"):
-        hit = page.evaluate("""()=>{const e=[...document.querySelectorAll('a,button,span')].find(x=>x.offsetParent&&/^\\s*English\\s*$/i.test(x.textContent));if(e){e.click();return true}return false}""")
-        if hit:
+    """TNREGINET remembers the language; the form option names must be English for our matching.
+    16 Nov 2026 (VGR 0155): on a slow TNREGINET the switch takes long - the TP Desk went on in Tamil and opened the
+    Hindu marriage page. Now: press English, OK, then wait up to 30 s until the menu really is English; try 3 times."""
+    for _ in range(3):
+        if ui_lang(page) != "ta":
+            return True
+        try:
+            page.evaluate("""()=>{const e=[...document.querySelectorAll('a,button,span')].find(x=>x.offsetParent&&/^\\s*English\\s*$/i.test(x.textContent));if(e)e.click()}""")
             page.wait_for_timeout(1500)
             # TNREGINET asks "change the language to English?" - press OK
             page.evaluate("""()=>{const b=[...document.querySelectorAll('button,input[type=button],a')].find(x=>x.offsetParent&&/^\\s*(OK|சரி)\\s*$/i.test(x.value||x.textContent));if(b)b.click()}""")
-            page.wait_for_timeout(4500)
+        except Exception:
+            pass  # the page started reloading
+        t0 = time.time()
+        while time.time() - t0 < 30:
+            page.wait_for_timeout(1500)
+            try:
+                page.wait_for_load_state("domcontentloaded", timeout=5000)
+            except Exception:
+                pass
+            if ui_lang(page) == "en":
+                page.wait_for_timeout(1500)
+                return True
+    return ui_lang(page) != "ta"
 
 
 def open_presenceless(page, job):
     """From the signed-in home page, open Presence-less registration (Tamil or English menu)."""
-    to_english(page)
+    if not to_english(page):
+        job.step("TNREGINET is still in Tamil after 30 s - switching to English again", page)
     if page.locator("#deedType").count():
         return
     relog = 0
@@ -726,10 +756,17 @@ def open_presenceless(page, job):
             page.keyboard.press("Escape")
             do_login(page, job, job.acc)
             to_english(page)
-        hit = click_text(page, "நேரடி வருகை இல்லா|presence ?less")
+        if ui_lang(page) == "ta" and not to_english(page):
+            job.step("TNREGINET is still in Tamil - waiting for English before going on", page)
+            continue
+        hit = click_text(page, "presence ?less|நேரடி வருகை இல்லா")
         page.wait_for_timeout(4000)
         if page.locator("#deedType").count():
             return
+        # 16 Nov 2026: a wrong page (marriage, firm, chit...) - never press create / continue there; go home and try again
+        if page.evaluate("()=>/திருமண|marriage|சங்கம்|society|firm|நிறுவன|chit|சீட்டு|பிறப்பு|birth/i.test((document.querySelector('.breadcrumb,h1,h2,h3')||{}).innerText||'')"):
+            job.step(f"Wrong TNREGINET page opened (clicked: {hit or 'nothing'}) - going back to the home page", page)
+            continue
         # some versions show a second choice / proceed step
         click_text(page, "ஆவணம் உருவாக்க|create document|புதிய ஆவணம்|new document|proceed|தொடர")
         page.wait_for_timeout(3500)
