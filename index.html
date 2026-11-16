@@ -446,7 +446,15 @@ tr.hf input,tr.hf select{font-size:12.5px;padding:5px 7px;margin:2px 0}
         <label id="pp_bankL">Client<select id="pp_bank"></select></label>
         <label class="full"><span class="btn primary" style="display:inline-block;text-align:center" id="pp_btn">Upload Aadhaar &amp; read it</span><input type="file" id="pp_file" accept="image/*,application/pdf,.pdf" multiple hidden></label>
       </div><p class="sf-note" id="pp_msg"></p></div>
-    <div class="grid2" style="margin-top:16px">
+    <div class="card" id="sp_card" style="margin-top:16px" hidden><h2>Split combined Aadhaar PDF</h2>
+      <p>One PDF (or photos) with the Aadhaar of 2–3 people for one case → a separate KYC PDF for each person: card crop, front + back, signature with the background removed. Check who each picture belongs to, then press Make. Files stay in this browser until you download them.</p>
+      <p class="sf-note">ஒரே PDF-ல் 2–3 பேரின் ஆதார் இருந்தால், ஒவ்வொருவருக்கும் தனி KYC PDF.</p>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:8px"><label class="btn primary" for="sp_file">Upload combined PDF</label><input type="file" id="sp_file" accept="application/pdf,.pdf,image/*" multiple hidden>
+        <label style="display:inline-flex;flex-direction:row;gap:6px;align-items:center;font-size:14px;margin:0"><input type="checkbox" id="sp_names" checked style="width:auto;margin:0"> Read each name with Claude (for the file names)</label></div>
+      <p class="sf-note" id="sp_msg"></p><div id="sp_work"></div>
+      <details id="sp_accD" class="fold" style="margin-top:12px" hidden><summary>Who can use this (Admin)</summary><p class="sf-note">Only you (Admin) can use it now. Tick the people who may also use it, then Save.</p><div id="sp_acc"></div><button type="button" class="btn" id="sp_accSave" style="margin-top:6px">Save access</button></details>
+    </div>
+    <div class="grid2" style="margin-top:16px" id="pp_grid">
       <div class="card"><h2>Bank representatives</h2><div id="pp_reps"></div></div>
       <div class="card"><h2>Witnesses</h2><div id="pp_wits"></div></div>
     </div>
@@ -789,9 +797,11 @@ const BANK_SITES={"aadhar-housing-finance-limited":"https://aadharhousing.com","
 async function fetchLogo(bank,extra){const{data,error}=await window.__sb.functions.invoke("read-aadhaar",{body:{kind:"logo",bank,...extra}});if(error||!data)throw new Error((data&&data.error)||(error&&error.message)||"no reply");if(data.ok)LOGO_V[logoSlug(bank)]=Date.now();return data}
 function myOrg(){return myStaff?(myStaff.partner||myStaff.team||""):""}
 function isPartner(){return !!(myStaff&&myStaff.partner)}
+/* 16 Nov 2026: "Split combined Aadhaar PDF" - the Admin, plus the people the Admin ticks (cfg.kycSplit = their e-mails) */
+function canSplit(){if(isMD)return true;const e=String((myStaff&&myStaff.email)||"").toLowerCase();return!!(e&&(cfg.kycSplit||[]).map(x=>String(x).toLowerCase()).includes(e))}
 function canTp(){return isMD||!!(myStaff&&myStaff.tp===true)}
 function staffObj(x){return typeof x==="string"?{name:x,email:"",phone:"",tabs:TAB_KEYS.map(t=>t[0])}:{tabs:TAB_KEYS.map(t=>t[0]),...x}}
-function allowedTab(t){if(t==="__claude")return isMD;if(t==="__team")return isPartner();if(t==="__rep")return isMD||isPartner();if(t==="__tools")return isMD||isAdmin||isPartner();if(t==="__reg")return isMD||isAdmin||isPartner();if(t==="__ppl"&&isPartner())return true;if(isMD||isAdmin)return true;if(t==="__set"||t==="__ppl")return false;if(t==="dash"||t==="__all")return true;if(!myStaff)return false;return (myStaff.tabs||[]).includes(t)}
+function allowedTab(t){if(t==="__claude")return isMD;if(t==="__team")return isPartner();if(t==="__rep")return isMD||isPartner();if(t==="__tools")return isMD||isAdmin||isPartner();if(t==="__reg")return isMD||isAdmin||isPartner();if(t==="__ppl"&&isPartner())return true;if(t==="__ppl"&&canSplit())return true;if(isMD||isAdmin)return true;if(t==="__set"||t==="__ppl")return false;if(t==="dash"||t==="__all")return true;if(!myStaff)return false;return (myStaff.tabs||[]).includes(t)}
 
 /* ================= tabs & ranges ================= */
 function renderTabs(){
@@ -802,7 +812,7 @@ function renderTabs(){
     `<button role="tab" data-t="__all" aria-selected="${tab==="__all"}">All Cases</button>`+
     (allowedTab("__sro")?`<button role="tab" data-t="__sro" aria-selected="${tab==="__sro"}">Village Finder</button>`:"")+
     (false&&allowedTab("__kyc")?`<button role="tab" data-t="__kyc" aria-selected="${tab==="__kyc"}">Drafting</button>`:"")+
-    (isMD||isAdmin||isPartner()?`<button role="tab" data-t="__ppl" aria-selected="${tab==="__ppl"}">KYC Master</button>`:"")+
+    (isMD||isAdmin||isPartner()||canSplit()?`<button role="tab" data-t="__ppl" aria-selected="${tab==="__ppl"}">KYC Master</button>`:"")+
     (isMD||isAdmin?`<button role="tab" data-t="__set" aria-selected="${tab==="__set"}">Clients &amp; Staff</button>`:"")+
     (isMD||isAdmin||isPartner()?`<button role="tab" data-t="__reg" aria-selected="${tab==="__reg"}">${isMD||isAdmin?"TNREGINET":"Reps, witnesses &amp; IDs"}</button>`:"")+
     (isMD||isAdmin||isPartner()?`<button role="tab" data-t="__tools" aria-selected="${tab==="__tools"}">Tools</button>`:"")+
@@ -2685,11 +2695,11 @@ async function readFile(f){
   return[bitmapToCanvas(bmp,2400)];
 }
 function bitmapToCanvas(src,maxSide){const w=src.width,h=src.height,s=Math.min(1,maxSide/Math.max(w,h));const c=document.createElement("canvas");c.width=Math.round(w*s);c.height=Math.round(h*s);const g=c.getContext("2d",{willReadFrequently:true});g.fillStyle="#fff";g.fillRect(0,0,c.width,c.height);g.drawImage(src,0,0,c.width,c.height);return c}
-async function readPdf(buf){
+async function readPdf(buf,maxP=4){
   if(!window.pdfjsLib)throw new Error("PDF reader did not load");
   let doc;try{doc=await pdfjsLib.getDocument({data:buf}).promise}catch(e){if(e&&e.name==="PasswordException")throw new Error("PDF has a password (e-Aadhaar). Open it, print/save without password, then add");throw e}
   const out=[];
-  for(let p=1;p<=Math.min(doc.numPages,4);p++){const page=await doc.getPage(p);const vp=page.getViewport({scale:2.6});const c=document.createElement("canvas");c.width=Math.round(vp.width);c.height=Math.round(vp.height);const g=c.getContext("2d");g.fillStyle="#fff";g.fillRect(0,0,c.width,c.height);await page.render({canvasContext:g,viewport:vp}).promise;out.push(...segmentPage(c))}
+  for(let p=1;p<=Math.min(doc.numPages,maxP);p++){const page=await doc.getPage(p);const vp=page.getViewport({scale:2.6});const c=document.createElement("canvas");c.width=Math.round(vp.width);c.height=Math.round(vp.height);const g=c.getContext("2d");g.fillStyle="#fff";g.fillRect(0,0,c.width,c.height);await page.render({canvasContext:g,viewport:vp}).promise;out.push(...segmentPage(c))}
   return out;
 }
 function del(...m){for(const x of m)if(x&&!x.isDeleted())x.delete()}
@@ -2909,6 +2919,16 @@ window.kycHeadless=async(files)=>{if(!cv)cv=(await waitCv())[0];const its=[];
   const pick=r=>its.filter(i=>i.role===r).map(i=>i.canvas),both=pick("both");
   const aadList=both.length?both.slice(0,1):pick("front").slice(0,1).concat(pick("back").slice(0,1));
   const saved=built;built={aad:aadList.length?buildAadhaar(aadList):null,sign:pick("sign").length?buildSign(pick("sign")[0]):null};
+  if(!built.aad&&!built.sign){built=saved;return null}
+  const bytes=makePdfBytes();built=saved;return new Blob([bytes],{type:"application/pdf"})};
+/* 16 Nov 2026: split a combined Aadhaar PDF - every piece of every page (up to 24 pages) with its guessed role, and a KYC PDF from chosen pieces */
+window.kycPieces=async(files)=>{if(!cv)cv=(await waitCv())[0];const its=[];
+  for(const f of files){const isPdf=f.type==="application/pdf"||/\.pdf$/i.test(f.name);const cs=isPdf?await readPdf(await f.arrayBuffer(),24):await readFile(f);for(const c of cs)its.push({canvas:c,role:classify(c),src:f.name})}
+  return its};
+window.kycFromPieces=async(its)=>{if(!cv)cv=(await waitCv())[0];const pick=r=>its.filter(i=>i.role===r).map(i=>i.canvas),both=pick("both");
+  const aadList=both.length?both.slice(0,1):pick("front").slice(0,1).concat(pick("back").slice(0,1));
+  const saved=built;let sign=null;try{sign=pick("sign").length?buildSign(pick("sign")[0]):null}catch(e){console.warn(e)}
+  built={aad:aadList.length?buildAadhaar(aadList):null,sign};
   if(!built.aad&&!built.sign){built=saved;return null}
   const bytes=makePdfBytes();built=saved;return new Blob([bytes],{type:"application/pdf"})};
 $("next").addEventListener("click",()=>{items=[];built={aad:null,sign:null};$("name").value="";$("meta").textContent="";renderTiles();drawPreview();$("make").disabled=true;setMsg("Ready for the next person. Select their files.")});
@@ -3174,6 +3194,60 @@ function addTamilButtons(){document.querySelectorAll('#peBody input[lang="ta"]')
   b.onclick=async()=>{b.disabled=true;b.textContent="…";el.value=await toTamil(src.value);b.disabled=false;b.textContent="தமிழ் ← English"};el.after(b);
 })}
 function showRead(){if(!lastOcrText.trim())return;const d=document.createElement("details");d.className="rvsec";d.innerHTML=`<summary style="cursor:pointer;font-size:13px">Text read from the Aadhaar (copy from here if a field is empty)</summary><textarea readonly style="width:100%;min-height:180px;margin-top:6px;font-size:12.5px">${esc(lastOcrText.trim())}</textarea>`;$("peBody").prepend(d)}
+/* ---- 16 Nov 2026: split one combined Aadhaar PDF into one KYC PDF per person ----
+   Pieces in order: a front (or front+back) starts a new person when the current one already has it; a back the same.
+   Signatures go to the people in order (a signature right after a person's Aadhaar is theirs; signatures all at the end are shared out 1, 2, 3). */
+function splitGroup(roles){const P=[],at=[];let cur=-1;const signs=[];
+  roles.forEach((r,i)=>{if(r==="sign"){signs.push([i,cur]);at[i]=-1;return}if(r==="skip"){at[i]=-1;return}
+    const p=P[cur];const clash=!p||(r==="front"&&(p.front||p.both))||(r==="back"&&(p.back||p.both))||(r==="both"&&(p.front||p.back||p.both));
+    if(clash){P.push({});cur=P.length-1}P[cur][r]=1;at[i]=cur});
+  if(!P.length)P.push({});
+  signs.forEach(([i,c])=>{const lim=c<0?P.length-1:c;let j=P.findIndex((p,k)=>k<=lim&&!p.sign);if(j<0)j=P.findIndex(p=>!p.sign);if(j<0)j=Math.max(0,c);P[j].sign=1;at[i]=j});
+  return{n:P.length,at}}
+let SP=null;
+function renderSplit(){const card=$("sp_card");card.hidden=!canSplit();if(card.hidden)return;
+  $("sp_accD").hidden=!isMD;
+  if(isMD){const on=new Set((cfg.kycSplit||[]).map(x=>String(x).toLowerCase()));const st=(cfg.staff||[]).filter(x=>x.email);
+    $("sp_acc").innerHTML=st.length?st.map((x,i)=>`<label style="display:flex;flex-direction:row;gap:6px;align-items:center;font-size:14px"><input type="checkbox" data-spa="${i}" style="width:auto"${on.has(x.email.toLowerCase())?" checked":""}> ${esc(x.name)} <span class="sf-note">${esc(x.email)}</span></label>`).join(""):`<p class="sf-note">No staff with an e-mail yet.</p>`;
+    $("sp_accSave").onclick=()=>{const list=[...document.querySelectorAll("[data-spa]")].filter(b=>b.checked).map(b=>st[+b.dataset.spa].email.toLowerCase());saveCfg({...cfg,kycSplit:list})}}
+  $("sp_file").onchange=async e=>{const fs=[...e.target.files];e.target.value="";if(!fs.length)return;const say=m=>$("sp_msg").textContent=m;
+    try{say("Reading the pages… (first time about 20 seconds while the tools load)");await ensureKycEngine();const its=await window.kycPieces(fs);
+      if(!its.length){say("Nothing found in this file.");return}
+      const g=splitGroup(its.map(i=>i.role));its.forEach((it,i)=>it.who=g.at[i]<0&&it.role==="skip"?-1:Math.max(0,g.at[i]));
+      SP={its,n:g.n,out:[]};say(`${its.length} pictures · ${g.n} person${g.n>1?"s":""} found. Check each picture, change if needed, then press Make.`);paintSplit()}
+    catch(err){console.warn(err);say("Could not read this file: "+(err&&err.message||"try again"))}};
+  paintSplit()}
+const SP_ROLES=[["front","Front"],["back","Back"],["both","Front + Back"],["sign","Signature"],["skip","Skip"]];
+function paintSplit(){const box=$("sp_work");if(!SP){box.innerHTML="";return}
+  const ppl=[...Array(SP.n).keys()];
+  box.innerHTML=`<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:10px;margin-top:10px">${SP.its.map((it,i)=>`<div style="border:1px solid #ddd;border-radius:8px;padding:6px;${it.role==="skip"?"opacity:.45":""}"><div class="sp_th" data-i="${i}" style="height:110px;display:flex;align-items:center;justify-content:center;overflow:hidden;background:#fff"></div>
+    <label style="font-size:12px">Person<select data-spw="${i}">${ppl.map(k=>`<option value="${k}"${it.who===k?" selected":""}>Person ${k+1}</option>`).join("")}</select></label>
+    <label style="font-size:12px">This is<select data-spr="${i}">${SP_ROLES.map(([r,l])=>`<option value="${r}"${it.role===r?" selected":""}>${l}</option>`).join("")}</select></label></div>`).join("")}</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px"><button type="button" class="btn" id="sp_add">+ One more person</button>${SP.n>1?`<button type="button" class="btn" id="sp_less">− One person less</button>`:""}<button type="button" class="btn primary" id="sp_make">Make ${SP.n} KYC PDF${SP.n>1?"s":""}</button><button type="button" class="btn" id="sp_clear">Clear</button></div>
+    <div id="sp_out" style="margin-top:12px"></div>`;
+  box.querySelectorAll(".sp_th").forEach(el=>{const c=SP.its[+el.dataset.i].canvas,k=Math.min(1,160/c.width,110/c.height),t=document.createElement("canvas");t.width=Math.round(c.width*k);t.height=Math.round(c.height*k);t.getContext("2d").drawImage(c,0,0,t.width,t.height);el.appendChild(t)});
+  box.querySelectorAll("[data-spw]").forEach(el=>el.onchange=()=>{SP.its[+el.dataset.spw].who=+el.value});
+  box.querySelectorAll("[data-spr]").forEach(el=>el.onchange=()=>{SP.its[+el.dataset.spr].role=el.value;paintSplit()});
+  $("sp_add").onclick=()=>{SP.n++;paintSplit()};if($("sp_less"))$("sp_less").onclick=()=>{SP.n--;SP.its.forEach(it=>{if(it.who>=SP.n)it.who=SP.n-1});paintSplit()};
+  $("sp_clear").onclick=()=>{SP.out.forEach(o=>URL.revokeObjectURL(o.url));SP=null;$("sp_msg").textContent="";paintSplit()};
+  $("sp_make").onclick=makeSplit;paintSplitOut()}
+async function makeSplit(){const say=m=>$("sp_msg").textContent=m,btn=$("sp_make");btn.disabled=true;SP.out.forEach(o=>URL.revokeObjectURL(o.url));SP.out=[];
+  try{for(let k=0;k<SP.n;k++){const mine=SP.its.filter(it=>it.who===k&&it.role!=="skip");if(!mine.length){SP.out.push({k,miss:"no pictures"});continue}
+      say(`Person ${k+1} of ${SP.n}: making the KYC PDF…`);let name="",blob=null;
+      try{blob=await window.kycFromPieces(mine)}catch(e){console.warn(e)}
+      if(!blob){SP.out.push({k,miss:"could not make the PDF - check the pictures"});continue}
+      const ids=mine.filter(it=>it.role!=="sign").map(it=>it.canvas);
+      if($("sp_names").checked&&ids.length){say(`Person ${k+1} of ${SP.n}: reading the name with Claude…`);try{window.__readRef="KYC Master · split combined Aadhaar";const o=await claudeRead(ids);if(o&&o.name)name=o.name.toUpperCase()}catch(e){console.warn(e)}}
+      const miss=[];if(!mine.some(it=>["front","both"].includes(it.role)))miss.push("front");if(!mine.some(it=>["back","both"].includes(it.role)))miss.push("back");if(!mine.some(it=>it.role==="sign"))miss.push("signature");
+      SP.out.push({k,name:name||`Person ${k+1}`,url:URL.createObjectURL(blob),kb:Math.round(blob.size/1024),warn:miss.length?"no "+miss.join(", "):""})}
+    say(`Done: ${SP.out.filter(o=>o.url).length} of ${SP.n} KYC PDFs made. Check the names, then download.`)}
+  catch(err){console.warn(err);say("Stopped: "+(err&&err.message||"try again"))}
+  finally{btn.disabled=false;paintSplitOut()}}
+function paintSplitOut(){const el=$("sp_out");if(!el||!SP)return;const fn=n=>String(n||"KYC").replace(/[\\/:*?"<>|]+/g," ").replace(/\s+/g," ").trim()+" - KYC.pdf";
+  el.innerHTML=SP.out.map((o,i)=>`<div class="mrow"><b>Person ${o.k+1}</b><span>${o.url?`<input data-spn="${i}" value="${esc(o.name)}" aria-label="File name for person ${o.k+1}" style="width:220px"> <a class="btn" href="${o.url}" target="_blank" rel="noopener">View</a> <button type="button" class="btn primary" data-spd="${i}">⬇ Download</button>`:`<span class="no">${esc(o.miss)}</span>`}</span>${o.url?`<div class="mf">${o.kb} KB${o.warn?` · <span class="no">${esc(o.warn)}</span>`:` · <span class="ok">front, back, signature</span>`}</div>`:""}</div>`).join("")+(SP.out.filter(o=>o.url).length>1?`<button type="button" class="btn" id="sp_all" style="margin-top:8px">⬇ Download all</button>`:"");
+  const dl=i=>{const o=SP.out[i],inp=el.querySelector(`[data-spn="${i}"]`);if(inp)o.name=inp.value.trim()||o.name;const a=document.createElement("a");a.href=o.url;a.download=fn(o.name);document.body.appendChild(a);a.click();a.remove()};
+  el.querySelectorAll("[data-spd]").forEach(b=>b.onclick=()=>dl(+b.dataset.spd));
+  if($("sp_all"))$("sp_all").onclick=async()=>{for(let i=0;i<SP.out.length;i++)if(SP.out[i].url){dl(i);await new Promise(r=>setTimeout(r,700))}}}
 /* 13 Nov 2026: the partner (Raja) uses KYC Master too - only for his own org's companies:
    the companies of his team's cases, plus any company whose representatives his org added. */
 function partnerBanks(){const o=myOrg(),P=cfg.profiles||{},S=new Set();
@@ -3181,6 +3255,7 @@ function partnerBanks(){const o=myOrg(),P=cfg.profiles||{},S=new Set();
   return cfg.banks.filter(b=>S.has(b))}
 const pplMine=()=>isPartner()&&!isMD&&!isAdmin;
 function renderPeople(){
+  const full=isMD||isAdmin||isPartner();$("pp_grid").hidden=!full;$("pp_role").closest(".card").hidden=!full;renderSplit();
   const banks=pplMine()?partnerBanks():cfg.banks;
   const wo=$("pp_role").querySelector('option[value="wit"]');if(wo){wo.hidden=pplMine();wo.disabled=pplMine()}if(pplMine())$("pp_role").value="rep";
   const wc=$("pp_wits").closest(".card");if(wc)wc.hidden=pplMine();$("pp_bank").innerHTML=banks.map(b=>`<option>${esc(b)}</option>`).join("");

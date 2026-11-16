@@ -191,7 +191,7 @@ check("TP jobs carry the organisation (partner laptops take only their own)",(ht
  check("payment message: Tamil + English, total only",(()=>{const m=html.match(/function payMsg[\s\S]*?\n(?=function openPayment)/)[0];return /மொத்தம்/.test(m)&&/Total: /.test(m)&&!/Service charge|Registration fee/.test(m)})(),true);
  check("fees shown to Admin and partner only",/const FEES_OK=\(\)=>!!\(isMD\|\|isPartner\(\)\)/.test(html),true);}
 {/* 13 Nov 2026: KYC Master for the partner - his org's companies only */
- check("KYC Master tab shown to the partner",/\(isMD\|\|isAdmin\|\|isPartner\(\)\?`<button role="tab" data-t="__ppl"/.test(html)&&/if\(t==="__ppl"&&isPartner\(\)\)return true;/.test(html),true);
+ check("KYC Master tab shown to the partner",/\(isMD\|\|isAdmin\|\|isPartner\(\)(\|\|canSplit\(\))?\?`<button role="tab" data-t="__ppl"/.test(html)&&/if\(t==="__ppl"&&isPartner\(\)\)return true;/.test(html),true);
  const pb=new Function("myOrg","cfg","cases","teamCase",html.match(/function partnerBanks\(\)\{[\s\S]*?\n  return cfg\.banks\.filter\(b=>S\.has\(b\)\)\}/)[0]+";return partnerBanks()");
  const C=[{bank:"Muthoot",org:"oo"},{bank:"Chola",org:""},{bank:"ICICI",org:"oo"}];
  check("partner sees only his org's companies",pb(()=>"oo",{banks:["Chola","ICICI","Muthoot","Jana"],profiles:{Jana:{org:"oo"},Chola:{}}},C,c=>c.org==="oo"),["ICICI","Muthoot","Jana"]);
@@ -201,3 +201,18 @@ check("TP print check mismatch shown on the case",/TP print check · not seen/.t
 check("Dashboard shows the daily test result (Admin)",/id="dashTests"/.test(html)&&/actions\/workflows\/daily-tests\.yml\/runs/.test(html),true);
 check("Clean-up never touches cases or documents",/async function cleanPlan\(/.test(html)&&!/from\("kv"\)\.delete\(\)\.eq\("collection","cases"\)/.test(html),true);
 
+{/* 16 Nov 2026: KYC Master - split one combined Aadhaar PDF into one KYC PDF per person */
+ const sg=new Function(html.match(/function splitGroup\(roles\)\{[\s\S]*?\n  return\{n:P\.length,at\}\}/)[0]+";return splitGroup")();
+ check("split: front,back,sign x2",sg(["front","back","sign","front","back","sign"]),{n:2,at:[0,0,0,1,1,1]});
+ check("split: 3 e-Aadhaar pages then 3 signatures",sg(["both","both","both","sign","sign","sign"]),{n:3,at:[0,1,2,0,1,2]});
+ check("split: signatures at the end shared in order",sg(["front","back","front","back","sign","sign"]),{n:2,at:[0,0,1,1,0,1]});
+ check("split: signature before each Aadhaar",sg(["sign","front","back","sign","front","back"]),{n:2,at:[0,0,0,1,1,1]});
+ check("split: skip pages stay out",sg(["both","skip","both"]),{n:2,at:[0,-1,1]});
+ check("split: one person",sg(["front","back","sign"]),{n:1,at:[0,0,0]});
+ const cs=(md,staff,list)=>new Function("isMD","myStaff","cfg",html.match(/function canSplit\(\)\{[^\n]*\}/)[0]+";return canSplit()")(md,staff,{kycSplit:list});
+ check("split: Admin always",cs(true,null,[]),true);
+ check("split: staff not ticked - no",cs(false,{email:"a@x.in"},[]),false);
+ check("split: staff ticked by the Admin - yes",cs(false,{email:"A@x.in"},["a@x.in"]),true);
+ check("split: KYC Master tab shown to ticked staff",/isPartner\(\)\|\|canSplit\(\)\?`<button role="tab" data-t="__ppl"/.test(html)&&/if\(t==="__ppl"&&canSplit\(\)\)return true;/.test(html),true);
+ check("split: access list only the Admin edits",/\$\("sp_accD"\)\.hidden=!isMD/.test(html),true);
+ check("split: normal KYC maker still reads 4 pages",/async function readPdf\(buf,maxP=4\)/.test(html)&&/window\.kycHeadless=async\(files\)=>\{if\(!cv\)cv=\(await waitCv\(\)\)\[0\];const its=\[\];\n  for\(const f of files\)\{const cs=await readFile\(f\)/.test(html),true);}
