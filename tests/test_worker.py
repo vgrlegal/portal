@@ -38,6 +38,8 @@ check("surveys_of 140/2A2", ns["surveys_of"]({"New survey no": "140/2A2"})[0][:2
 check("modt_plan bank letter fallback", 'docs.get("deed") or docs.get("letter")' in src, True)
 # 12 Nov 2026: company representative optional - no rep -> skip the rep step, mortgagor presents
 a = src.index("def presenter_name("); exec(src[a:src.index("\n\n\n", a)], ns)
+a = src.index("def deed_no("); exec(src[a:src.index("\n\n\n", a)], ns)  # 16 Nov 2026: deed number without the year
+check("deed_no: year cut from the number", [ns["deed_no"]({"Deed 1 Doc No": x, "Deed 1 Year": y}, 1) for x, y in [("1086/1992", "1992"), ("992", "1989"), ("12/3", "2001")]], ["1086", "992", "12/3"])
 check("presenter rep", ns["presenter_name"]({"Rep name": "R KUMAR", "Mortgagor": "A"}), "R KUMAR")
 check("presenter no rep -> mortgagor", ns["presenter_name"]({"Rep name": "", "Mortgagor": "A"}), "A")
 check("presenter chosen mortgagor", ns["presenter_name"]({"Rep name": "R", "Mortgagor": "A", "Presenter": "Mortgagor"}), "A")
