@@ -724,7 +724,7 @@ const MODT_FIELDS=[
   ["1 · Linked documents (title deeds)",[["Linked deeds","note","Link ONLY the title deed(s) under 'Documents for security' in the legal report (marked MOD). The earlier MODT only for a top-up loan. Never a Deed of Receipt or any other deed in the list of documents."],["Documents for security (legal report)","w"],["Top-up loan","s",["No","Yes"]],["Deed 1 SRO","sro"],"Deed 1 Doc No",["Deed 1 Year","year"],["Deed 2 SRO","sro"],"Deed 2 Doc No",["Deed 2 Year","year"],["Deed 3 SRO","sro"],"Deed 3 Doc No",["Deed 3 Year","year"]]],
   ["2 · Mortgagor (title holders)",[["Title holders","s",["1","2","3","4"]]]],
   ["2 · Title holder 1",MP(1)],["2 · Title holder 2",MP(2)],["2 · Title holder 3",MP(3)],["2 · Title holder 4",MP(4)],
-  ["3 · Mortgagee (company)",["Govt Body Name",["Company office","s",["Registered Office","Head Office","Corporate Office"]],["Company state","s",MSTATES],"Company district",["Company address","w"],["Company address Tamil","w"],"Company pincode"]],
+  ["3 · Mortgagee (company)",["Govt Body Name",["Company office","s",["Registered Office","Registered & Corporate Office","Head Office","Corporate Office"]],["Company state","s",MSTATES],"Company district",["Company address","w"],["Company address Tamil","w"],"Company pincode"]],
   ["4 · Company representative",[["Representative","note","Skipped for MODT. Needed only when the property belongs to a company."]]],
   ["5 · Witnesses",[["Witness 1","wsel"],["Witness 2","wsel"]]],
   ["6 · Presenter",[["Presenter","s",["Title holder 1","Title holder 2","Title holder 3","Title holder 4"]]]],
@@ -758,6 +758,16 @@ const caseUnit=d=>(d.Unit||"").trim()||UNIT_LABEL[unitKey(d.Extent)]||"";
 const EXT_NUM=/^\s*\d+(?:\.\d+)?\s*$/;
 function extFull(d){const e=String(d.Extent||"").trim(),u=caseUnit(d);return e&&EXT_NUM.test(e)&&u?e+" "+u:e}
 function extNum(d){const e=String(d.Extent||"").trim();if(!e||EXT_NUM.test(e))return d;const u=caseUnit(d);if(!u)return d;const v=areaIn(e,u);if(!v)return d;if(!String(d.Unit||"").trim())d.Unit=u;d.Extent=v;return d}
+/* 16 Nov 2026: MODT Drafting shows the chosen witness's details from KYC Master (not only the name) */
+function witDetails(name){const w=(cfg.wit||[]).find(x=>x.name===name);if(!w)return name?"Not in KYC Master":"Aadhaar, address and KYC come from KYC Master.";
+  const a=digits(w.aadhaar),age=ageOf(w.dob);return[`<b>${esc(w.sal?w.sal+". ":"")}${esc(w.name)}</b>`,w.rel_type&&w.rel_name?esc(w.rel_type+" "+w.rel_name):"",age?"Age "+esc(age):"",w.dob?"DOB "+esc(w.dob):"",a?"Aadhaar "+esc(a.replace(/(\d{4})(?=\d)/g,"$1 ")):"<span style=\"color:#b42318\">Aadhaar missing</span>",w.addr?esc(w.addr)+(w.district?", "+esc(w.district):"")+(w.pincode?" - "+esc(w.pincode):""):"",(w.kyc||[]).length?"✓ KYC":"<span style=\"color:#b42318\">KYC missing</span>"].filter(Boolean).join(" · ")}
+/* 16 Nov 2026 (VGR 0155): a company's branch addresses are saved once (Clients & Staff → company → Company address for MODT);
+   the case's branch picks its address: "<Branch> Branch, <branch address>, having its <office> at <registered office>" */
+const brNorm=x=>String(x||"").toLowerCase().replace(/branch|கிளை/g,"").replace(/[^a-z]/g,"").replace(/pp/g,"p").replace(/thir|tir/g,"tir");
+function branchAddr(c){const p=profOf(c.bank)||{},B=p.branches||{},b=brNorm(c.branch||(c.draft||{}).Branch);if(!b)return null;
+  const k=Object.keys(B).find(k=>brNorm(k)===b)||Object.keys(B).find(k=>brNorm(k)&&(b.includes(brNorm(k))||brNorm(k).includes(b)));return k&&B[k]?{name:k,addr:String(B[k]).trim()}:null}
+function branchCoAddr(c){const co=(profOf(c.bank)||{}).company||{},br=branchAddr(c);if(!br||!co.addr_en)return null;const w=co.office||"Registered Office";
+  return{en:`${br.name} Branch, ${br.addr.replace(/[\s,.]+$/,"")}, having its ${w} at ${co.addr_en}`,w,br,ho:co.addr_en,state:co.state,pin:co.pincode}}
 function modtFill(c,d){const set=(k,v)=>{if(v!=null&&String(v).trim()!==""&&!String(d[k]||"").trim())d[k]=String(v)};
   /* the customer (borrower) need not be the title holder: title holder names come only from the title deed / Aadhaar;
      title holder 1's phone is the phone given in the case */
@@ -766,7 +776,9 @@ function modtFill(c,d){const set=(k,v)=>{if(v!=null&&String(v).trim()!==""&&!Str
     (c.thNames||[]).forEach((x,i)=>{if(x&&i<4)set(`Mortgagor ${i+1} name`,String(x).toUpperCase())})}
   set("Loan amount",c.loanAmount);set("Title holders","1");set("Presenter","Title holder 1");set("Property SRO",d.SRO||c.sro);set("Execution SRO",d["Property SRO"]||c.sro);
   ["North","South","East","West"].forEach(x=>set("Boundary "+x,d["Boundary "+x]));set("Extent",d.Extent);set("New survey no",d["Survey number"]);
-  const p=profOf(c.bank)||{},co=p.company||{};set("Govt Body Name",co.full_name||d["Company name"]||c.bank);set("Company state",co.state);set("Company address",co.addr_en||d["Branch address"]);set("Company address Tamil",co.addr_ta);set("Company pincode",co.pincode);
+  const p=profOf(c.bank)||{},co=p.company||{};set("Govt Body Name",co.full_name||d["Company name"]||c.bank);
+  {const bc=branchCoAddr(c);if(bc&&!String(d["Company address"]||"").toLowerCase().includes(bc.br.addr.slice(0,14).toLowerCase())){d["Company address"]=bc.en;d["Company address Tamil"]="";d["Company office"]=bc.w;if(bc.state)d["Company state"]=bc.state;if(bc.pin)d["Company pincode"]=String(bc.pin)}}
+  set("Company state",co.state);set("Company address",co.addr_en||d["Branch address"]);set("Company address Tamil",co.addr_ta);set("Company pincode",co.pincode);
   return d}
 function modtRemarks(){const v=k=>{const e=$("rv_"+k.replace(/\W+/g,"_"));return e?e.value.trim():""};
   const sn=[v("New survey no")+(v("Subdivision")?"/"+v("Subdivision"):""),...v("Linked survey numbers").split(/[,;\n]+/).map(x=>x.split("=")[0].trim()).filter(Boolean)].filter(Boolean).join(", "),old=v("Old survey numbers"),ex=v("Extent"),b=v("Building type");
@@ -1495,8 +1507,8 @@ function renderDocs(type){
   const hideK=new Set(["rep_kyc","rep_id"].filter(fromM));
   const thRows=d=>{const F=draftDocs.th_kyc||[],n=draftTh.length;return draftTh.map((nm,i)=>{const f=F[i],can=canWrite&&i<=F.length;
       return`<div class="docrow"><div class="docl"><b>Title holder ${i+1} · Aadhaar + signature${i===0&&d.req?" *":""}</b><input class="thn" data-thi="${i}" value="${esc(nm)}" placeholder="Name (read from the Aadhaar if left empty)" aria-label="Title holder ${i+1} name" style="margin:4px 0"${canWrite?"":" readonly"}>
-        ${f?`<span class="docf"><a href="${esc(f.url)}" target="_blank" rel="noopener" title="View">${f.kyc?"🗂 ":""}${esc(f.name)}</a><button type="button" class="xbtn" data-dl="${esc(f.url)}" data-name="${esc(f.name)}" title="Download" aria-label="Download ${esc(f.name)}">⬇</button>${canWrite&&i===F.length-1?`<button type="button" class="xbtn" data-rmk="th_kyc" data-rmi="${i}" title="Remove this file" aria-label="Remove ${esc(f.name)}">×</button>`:""}</span>`:`<span class="sub">${can?"Not uploaded":`Upload title holder ${F.length+1}'s Aadhaar first`}</span>`}${i===0&&d.h?`<span class="sub">${esc(d.h)}</span>`:""}</div>
-        <span style="display:flex;gap:6px;align-items:center">${can?`<label class="btn" for="up_th_${i}">${f?"Replace":"Upload"}</label><input type="file" id="up_th_${i}" multiple accept="image/*,application/pdf,.pdf" hidden>`:""}${canWrite&&i>0&&i===n-1&&!f?`<button type="button" class="btn" data-thx="${i}" title="Remove this title holder">Remove</button>`:""}</span></div>`}).join("")+
+        ${f?`<span class="docf"><a href="${esc(f.url)}" target="_blank" rel="noopener" title="View">${f.kyc?"🗂 ":""}${esc(f.name)}</a><button type="button" class="xbtn" data-dl="${esc(f.url)}" data-name="${esc(f.name)}" title="Download" aria-label="Download ${esc(f.name)}">⬇</button>${canWrite?(n>1?`<button type="button" class="xbtn" data-thx="${i}" title="Remove this title holder and the Aadhaar" aria-label="Remove title holder ${i+1}">×</button>`:`<button type="button" class="xbtn" data-rmk="th_kyc" data-rmi="${i}" title="Remove this file" aria-label="Remove ${esc(f.name)}">×</button>`):""}</span>`:`<span class="sub">${can?"Not uploaded":`Upload title holder ${F.length+1}'s Aadhaar first`}</span>`}${i===0&&d.h?`<span class="sub">${esc(d.h)}</span>`:""}</div>
+        <span style="display:flex;gap:6px;align-items:center">${can?`<label class="btn" for="up_th_${i}">${f?"Replace":"Upload"}</label><input type="file" id="up_th_${i}" multiple accept="image/*,application/pdf,.pdf" hidden>`:""}${canWrite&&n>1?`<button type="button" class="btn danger" data-thx="${i}" title="Remove this title holder">Remove</button>`:""}</span></div>`}).join("")+
       (canWrite&&n<4?`<div class="docrow"><button type="button" class="btn" id="thAdd">+ Add title holder</button><span class="sub" style="margin-left:8px">When the property has 2–4 title holders · ஒருவருக்கு மேல் இருந்தால்</span></div>`:"")};
   $("docList").innerHTML=mrows.join("")+list.filter(d=>!hideK.has(d.k)).map(d=>{if(d.k==="th_kyc"&&isModtT(type))return thRows(d);const files=draftDocs[d.k]||[];
     return`<div class="docrow"><div class="docl"><b>${esc(d.l)}${d.req?" *":""}${d.grp?" †":""}</b>${d.h?`<span class="sub">${esc(d.h)}</span>`:""}
@@ -1510,8 +1522,14 @@ function renderDocs(type){
     draftTh.forEach((_,i)=>{const el=$("up_th_"+i);if(el)el.onchange=e=>addDocs({...thD,idx:i,l:`Title holder ${i+1} Aadhaar + signature`},[...e.target.files],type)});
     document.querySelectorAll("#docList .thn").forEach(el=>{el.oninput=()=>{draftTh[+el.dataset.thi]=el.value};el.onchange=()=>{draftTh[+el.dataset.thi]=el.value.trim();thSave()}});
     if($("thAdd"))$("thAdd").onclick=async()=>{draftTh.push("");renderDocs(type);await thSave();const ins=document.querySelectorAll("#docList .thn");if(ins.length)ins[ins.length-1].focus()};
-    document.querySelectorAll("#docList [data-thx]").forEach(b=>b.onclick=async()=>{const i=+b.dataset.thx;draftTh.splice(i,1);renderDocs(type);
-      if(editing&&infoMode==="view"&&(parseInt((editing.draft||{})["Title holders"])||0)>i){const r=dropHolder(editing.draft||{},i+1,editing.robotQs||[]);await patch(editing,{draft:r.d,robotQs:r.qs,thCount:draftTh.length,thNames:draftTh.map(x=>x.trim())},`Title holder ${i+1} removed`);editing=cases.find(x=>x._doc===editing._doc)||editing}else await thSave()})}
+    /* 16 Nov 2026: every title holder row can be removed (not only the last empty one): the row, its Aadhaar and the holder in Drafting; the later holders move up */
+    document.querySelectorAll("#docList [data-thx]").forEach(b=>b.onclick=()=>{const i=+b.dataset.thx,f=(draftDocs.th_kyc||[])[i],nm=draftTh[i]||((editing&&editing.draft)||{})[`Mortgagor ${i+1} name`]||"";
+      ask(`Remove title holder ${i+1}?`,`<p class="sf-note"><b>${esc(nm||"Title holder "+(i+1))}</b>${f?` and the Aadhaar <b>${esc(f.name)}</b>`:""} will be removed${editing&&!infoMode.startsWith("e")?" (also from Drafting)":""}. The title holders after ${i+1} move up one place.</p>`,async()=>{
+        const th=[...(draftDocs.th_kyc||[])];if(i<th.length)th.splice(i,1);draftDocs={...draftDocs,th_kyc:th};if(!th.length)delete draftDocs.th_kyc;draftTh.splice(i,1);if(!draftTh.length)draftTh=[""];renderDocs(type);
+        if(editing&&infoMode==="view"){const ch={docs:draftDocs,thCount:draftTh.length,thNames:draftTh.map(x=>String(x||"").trim())};if(f)ch.thKyc=(editing.thKyc||[]).filter(x=>x.url!==f.url);
+          if((parseInt((editing.draft||{})["Title holders"])||0)>i){const r=dropHolder(editing.draft||{},i+1,editing.robotQs||[]);ch.draft=r.d;ch.robotQs=r.qs}
+          await patch(editing,ch,`Title holder ${i+1}${nm?" ("+nm+")":""} removed${f?" with the Aadhaar "+f.name:""}`);editing=cases.find(x=>x._doc===editing._doc)||{...editing,...ch}}
+        toast(`Title holder ${i+1} removed`)},"Remove")})}
   document.querySelectorAll("#docList [data-rmk]").forEach(b=>b.onclick=()=>removeDoc(b.dataset.rmk,+b.dataset.rmi,type));
 }
 function removeDoc(k,i,type){const f=(draftDocs[k]||[])[i];if(!f)return;const lab=(docsFor(type).find(d=>d.k===k)||{}).l||k;
@@ -1627,7 +1645,7 @@ function openReview(c,gen){
       if(t==="year"){const y=new Date().getFullYear(),Y=[];for(let i=y;i>=1975;i--)Y.push(String(i));return`<label>${esc(f)}${req}<select id="${id}"><option value=""></option>${Y.map(x=>`<option${x===String(data[f]||"").trim()?" selected":""}>${x}</option>`).join("")}</select></label>`}
       if(t==="vil")return`<label class="full">${esc(f)} <span class="lg en">EN</span><select id="${id}" data-vil="1" data-raw="${esc(data[f]||"")}"></select></label>`;
       if(t==="wsel"&&!dor&&(c.caseWit||{})[f.slice(-1)]){const w=c.caseWit[f.slice(-1)];return`<label class="full">${esc(f)} name<input value="${esc(w.name||"")}" readonly><span class="sub">Customer's own witness, read from the Aadhaar uploaded in this case. Used for this case only (not added to KYC Master). Remove that upload to pick from KYC Master.</span></label>`}
-      if(t==="wsel"){const n=f.slice(-1),cur=c["w"+n]||data[`Witness ${n} name`]||((cfg.wit||[]).find(x=>x.def===+n)||{}).name||"";return`<label class="full">${esc(f)} name<select id="${id}" data-wsel="${n}"><option value="">— select —</option>${(cfg.wit||[]).map(w=>`<option${w.name===cur?" selected":""}>${esc(w.name)}</option>`).join("")}</select><span class="sub">Aadhaar, address and KYC come from KYC Master.</span></label>`}
+      if(t==="wsel"){const n=f.slice(-1),cur=c["w"+n]||data[`Witness ${n} name`]||((cfg.wit||[]).find(x=>x.def===+n)||{}).name||"";return`<label class="full">${esc(f)} name<select id="${id}" data-wsel="${n}"><option value="">— select —</option>${(cfg.wit||[]).map(w=>`<option${w.name===cur?" selected":""}>${esc(w.name)}</option>`).join("")}</select><span class="sub" data-wdet="${n}">${witDetails(cur)}</span></label>`}
       if(dor){const ta=/Tamil/.test(f),txt=!/Age|age|Aadhaar|pincode|Pincode|mobile|Doc No|Loan|date|Extent|Survey/.test(f);return`<label class="${t==="w"?"full":""}">${esc(f)}${req}${txt?` <span class="lg ${ta?"ta":"en"}">${ta?"தமிழ்":"EN"}</span>`:""}<input id="${id}" value="${esc(data[f]||"")}"${ta?' lang="ta"':""}></label>`}
       if(f==="Bank Sheet")return`<label>${f} *<select id="${id}"><option value="">— select —</option>${[...new Set([...BANK_SHEETS,data[f]].filter(Boolean))].map(x=>`<option${x===data[f]?" selected":""}>${esc(x)}</option>`).join("")}</select></label>`;
       {const ta=!dor&&/Tamil/.test(f);return`<label class="${t==="w"||/address|boundary|govt/i.test(f)?"full":""}">${esc(f)}${dor&&DOR_NEED.includes(f)?" *":""}${ta?' <span class="lg ta">தமிழ்</span>':""}<input id="${id}" value="${esc(data[f]||"")}"${ta?' lang="ta"':""}></label>`}}).join("")+`</div>`;
@@ -1663,7 +1681,14 @@ function openReview(c,gen){
     const L=["North","South","East","West"].map(x=>$("rv_"+x+"_length")),bt=$("rv_Boundary_type"),reg=()=>{const n=L.map(e=>parseFloat(e.value));if(n.some(isNaN))return;bt.value=n[0]===n[1]&&n[2]===n[3]?"Regular":"Irregular"};L.forEach(e=>e&&e.addEventListener("input",reg));
     {const dsec=$("rv_Deed_1_Doc_No")&&$("rv_Deed_1_Doc_No").closest(".rvsec");if(dsec){const grp=n=>["SRO","Doc_No","Year"].map(k=>$(`rv_Deed_${n}_${k}`)).filter(Boolean).map(e=>e.closest("label"));
       const has=n=>["Doc No","Year"].some(k=>String(data[`Deed ${n} ${k}`]||"").trim());let shown=1;[2,3].forEach(n=>{const h=has(n);grp(n).forEach(l=>l.hidden=!h);if(h)shown=n});
-      const b=document.createElement("button");b.type="button";b.className="btn";b.textContent="+ Add another title deed";b.hidden=shown>=3;b.onclick=()=>{shown++;grp(shown).forEach(l=>l.hidden=false);b.hidden=shown>=3};dsec.appendChild(b)}}
+      const b=document.createElement("button");b.type="button";b.className="btn";b.textContent="+ Add another title deed";b.hidden=shown>=3;dsec.appendChild(b);
+      /* 16 Nov 2026: each title deed has its own Remove (when more than one); the deeds after it move up */
+      const box=n=>["SRO","Doc_No","Year"].map(k=>$(`rv_Deed_${n}_${k}`)),put=(e,v)=>{if(!e)return;if(e.tagName==="SELECT"&&v&&![...e.options].some(o=>o.value===v))e.add(new Option(v,v));e.value=v;(rv.touched=rv.touched||new Set()).add(e.id)};
+      const rms=[1,2,3].map(n=>{const last=grp(n).slice(-1)[0];if(!last||!canWrite)return null;const r=document.createElement("button");r.type="button";r.className="btn danger";r.textContent=`Remove title deed ${n}`;r.style.cssText="align-self:end;font-size:12px;padding:3px 10px";last.after(r);
+        r.onclick=()=>{const v=box(n).map(e=>e?e.value:"").filter(Boolean).join(" / ");ask(`Remove title deed ${n}?`,`<p class="sf-note">${esc(v||"Title deed "+n)} is removed from the linked title deeds. Press Save to keep it.</p>`,()=>{
+          for(let k=n;k<shown;k++)box(k).forEach((e,j)=>put(e,(box(k+1)[j]||{}).value||""));box(shown).forEach(e=>put(e,""));if(shown>1){grp(shown).forEach(l=>l.hidden=true);shown--}sync()},"Remove")};return r});
+      const sync=()=>{rms.forEach((r,j)=>{if(r)r.hidden=j+1>shown||shown<2});b.hidden=shown>=3};
+      b.onclick=()=>{shown++;grp(shown).forEach(l=>l.hidden=false);sync()};sync()}}
     const pt=$("rv_Property_type"),ex=$("rv_Extent"),linSec=$("rv_North_length")&&$("rv_North_length").closest(".rvsec"),agri=()=>/agricultural/i.test(pt.value);
     const showLin=()=>{if(linSec)linSec.hidden=agri()};
     const autoAgri=()=>{if(/\b(cents?|acres?|ac\.?|hectares?|ஏக்கர்|சென்ட்)\b/i.test(ex.value)&&!agri()){pt.value=/building/i.test(pt.value)?"Agriculture Land with Building":"Agricultural Land";showLin()}};
@@ -1674,6 +1699,8 @@ function openReview(c,gen){
     lodUi(c);
     {const rows=svRowsOf(data),fixed=[];["Property remarks","Property remarks Tamil"].forEach(k=>{const e=$("rv_"+k.replace(/\W+/g,"_"));if(!e)return;const v=remarksSurvey(e.value,rows,rows);if(v!==e.value){e.value=v;fixed.push(k);(rv.touched=rv.touched||new Set()).add(e.id)}});
       if(fixed.length){const e=$("rv_Property_remarks")||$("rv_Property_remarks_Tamil");e.closest("label").insertAdjacentHTML("beforebegin",`<p class="sf-note full" style="grid-column:1/-1;color:#1d6b3a">✓ Survey number in the remarks updated to ${esc(rows.map(svTok).join(", "))} (from the survey rows). Press Save to keep it.</p>`)}}
+    document.querySelectorAll("#rvBody [data-wsel]").forEach(sel=>sel.addEventListener("change",()=>{const el=document.querySelector(`#rvBody [data-wdet="${sel.dataset.wsel}"]`);if(el)el.innerHTML=witDetails(sel.value)}));
+    {const ce=$("rv_Company_address"),ct=$("rv_Company_address_Tamil"),bc=branchCoAddr(c);if(ce&&ct&&bc&&!ct.value.trim()&&ce.value===bc.en){(async()=>{try{const[bn,ba,ho]=await Promise.all([toTamil(bc.br.name),toTamil(bc.br.addr),toTamil(bc.ho)]);if(!ct.value.trim()){ct.value=`${bn} கிளை, ${ba}, ${OFF_TA[bc.w]||OFF_TA["Registered Office"]} - ${ho}`;(rv.touched=rv.touched||new Set()).add(ct.id)}}catch(e){console.warn(e)}})()}}
     const pr=$("rv_Property_remarks");if(pr){const b=document.createElement("button");b.type="button";b.className="btn";b.textContent="✎ Build remarks from the property fields";b.onclick=()=>{pr.value=modtRemarks()};pr.closest("label").after(b)}}
   if(!dor&&witUnread(c).length){const ks=witUnread(c);$("rvBody").insertAdjacentHTML("afterbegin",`<p class="banner" style="background:#fde8e6;color:#8a1c1c">⚠ The customer's witness Aadhaar is uploaded in this case (${ks.map(k=>esc(c.docs[`w${k}_kyc`][0].name)).join(", ")}) but not read yet, so Drafting still shows ${ks.map(k=>esc(data["Witness "+k]||"—")).join(" / ")}. <button type="button" class="btn primary" id="rvReadWit">Read customer's witness Aadhaar</button> (about 10 seconds each; used for this case only)</p>`);$("rvReadWit").onclick=()=>readCaseWitnesses(c)}
   /* boundaries: all four, English and Tamil; an empty one shows red and the TP Desk will not start */
@@ -2132,7 +2159,7 @@ function lodSync(c,data){const txt=String(data["List of documents deposited"]||"
   if(c.lodFrom!=null&&String(c.lodFrom).trim()===txt)return null;
   const read=String(((c.tpAuto||{})["List of documents deposited"])||"").trim();if(c.lodFrom==null&&(!read||read===txt))return null;
   const P=lodParse(c.lodWord||c.lodHtml);return{lodHtml:lodBuild(P,lodRowsFromText(txt,P)),lodFrom:txt,...(c.lodWord?{}:{lodWord:c.lodHtml})}}
-const OFF_TA={"Registered Office":"பதிவு அலுவலகம்","Head Office":"தலைமை அலுவலகம்","Corporate Office":"கார்ப்பரேட் அலுவலகம்"};
+const OFF_TA={"Registered & Corporate Office":"பதிவு மற்றும் கார்ப்பரேட் அலுவலகம்","Registered Office":"பதிவு அலுவலகம்","Head Office":"தலைமை அலுவலகம்","Corporate Office":"கார்ப்பரேட் அலுவலகம்"};
 function officeWord(t){const m=/having\s+its\s+(registered|head|corporate)\s+office/i.exec(t||"")||/(registered|head|corporate)\s+office\s+at/i.exec(t||"");return m?m[1][0].toUpperCase()+m[1].slice(1).toLowerCase()+" Office":""}
 function stripStPin(a,st){let x=String(a||"").replace(/[\s,–-]*\b\d{3}\s?\d{3}\b/g,"");
   const esc2=w=>w.replace(/[.*+?^${}()|[\]\\]/g,"\\$&");
@@ -2140,7 +2167,7 @@ function stripStPin(a,st){let x=String(a||"").replace(/[\s,–-]*\b\d{3}\s?\d{3}
   return x.replace(/\s+/g," ").replace(/[\s,.;:–-]+$/,"").replace(/^[\s,.;:–-]+/,"").trim()}
 function coSplit(a,ta){a=String(a||"").trim();let br="",ho=a,m;
   if(!ta&&(m=/^(.*?),?\s*having its .*?office at\s+(.*)$/i.exec(a)))[br,ho]=[m[1],m[2]];
-  else if(ta&&(m=/^(.*?),?\s*(?:பதிவு|தலைமை|கார்ப்பரேட்)\s*அலுவலகம்\s*[-:]\s*(.*)$/.exec(a)))[br,ho]=[m[1],m[2]];
+  else if(ta&&(m=/^(.*?),?\s*(?:பதிவு\s*மற்றும்\s*கார்ப்பரேட்|பதிவு|தலைமை|கார்ப்பரேட்)\s*அலுவலகம்\s*[-:]\s*(.*)$/.exec(a)))[br,ho]=[m[1],m[2]];
   else if(!ta&&(m=/^(.*?)[,\s]*\(?\s*(?:branch(?:\s*office)?)\s*(?:at|:|-)\s*([^)]*?)\)?\s*$/i.exec(a)))[ho,br]=[m[1],m[2]];
   else if(!ta&&(m=/^(.*?)\s*\(([^)]*branch[^)]*)\)\s*$/i.exec(a)))[ho,br]=[m[1],m[2]];
   else if(ta&&(m=/^(.*?)[,\s]*\(?\s*கிளை(?:\s*அலுவலகம்)?\s*[:\-]?\s*([^)]*?)\)?\s*$/.exec(a)))[ho,br]=[m[1],m[2]];
@@ -2154,7 +2181,7 @@ function modtCoAddr(d,draftText){const w=officeWord(draftText)||d["Company offic
   if(t.ho){let br=t.br;if(br&&!/கிளை/.test(br)&&br.split(",").length<2)br+=" கிளை";const ho=stripStPin(t.ho,st);d["Company address Tamil"]=br?`${br}, ${OFF_TA[w]||OFF_TA["Registered Office"]} - ${ho}`:`${OFF_TA[w]||OFF_TA["Registered Office"]} - ${ho}`}
   return d}
 async function saveReview(done){
-  const c=rv.c,dor=isRD(c.type),data=readReview(),ch=dor?{tp:data,...witPicks()}:{draft:data};if(!dor){modtCoAddr(data,c.draftText||"");surveyClean(data);remarksStreet(data)}
+  const c=rv.c,dor=isRD(c.type),data=readReview(),ch=dor?{tp:data,...witPicks()}:{draft:data};if(!dor){modtCoAddr(data,c.draftText||"");surveyClean(data);remarksStreet(data);deedNoClean(data)}
   {const st=settleQs(c,data,dor?"tp":"draft",rv.touched);if(st.n)ch.robotQs=st.qs}
   if(c.tpAuto){const fx=fixesOf(c,data);if(fx.length!==(c.fixes||[]).length||JSON.stringify(fx)!==JSON.stringify(c.fixes||[]))ch.fixes=fx}
   if(!dor&&data.SRO)ch.sro=data.SRO;if(dor&&data.SRO)ch.sro=data.SRO;
@@ -3059,6 +3086,13 @@ function paintProfile(){
       <p class="sf-note" style="margin:0 0 6px">${set?"Set for this company.":"Not set yet - the office rule is used (title deed or bank letter, Aadhaar and patta mandatory; the rest optional)."} New case, Draft done and the TP Desk follow this. Witnesses come from KYC Master as before.</p>
       <div class="fgrid">${MODT_DOC_ROWS.map(([k,l])=>`<label>${esc(l)}<select id="md_${k}" data-md="${k}"><option value="m"${R[k]==="m"?" selected":""}>Mandatory</option><option value="o"${R[k]==="o"?" selected":""}>Optional</option></select></label>`).join("")}</div>
       ${set?`<button type="button" class="btn" id="mdocReset" style="margin-top:6px">Use the office rule again</button>`:""}</div>`}
+  /* 16 Nov 2026: company address for MODT - registered office once, and each branch's address (Admin) */
+  if(isMD){const co=p.company||{},B=p.branches||{};
+    h+=`<div class="rvsec" style="margin-top:14px" id="coSec"><div class="sect">Company address for MODT</div><p class="sf-note" style="margin:0 0 6px">The case's branch picks its address: “<i>Branch</i> Branch, <i>branch address</i>, having its <i>office</i> at <i>registered office</i>”. Leave empty to take the address from each case's MODT.</p>
+      <div class="fgrid"><label class="full">Registered office address (without state and pincode)<input id="co_addr_en" value="${esc(co.addr_en||"")}"></label>
+      <label>Office word<select id="co_office">${["Registered Office","Registered & Corporate Office","Head Office","Corporate Office"].map(x=>`<option${(co.office||"Registered Office")===x?" selected":""}>${x}</option>`).join("")}</select></label>
+      <label>State<input id="co_state" value="${esc(co.state||"")}"></label><label>Pincode<input id="co_pincode" value="${esc(co.pincode||"")}"></label>
+      <label class="full">Branch addresses · one per line, “Branch: address”<textarea id="co_branches" rows="8">${esc(Object.entries(B).map(([k,v])=>k+": "+v).join("\n"))}</textarea></label></div></div>`}
   /* 13 Nov 2026: fees for this company - Admin and partner only */
   if(FEES_OK()){const f=p.fees||{},S=feeSet(bank);
     h+=`<div class="rvsec" style="margin-top:14px" id="feeSec"><div class="sect">Fees for ${esc(bank)}</div><p class="sf-note" style="margin:0 0 6px">Leave a box empty to use the office amount (shown in grey). Only the Admin and the partner see this.</p>
@@ -3081,6 +3115,7 @@ function paintProfile(){
 function collectProfile(){const p=pe.p;
   if(isMD&&$("mdocSec")){if(pe.mdocReset)p.modtDocs=null;else if(pe.mdocTouched||(p.modtDocs&&Object.keys(p.modtDocs).length)){const o={};MODT_DOC_ROWS.forEach(([k])=>{const r=$("md_"+k);if(r&&r.value)o[k]=r.value});p.modtDocs=o}}
   if($("feeSec")){const g=id=>$(id).value.trim(),o={};[["dor","fe_dor"],["modt","fe_modt"],["supp","fe_supp"]].forEach(([k,id])=>{if(g(id)!=="")o[k]=numOf(g(id))});const w=g("fe_wa").replace(/\D/g,"");if(w)o.wa=w.slice(-10);p.fees=Object.keys(o).length?o:undefined}
+  if($("coSec")){p.company={...(p.company||{}),office:$("co_office").value};const B={};$("co_branches").value.split("\n").forEach(l=>{const i=l.indexOf(":");if(i>0){const k=l.slice(0,i).trim(),v=l.slice(i+1).trim();if(k&&v)B[k]=v}});p.branches=B}
   return{...p,company:readF("co_",CO_F,p.company),reps:p.reps.map((r,i)=>readF(`r${i}_`,PERSON_F,r)),w1:$("pw1")?$("pw1").value:p.w1,w2:$("pw2")?$("pw2").value:p.w2}}
 function saveProfile(){const p=collectProfile();p.reps=p.reps.filter(r=>r.name||(r.kyc||[]).length);
   const bad=p.reps.find(r=>r.id_no&&digits(r.id_no).length!==12);if(bad){toast(`Aadhaar for ${bad.name||"the rep"} should be 12 digits`);return}
@@ -3491,6 +3526,9 @@ async function docBinText(file){const b=new Uint8Array(await file.arrayBuffer())
   return (score(u16)>=score(u8)*0.6?u16:u8).replace(/\x07\x07/g,"\n").replace(/\x07/g," | ").replace(/\r/g,"\n").replace(/\t/g," ").replace(/\n{3,}/g,"\n\n").trim()}
 /* 12 Nov 2026 (Rajeswari 0088): Claude wrote "20 / 2B2 with linked 20/2C1A" as the New survey no. New survey no = the
    number only; the sub-division to Subdivision; extra numbers belong to Linked survey numbers (kept if already there). */
+/* 16 Nov 2026 (VGR 0155): a title deed number with the year inside ("1086/1992") - the year has its own box */
+function deedNoClean(d){[1,2,3].forEach(n=>{const v=String(d[`Deed ${n} Doc No`]||"").trim(),y=String(d[`Deed ${n} Year`]||"").trim(),m=v.match(/^(\d+)\s*(?:\/|of|-)\s*(\d{2}|\d{4})$/i);
+  if(m&&(!y||y.endsWith(m[2])||m[2].length===4)){d[`Deed ${n} Doc No`]=m[1];if(!y&&m[2].length===4)d[`Deed ${n} Year`]=m[2]}});return d}
 function surveyClean(d){const raw=String(d["New survey no"]||"").trim();if(!raw||/^\d+[A-Za-z]?$/.test(raw))return svFix(extNum(d));
   const m=/^(\d+[A-Za-z]?)\s*(?:\/\s*([0-9A-Za-z]+(?:\/[0-9A-Za-z]+)*))?/.exec(raw);if(!m)return svFix(extNum(d));
   d["New survey no"]=m[1];if(m[2]&&!String(d.Subdivision||"").trim())d.Subdivision=m[2];
@@ -3602,7 +3640,7 @@ async function readModtCase(c,force){window.__readRef=c.id+" · MODT case read";
     Object.keys(F).forEach(k=>{const m=/^Mortgagor (\d+) address$/.exec(k);if(m)cleanAddrPair(F,k,`Mortgagor ${m[1]} address Tamil`,`Mortgagor ${m[1]} district`)});
     surveyClean(F);
     const d={...(c.draft||{})};let n=0;Object.entries(F).forEach(([k,v])=>{v=Array.isArray(v)?v.join("\n"):String(v??"").trim();if(!v)return;if(force||!String(d[k]||"").trim()){if(d[k]!==v)n++;d[k]=v}});
-    modtCoAddr(d,draft);surveyClean(d);remarksStreet(d);
+    modtCoAddr(d,draft);surveyClean(d);remarksStreet(d);deedNoClean(d);
     {const sec=legalSecurity(legal);if(sec.length){d["Documents for security (legal report)"]=secText(sec);if(applySecurity(d,sec,/^yes/i.test(String(d["Top-up loan"]||""))))n++}}
     if(lodHtml)for(let i=dq.length-1;i>=0;i--)if(dq[i].field==="List of documents deposited")dq.splice(i,1);/* the Word table is pasted as it is - no question */
     const ch={draft:d,draftText:draft.slice(0,20000),...(legal.trim()?{legalText:legal.slice(0,20000)}:{}),tpAuto:{...(c.tpAuto||{}),...Object.fromEntries(Object.entries(F).map(([k,v])=>[k,String(v??"")]))},tpNotes:doubts};if(lodHtml){ch.lodHtml=lodHtml;ch.lodFrom=null;ch.lodWord=null}

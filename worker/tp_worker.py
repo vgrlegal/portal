@@ -689,6 +689,16 @@ def open_subtab(P, name, marker):
     raise Stop(f"The {name} tab did not open on TNREGINET" + (f": the page before it is not complete ({'; '.join(errs)})." if errs else ". Send the screen to Claude."))
 
 
+def deed_no(d, n):
+    """16 Nov 2026 (VGR 0155): the title deed number alone - '1086/1992', '1086 of 1992' or '1086/92' with the year
+    in its own box becomes '1086' (TNREGINET's search found nothing with the year inside the number)."""
+    v, yr = str(g(d, f"Deed {n} Doc No") or "").strip(), str(g(d, f"Deed {n} Year") or "").strip()
+    m = re.match(r"^\s*(\d+)\s*(?:/|of|-)\s*(\d{2}|\d{4})\s*$", v, re.I)
+    if m and (not yr or yr.endswith(m.group(2)) or len(m.group(2)) == 4):
+        return m.group(1)
+    return v
+
+
 def click_text(page, pattern):
     """Click the smallest visible element whose text matches (Tamil or English)."""
     return page.evaluate("""(pat)=>{const re=new RegExp(pat,'i');
@@ -2298,7 +2308,7 @@ def deed_problems(d):
     top = g(d, "Top-up loan").lower().startswith("y")
     linked = []
     for n in (1, 2, 3):
-        no, yr = re.sub(r"\D", "", g(d, f"Deed {n} Doc No")), g(d, f"Deed {n} Year")
+        no, yr = re.sub(r"\D", "", deed_no(d, n)), g(d, f"Deed {n} Year")
         if not no:
             continue
         linked.append(str(int(no)))
@@ -2624,12 +2634,12 @@ def run_modt(page, job, case):
         raise Stop("The Create Document page did not open. Send the screen to Claude.")
     P.sel("deedType", "Deposit of Title", 2)
     P.tick("linkPrevDoc"); P.wait(2)
-    deeds = [n for n in (1, 2, 3) if g(d, f"Deed {n} Doc No")]
+    deeds = [n for n in (1, 2, 3) if deed_no(d, n)]
     if not deeds:
         raise Stop("No title deed in Drafting (1 · Linked documents). Fill Deed 1 SRO, Doc No and Year.")
     comments = []
     for n in deeds:
-        link_doc(P, job, page, g(d, f"Deed {n} SRO") or g(d, "Property SRO"), "1", g(d, f"Deed {n} Doc No"),
+        link_doc(P, job, page, g(d, f"Deed {n} SRO") or g(d, "Property SRO"), "1", deed_no(d, n),
                  g(d, f"Deed {n} Year"), "Regular Document", f"title deed {n}")
     bad = linked_check(page, d, deeds, comments)
     job.step("1 · Linked documents checked", page)
@@ -2940,7 +2950,7 @@ def linked_check(page, d, deeds, comments):
     txt = page.evaluate("()=>[...document.querySelectorAll('table')].filter(t=>t.getClientRects().length).map(t=>t.innerText.replace(/\\s+/g,' ')).join(' || ')")
     bad = []
     for n in deeds:
-        no, yr, sro = num(g(d, f"Deed {n} Doc No")), g(d, f"Deed {n} Year"), g(d, f"Deed {n} SRO") or g(d, "Property SRO")
+        no, yr, sro = num(deed_no(d, n)), g(d, f"Deed {n} Year"), g(d, f"Deed {n} SRO") or g(d, "Property SRO")
         rows = [r for r in re.split(r"\s\|\|\s|(?<=\d{4})\s(?=\d+\s)", txt) if re.search(rf"\b0*{no}\b", r)]
         if not rows:
             comments.append(f"Linked deed {n} ({no}/{yr}) not seen in the linked-documents table - check")
@@ -3994,7 +4004,7 @@ def lod_html(case, d, comments):
         comments.append("List of documents corrected: " + "; ".join(fixed))
     plain = re.sub(r"<[^>]+>", " ", html)
     for n in (1, 2, 3):
-        no, yr = num(g(d, f"Deed {n} Doc No")), g(d, f"Deed {n} Year")
+        no, yr = num(deed_no(d, n)), g(d, f"Deed {n} Year")
         if no and not re.search(rf"\b0*{no}\b", plain):
             comments.append(f"List of documents: title deed {n} doc no. {no}/{yr} not found in it - check")
         elif no and yr and not re.search(rf"\b0*{no}\s*(?:/|of|dated|dt\.?)?[^\n|]{{0,40}}{yr}", plain, re.I) and yr not in plain:

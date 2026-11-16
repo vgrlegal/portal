@@ -222,7 +222,7 @@ check("Clean-up never touches cases or documents",/async function cleanPlan\(/.t
  check("title holders: from the case",ti({thCount:3,thNames:["A","B"]}),["A","B",""]);
  check("title holders: from uploaded Aadhaars and Drafting names",ti({docs:{th_kyc:[{},{}]},draft:{"Mortgagor 2 name":"RAVI"}}),["","RAVI"]);
  check("title holders: never more than 4",ti({thCount:9}).length,4);
- const mf=new Function("profOf","cleanAddrPair",html.match(/function modtFill\(c,d\)\{[\s\S]*?\n  return d\}/)[0]+";return modtFill")(()=>null,()=>{});
+ const mf=new Function("profOf","cleanAddrPair","branchCoAddr",html.match(/function modtFill\(c,d\)\{[\s\S]*?\n  return d\}/)[0]+";return modtFill")(()=>null,()=>{},()=>null);
  const d1=mf({thCount:2,thNames:["kumar","devi"],docs:{}},{});
  check("Drafting gets the holder count from the case",d1["Title holders"],"2");
  check("Drafting gets the holder names",[d1["Mortgagor 1 name"],d1["Mortgagor 2 name"]],["KUMAR","DEVI"]);
@@ -247,6 +247,20 @@ check("MODT type gets the title holder rows",new Function(html.match(/const isRD
  const HF=new Function(grabFn("function holderOfFile(","\n/* 16 Nov 2026: MODT title holders")+";return holderOfFile")();
  check("which holder a deleted Aadhaar belongs to",HF({draft:{"Title holders":"2","Mortgagor 1 name":"M Selvaraj","Mortgagor 2 name":"Mahalakshmi"},thKyc:[{url:"u1",name:"M SELVARAJ"}]},{url:"u1",name:"x.pdf"}),1);
  check("answered doubt never asked again",/list=\(list\|\|\[\]\)\.filter\(q=>!done\.some\(x=>x\.field===q\.field\)\);/.test(html),true);
- const mf=new Function("profOf","cleanAddrPair",html.match(/function modtFill\(c,d\)\{[\s\S]*?\n  return d\}/)[0]+";return modtFill")(()=>null,()=>{});
+ const mf=new Function("profOf","cleanAddrPair","branchCoAddr",html.match(/function modtFill\(c,d\)\{[\s\S]*?\n  return d\}/)[0]+";return modtFill")(()=>null,()=>{},()=>null);
  check("two Aadhaars but answered one holder: stays one",mf({docs:{th_kyc:[{},{}]}},{"Title holders":"1"})["Title holders"],"1");
  check("Drafting save keeps the case's holder count in step",/ch\.thCount=n;ch\.thNames=/.test(html),true);}
+{const dc=new Function(html.match(/function deedNoClean\(d\)\{[\s\S]*?return d\}/)[0]+";return deedNoClean")();
+ const d=dc({"Deed 1 Doc No":"992","Deed 1 Year":"1989","Deed 2 Doc No":"1086/1992","Deed 2 Year":"1992","Deed 3 Doc No":"55 of 2001"});
+ check("deed doc no: year taken out of the number (VGR 0155)",[d["Deed 1 Doc No"],d["Deed 2 Doc No"],d["Deed 3 Doc No"],d["Deed 3 Year"]],["992","1086","55","2001"]);}
+{/* 16 Nov 2026: Lendingkart branch addresses (VGR-20261116-0155 Nagercoil) */
+ const P={"Lendingkart Finance Limited":{company:{addr_en:"Office 3 Connekt, 401/B, 4th Floor, Silver Utopia, Cardinal Gracious Road, Andheri (East), Mumbai Suburban",office:"Registered & Corporate Office",state:"Maharashtra",pincode:"400099"},branches:{Nagercoil:"Kalluveetil Teenu Centre 82, Third Floor Part A, Court Road, Nagercoil 629001",Tiruppur:"RKG Building No.9 Universal Theatre Road, Tirupur - 641601"}}};
+ const src=html.match(/const brNorm=[\s\S]*?\nfunction modtFill\(c,d\)\{[\s\S]*?\n  return d\}/)[0];
+ const T2=new Function("profOf","cleanAddrPair",src+";return{branchCoAddr,modtFill}")(b=>P[b]||null,()=>{});
+ const d=T2.modtFill({bank:"Lendingkart Finance Limited",branch:"Nagercoil"},{"Company address":"Mumbai only, wrong"});
+ check("branch address: Nagercoil case",d["Company address"],"Nagercoil Branch, Kalluveetil Teenu Centre 82, Third Floor Part A, Court Road, Nagercoil 629001, having its Registered & Corporate Office at Office 3 Connekt, 401/B, 4th Floor, Silver Utopia, Cardinal Gracious Road, Andheri (East), Mumbai Suburban");
+ check("branch address: office, state, pincode",[d["Company office"],d["Company state"],d["Company pincode"],d["Company address Tamil"]],["Registered & Corporate Office","Maharashtra","400099",""]);
+ check("branch address: Tirupur spelling matches Tiruppur",(T2.branchCoAddr({bank:"Lendingkart Finance Limited",branch:"Tirupur branch"})||{}).en.slice(0,16),"Tiruppur Branch,");
+ check("branch address: unknown branch leaves the MODT address",T2.modtFill({bank:"Lendingkart Finance Limited",branch:"Salem"},{"Company address":"From MODT"})["Company address"],"From MODT");
+ check("branch address: already right is kept (edits stay)",T2.modtFill({bank:"Lendingkart Finance Limited",branch:"Nagercoil"},{"Company address":"Nagercoil Branch, Kalluveetil Teenu Centre 82 (edited)"})["Company address"],"Nagercoil Branch, Kalluveetil Teenu Centre 82 (edited)");
+ check("MODT witness shows details",/data-wdet="\$\{n\}">\$\{witDetails\(cur\)\}/.test(html),true);}
