@@ -762,7 +762,7 @@ function modtFill(c,d){const set=(k,v)=>{if(v!=null&&String(v).trim()!==""&&!Str
   /* the customer (borrower) need not be the title holder: title holder names come only from the title deed / Aadhaar;
      title holder 1's phone is the phone given in the case */
   set("Mortgagor 1 phone",c.phone||d.Phone);for(let k=1;k<=8;k++)if(d[`Mortgagor ${k} address`]||d[`Mortgagor ${k} address Tamil`])cleanAddrPair(d,`Mortgagor ${k} address`,`Mortgagor ${k} address Tamil`,`Mortgagor ${k} district`);set("Mortgagor 1 Aadhaar",d.Aadhaar);set("Mortgagor 1 address",d.Address);set("Mortgagor 1 pincode",d.Pincode);set("Mortgagor 1 relative name",d["Relative name"]);
-  {const n=Math.min(4,Math.max(+c.thCount||0,((c.docs||{}).th_kyc||[]).length));if(n>(parseInt(d["Title holders"])||0))d["Title holders"]=String(n);
+  {const n=Math.min(4,+c.thCount||0);if(n>(parseInt(d["Title holders"])||0))d["Title holders"]=String(n);
     (c.thNames||[]).forEach((x,i)=>{if(x&&i<4)set(`Mortgagor ${i+1} name`,String(x).toUpperCase())})}
   set("Loan amount",c.loanAmount);set("Title holders","1");set("Presenter","Title holder 1");set("Property SRO",d.SRO||c.sro);set("Execution SRO",d["Property SRO"]||c.sro);
   ["North","South","East","West"].forEach(x=>set("Boundary "+x,d["Boundary "+x]));set("Extent",d.Extent);set("New survey no",d["Survey number"]);
@@ -1391,11 +1391,23 @@ function opts(sel,list,first){const v=sel.value;sel.innerHTML=(first!==undefined
 const SERIES=["OO","VGR"];const seriesOf=id=>(String(id||"").match(/^([A-Z]+)-/)||[])[1]||"OO";const withSeries=(id,p)=>String(id||"").replace(/^[A-Z]+-/,p+"-");
 function newId(p){const d=localDT(new Date()).slice(0,10).replace(/-/g,"");const n=cases.map(c=>(String(c.id||"").match(/^[A-Z]+-\d{8}-(\d+)$/)||[])[1]).filter(Boolean).map(Number);return`${p||"OO"}-${d}-${String((n.length?Math.max(...n):0)+1).padStart(4,"0")}`}
 const FF=["type","bank","branch","loanNo","applicant","phone","loanAmount","assignee","rep","w1","w2"];
+/* 16 Nov 2026 (VGR 0155): remove title holder n from Drafting - holders after n move up one place, the count goes down,
+   the presenter follows; doubts on the removed holder go, doubts on the later holders move with them */
+function dropHolder(d,n,qs){d={...d};const cnt=Math.min(4,Math.max(1,parseInt(d["Title holders"])||1));if(n<1||n>cnt||cnt<2)return{d,qs:qs||[]};
+  const re=/^Mortgagor (\d) (.+)$/,old={...d};Object.keys(d).forEach(k=>{const m=re.exec(k);if(m&&+m[1]>=n&&+m[1]<=4)delete d[k]});
+  Object.keys(old).forEach(k=>{const m=re.exec(k);if(m&&+m[1]>n&&+m[1]<=4)d[`Mortgagor ${+m[1]-1} ${m[2]}`]=old[k]});
+  d["Title holders"]=String(cnt-1);const pm=/^Title holder (\d)$/.exec(d.Presenter||"");if(pm){const k=+pm[1];d.Presenter=k===n?"Title holder 1":k>n?`Title holder ${k-1}`:d.Presenter}
+  const q2=(qs||[]).filter(q=>{const m=re.exec(q.field||"");return!(m&&+m[1]===n)}).map(q=>{const m=re.exec(q.field||"");return m&&+m[1]>n?{...q,field:`Mortgagor ${+m[1]-1} ${m[2]}`,q:String(q.q||"").replace(`Mortgagor ${m[1]} `,`Mortgagor ${+m[1]-1} `)}:q});
+  return{d,qs:q2}}
+/* which Drafting title holder a KYC file belongs to: the name read from it (thKyc) or in its file name, matched to Mortgagor n name */
+function holderOfFile(c,f){const d=c.draft||{},n=Math.min(4,Math.max(1,parseInt(d["Title holders"])||1)),tok=x=>String(x||"").toLowerCase().split(/[^a-z]+/).filter(w=>w.length>2);
+  const nm=((c.thKyc||[]).find(x=>x.url===f.url)||{}).name||String(f.name||"").split(" - ")[0],t=tok(nm);if(!t.length)return 0;
+  let best=0,score=0;for(let i=1;i<=n;i++){const h=tok(d[`Mortgagor ${i} name`]);const sc=h.filter(w=>t.includes(w)).length/Math.max(1,h.length);if(sc>score){score=sc;best=i}}return score>=0.5?best:0}
 /* 16 Nov 2026: MODT title holders on the case - one row per holder (name + own Aadhaar), "+ Add title holder" up to 4.
    draftDocs.th_kyc[i] is holder i+1's KYC; c.thCount / c.thNames go to Drafting (Title holders, Mortgagor n name) and so to the TP Desk */
 let draftTh=[""];
 const isModtT=t=>!isRD(t)&&flowOf(t)==="reg";
-function thInit(c){if(!c)return[""];const d=c.draft||{},n=Math.min(4,Math.max(1,+c.thCount||0,((c.docs||{}).th_kyc||[]).length,parseInt(d["Title holders"])||0));
+function thInit(c){if(!c)return[""];const d=c.draft||{},dn=parseInt(d["Title holders"])||0,n=Math.min(4,Math.max(1,dn||Math.max(+c.thCount||0,((c.docs||{}).th_kyc||[]).length),((c.docs||{}).th_kyc||[]).length));
   return[...Array(n).keys()].map(i=>String((c.thNames||[])[i]||d[`Mortgagor ${i+1} name`]||""))}
 async function thSave(){if(editing&&infoMode==="view"){await patch(editing,{thCount:draftTh.length,thNames:draftTh.map(x=>x.trim())},`Title holders: ${draftTh.length}`);editing={...editing,thCount:draftTh.length,thNames:draftTh.map(x=>x.trim())}}}
 function openInfo(c){window.__showSupp=0;editing=c;infoMode="view";draftDocs={...(c.docs||{})};draftTh=thInit(c);paintInfo();showDrawer()}
@@ -1498,13 +1510,19 @@ function renderDocs(type){
     draftTh.forEach((_,i)=>{const el=$("up_th_"+i);if(el)el.onchange=e=>addDocs({...thD,idx:i,l:`Title holder ${i+1} Aadhaar + signature`},[...e.target.files],type)});
     document.querySelectorAll("#docList .thn").forEach(el=>{el.oninput=()=>{draftTh[+el.dataset.thi]=el.value};el.onchange=()=>{draftTh[+el.dataset.thi]=el.value.trim();thSave()}});
     if($("thAdd"))$("thAdd").onclick=async()=>{draftTh.push("");renderDocs(type);await thSave();const ins=document.querySelectorAll("#docList .thn");if(ins.length)ins[ins.length-1].focus()};
-    document.querySelectorAll("#docList [data-thx]").forEach(b=>b.onclick=async()=>{draftTh.splice(+b.dataset.thx,1);renderDocs(type);await thSave()})}
+    document.querySelectorAll("#docList [data-thx]").forEach(b=>b.onclick=async()=>{const i=+b.dataset.thx;draftTh.splice(i,1);renderDocs(type);
+      if(editing&&infoMode==="view"&&(parseInt((editing.draft||{})["Title holders"])||0)>i){const r=dropHolder(editing.draft||{},i+1,editing.robotQs||[]);await patch(editing,{draft:r.d,robotQs:r.qs,thCount:draftTh.length,thNames:draftTh.map(x=>x.trim())},`Title holder ${i+1} removed`);editing=cases.find(x=>x._doc===editing._doc)||editing}else await thSave()})}
   document.querySelectorAll("#docList [data-rmk]").forEach(b=>b.onclick=()=>removeDoc(b.dataset.rmk,+b.dataset.rmi,type));
 }
 function removeDoc(k,i,type){const f=(draftDocs[k]||[])[i];if(!f)return;const lab=(docsFor(type).find(d=>d.k===k)||{}).l||k;
-  ask("Remove this file?",`<p class="sf-note">${esc(f.name)} will be removed from “${esc(lab)}”. You can upload it again any time.</p>`,async()=>{
-    const left=(draftDocs[k]||[]).filter((_,j)=>j!==i);draftDocs={...draftDocs,[k]:left};if(!left.length)delete draftDocs[k];renderDocs(type);
-    if(editing&&infoMode==="view")await patch(editing,{docs:draftDocs},`${lab} removed (${f.name})`);
+  /* 16 Nov 2026 (VGR 0155): a title holder's Aadhaar removed → that holder goes from Drafting too (when there is more than one) */
+  const hn=k==="th_kyc"&&editing&&isModtT(editing.type)&&(parseInt((editing.draft||{})["Title holders"])||1)>1?holderOfFile(editing,f):0,hName=hn?(editing.draft||{})[`Mortgagor ${hn} name`]:"";
+  ask("Remove this file?",`<p class="sf-note">${esc(f.name)} will be removed from “${esc(lab)}”. You can upload it again any time.</p>${hn?`<p class="sf-note"><b>Title holder ${hn} (${esc(hName)}) will also be removed from Drafting.</b> The other title holders move up.</p>`:""}`,async()=>{
+    const left=(draftDocs[k]||[]).filter((_,j)=>j!==i);draftDocs={...draftDocs,[k]:left};if(!left.length)delete draftDocs[k];
+    if(hn){draftTh.splice(hn-1,1);if(!draftTh.length)draftTh=[""]}renderDocs(type);
+    if(editing&&infoMode==="view"){const ch={docs:draftDocs};if(k==="th_kyc")ch.thKyc=(editing.thKyc||[]).filter(x=>x.url!==f.url);
+      if(hn){const r=dropHolder(editing.draft||{},hn,editing.robotQs||[]);ch.draft=r.d;ch.robotQs=r.qs;ch.thCount=draftTh.length;ch.thNames=draftTh.map(x=>String(x||"").trim())}
+      await patch(editing,ch,`${lab} removed (${f.name})${hn?` · title holder ${hn} (${hName}) removed from Drafting`:""}`);if(hn)editing=cases.find(x=>x._doc===editing._doc)||{...editing,...ch}}
     if(isMD&&String(f.url).startsWith("sb:")&&!f.from&&window.__sb)window.__sb.storage.from("docs").remove([f.url.slice(3)]).catch(()=>{});
     toast("File removed")},"Remove")}
 const DOC_NAME={th_kyc:"Title Holder KYC",w1_kyc:"Witness 1 KYC",w2_kyc:"Witness 2 KYC",revenue:"Patta TSLR",photos:"Property Photo",ec:"EC",legal:"Legal Report",sanction:"Sanction Letter",deed:"Title Deed",modt:"MODT",noc:"NOC",letter:"Letter",mdraft:"MODT draft (Word copy)",report:"Legal Report",tpcopy:"TP Copy",payshot:"Payment Screenshot",rep_kyc:"Bank Rep KYC",rep_id:"Bank Rep ID"};
@@ -1635,6 +1653,13 @@ function openReview(c,gen){
     {const ps=$("rv_SRO")||$("rv_Property_SRO");if(!ex.value&&ps&&ps.value)ex.value=ps.value}
     const syncTa=()=>{const t=sroTamil(ex.value);if(t)ta.value=t};if(!ta.value)syncTa();ex.addEventListener("change",syncTa)}}
   if(!dor){const th=$("rv_Title_holders"),showTh=()=>document.querySelectorAll("#rvBody .rvsec").forEach(sx=>{const m=String((sx.querySelector(".sect")||{}).textContent||"").match(/Title holder (\d)$/);if(m)sx.hidden=+m[1]>(+(th&&th.value)||1)});if(th){th.onchange=showTh;showTh()}
+    /* 16 Nov 2026 (VGR 0155): remove one title holder - the later ones move up, the count goes down (saved at once) */
+    if(canWrite)document.querySelectorAll("#rvBody .rvsec .sect").forEach(sx=>{const m=String(sx.textContent||"").match(/Title holder (\d)$/);if(!m)return;const n=+m[1];
+      const b=document.createElement("button");b.type="button";b.className="btn danger";b.textContent="Remove this title holder";b.style.cssText="float:right;font-size:12px;padding:3px 10px";b.dataset.thrm=n;sx.appendChild(b);
+      const vis=()=>{b.hidden=(+(th&&th.value)||1)<2};vis();if(th)th.addEventListener("change",vis);
+      b.onclick=()=>{const data=readReview(),nm=data[`Mortgagor ${n} name`]||"";ask(`Remove title holder ${n}?`,`<p class="sf-note"><b>${esc(nm||"Title holder "+n)}</b> is removed from Drafting; the title holders after ${n} move up one place. Remove their Aadhaar from the case documents too if it is there.</p>`,async()=>{
+        const r=dropHolder(data,n,c.robotQs||[]);const cnt=parseInt(r.d["Title holders"])||1;
+        if(await patch(c,{draft:r.d,robotQs:r.qs,thCount:cnt,thNames:[...Array(cnt).keys()].map(i=>String(r.d[`Mortgagor ${i+1} name`]||"").trim())},`Title holder ${n} (${nm}) removed in Drafting`)){toast(`Title holder ${n} removed`);openReview(cases.find(x=>x._doc===c._doc)||{...c,draft:r.d},rv.gen)}},"Remove")}})
     const L=["North","South","East","West"].map(x=>$("rv_"+x+"_length")),bt=$("rv_Boundary_type"),reg=()=>{const n=L.map(e=>parseFloat(e.value));if(n.some(isNaN))return;bt.value=n[0]===n[1]&&n[2]===n[3]?"Regular":"Irregular"};L.forEach(e=>e&&e.addEventListener("input",reg));
     {const dsec=$("rv_Deed_1_Doc_No")&&$("rv_Deed_1_Doc_No").closest(".rvsec");if(dsec){const grp=n=>["SRO","Doc_No","Year"].map(k=>$(`rv_Deed_${n}_${k}`)).filter(Boolean).map(e=>e.closest("label"));
       const has=n=>["Doc No","Year"].some(k=>String(data[`Deed ${n} ${k}`]||"").trim());let shown=1;[2,3].forEach(n=>{const h=has(n);grp(n).forEach(l=>l.hidden=!h);if(h)shown=n});
@@ -1647,6 +1672,8 @@ function openReview(c,gen){
       dv.innerHTML=`<div class="sf-note" style="margin-bottom:6px"><b>${esc(c.bank)}'s own legal conditions</b> (Settings → company). The TP Desk puts exactly this in TNREGINET's box, then 2 blank lines and the list of documents below:</div>`+own.map(x=>`<p style="text-align:justify;margin:0 0 1em;line-height:1.5">${esc(x)}</p>`).join("")+`<p style="margin:0">&nbsp;</p><p style="margin:0">&nbsp;</p>`+(c.lodHtml?`<div style="overflow-x:auto" data-lodprev="1">${lodFit(c.lodHtml)}</div><p class="sf-note" style="margin:6px 0 0">The list of documents table from the Word draft (LOD corrections below are applied by the TP Desk).</p>`:`<p class="sf-note" style="color:#b42318">⚠ No list of documents table from the Word draft — fill "List of documents deposited" below.</p>`);lt0.closest("label").before(dv);dv.dataset.lod=c.lodHtml?"1":""}}
     const lt=$("rv_List_of_documents_deposited");const lodBox=c.lodHtml||lodBoxOf(lt&&lt.value);if(lt&&lodBox&&!document.querySelector('#rvBody [data-lod="1"]')){const dv=document.createElement("div");dv.className="sf-note full";dv.style.gridColumn="1/-1";dv.innerHTML="<b>"+(c.lodHtml?"Table from the Word draft":"The draft has no table, so the TP Desk puts this list in a box")+" — the TP Desk pastes this, with its boxes, under the legal conditions (corrections above are applied):</b><div style=\"overflow-x:auto\" data-lodprev=\"1\">"+lodFit(lodBox)+"</div>";lt.closest("label").after(dv)}
     lodUi(c);
+    {const rows=svRowsOf(data),fixed=[];["Property remarks","Property remarks Tamil"].forEach(k=>{const e=$("rv_"+k.replace(/\W+/g,"_"));if(!e)return;const v=remarksSurvey(e.value,rows,rows);if(v!==e.value){e.value=v;fixed.push(k);(rv.touched=rv.touched||new Set()).add(e.id)}});
+      if(fixed.length){const e=$("rv_Property_remarks")||$("rv_Property_remarks_Tamil");e.closest("label").insertAdjacentHTML("beforebegin",`<p class="sf-note full" style="grid-column:1/-1;color:#1d6b3a">✓ Survey number in the remarks updated to ${esc(rows.map(svTok).join(", "))} (from the survey rows). Press Save to keep it.</p>`)}}
     const pr=$("rv_Property_remarks");if(pr){const b=document.createElement("button");b.type="button";b.className="btn";b.textContent="✎ Build remarks from the property fields";b.onclick=()=>{pr.value=modtRemarks()};pr.closest("label").after(b)}}
   if(!dor&&witUnread(c).length){const ks=witUnread(c);$("rvBody").insertAdjacentHTML("afterbegin",`<p class="banner" style="background:#fde8e6;color:#8a1c1c">⚠ The customer's witness Aadhaar is uploaded in this case (${ks.map(k=>esc(c.docs[`w${k}_kyc`][0].name)).join(", ")}) but not read yet, so Drafting still shows ${ks.map(k=>esc(data["Witness "+k]||"—")).join(" / ")}. <button type="button" class="btn primary" id="rvReadWit">Read customer's witness Aadhaar</button> (about 10 seconds each; used for this case only)</p>`);$("rvReadWit").onclick=()=>readCaseWitnesses(c)}
   /* boundaries: all four, English and Tamil; an empty one shows red and the TP Desk will not start */
@@ -2132,6 +2159,7 @@ async function saveReview(done){
   if(c.tpAuto){const fx=fixesOf(c,data);if(fx.length!==(c.fixes||[]).length||JSON.stringify(fx)!==JSON.stringify(c.fixes||[]))ch.fixes=fx}
   if(!dor&&data.SRO)ch.sro=data.SRO;if(dor&&data.SRO)ch.sro=data.SRO;
   if(!dor){const lod=lodSync(c,data);if(lod)Object.assign(ch,lod);const dn=docNames(c,data);if(dn)ch.docs=dn}
+  if(!dor){const n=Math.min(4,Math.max(1,parseInt(data["Title holders"])||1));ch.thCount=n;ch.thNames=[...Array(n).keys()].map(i=>String(data[`Mortgagor ${i+1} name`]||(c.thNames||[])[i]||"").trim())}
   if(done){const P=dor?dorDoneCheck(c,data):modtDoneCheck({...c,...ch},data);if(P.length){await patch(c,ch,"Draft saved (Draft done refused: "+P.length+" item(s) missing)");showDoneProblems(P);return}}
   if(done)ch.stage="TP Creation";
   if(await patch(c,ch,done?"Draft done":"Draft saved")){if(done)closeReview()}
@@ -3413,7 +3441,8 @@ function modtKey(k){k=String(k||"");if(MODT_KEY[k])return MODT_KEY[k];const m=k.
 async function doubtQs(c,list,store,src){const out=[];
   /* 12 Nov 2026: a re-read never asks again what was already answered (or saved in Drafting), unless Claude now reads a new value */
   const nz=x=>String(x??"").trim().toLowerCase().replace(/\s+/g," "),done=(c.robotQs||[]).filter(x=>x.answer&&x.field&&(x.store||"draft")===store);
-  list=(list||[]).filter(q=>!done.some(x=>x.field===q.field&&(nz(x.read)===nz(q.read)||nz(x.answer)===nz(q.read)||nz((c[store]||{})[q.field])===nz(x.answer))));
+  /* 16 Nov 2026 (VGR 0155): once a doubt on a field is answered it is never asked again, whatever Claude reads next time */
+  list=(list||[]).filter(q=>!done.some(x=>x.field===q.field));
   for(const q of list||[]){let shot="";if(q.img){try{const r=await uploadFile(new File([await dataBlob(q.img)],`Doubt - ${q.field} - ${c.id||""}.jpg`,{type:"image/jpeg"}));shot=r&&r.url||""}catch(e){}}
     out.push({id:crypto.randomUUID(),kind:"doubt",q:`Check ${q.field}: is "${q.read}" right?`,options:[q.read,...q.options].filter((v,j,a)=>v&&a.indexOf(v)===j),field:q.field,store,read:q.read,hint:q.why,shot,src:src||""})}
   return[...(c.robotQs||[]).filter(x=>!(x.kind==="doubt"&&!x.answer&&x.store===store&&out.some(y=>y.field===x.field))),...out]}
@@ -3489,8 +3518,19 @@ function svSync(d,r){if(!r.length)return d;d["Survey rows"]=JSON.stringify(r);d[
   d["Linked survey numbers"]=r.slice(1).map(x=>x.s+(x.sd?"/"+x.sd:"")+(x.ext?"="+x.ext:"")).join(", ");
   d["Old survey numbers"]=[...new Set(r.flatMap(x=>x.old.split(/[,;\n]+/).map(y=>y.trim()).filter(Boolean)))].join(", ");return d}
 function svFix(d){return svSync(d,svRowsOf(d))}
+/* 16 Nov 2026 (VGR 0155): the property remarks follow the survey numbers. A survey number changed in the rows is changed in the
+   remarks (English and Tamil); a survey number written without its sub division (152 while the row is 152/6) gets it added. */
+const svTok=r=>String(r.s||"").trim()+(String(r.sd||"").trim()?"/"+String(r.sd).trim():"");
+const svRe=t=>new RegExp("((?:survey|s\\.?\\s?no|r\\.?\\s?s\\.?\\s?no|சர்வே|புல)[^0-9]{0,25}(?:[0-9A-Za-z/]+\\s*(?:,|and|&|மற்றும்)\\s*)*)"+t.replace(/[.*+?^${}()|[\]\\]/g,"\\$&")+"(?![0-9A-Za-z]|/[0-9A-Za-z])","gi");
+function remarksSurvey(text,before,after){let t=String(text||"");if(!t)return t;
+  (before||[]).forEach((o,i)=>{const n=(after||[])[i];if(!n)return;const a=svTok(o),b=svTok(n);if(a&&b&&a!==b&&svRe(a).test(t))t=t.replace(svRe(a),"$1"+b);
+    if(o.old&&n.old&&o.old!==n.old&&t.includes(o.old))t=t.split(o.old).join(n.old)});
+  (after||[]).forEach(n=>{const b=svTok(n);if(!n.sd||!b||svRe(b).test(t))return;const s=String(n.s).trim();if(svRe(s).test(t))t=t.replace(svRe(s),"$1"+b)});
+  return t}
 function svRowsUi(){const h=$("rv_Survey_rows"),box=$("svRowsBox");if(!h||!box)return;let rows=[],edit=-1;try{rows=JSON.parse(h.value||"[]")}catch(e){}
-  const keep=()=>{h.value=JSON.stringify(rows.filter(r=>r.s));const d=svSync({},rows.filter(r=>r.s));["New survey no","Subdivision","Linked survey numbers","Old survey numbers"].forEach(k=>{const e=$("rv_"+k.replace(/\W+/g,"_"));if(e)e.value=d[k]||""});["Survey rows","New survey no","Subdivision","Linked survey numbers","Old survey numbers"].forEach(k=>(rv.touched=rv.touched||new Set()).add("rv_"+k.replace(/\W+/g,"_")))};
+  let prevRows=JSON.parse(JSON.stringify(rows));
+  const keep=()=>{const nowRows=rows.filter(r=>r.s);["Property remarks","Property remarks Tamil"].forEach(k=>{const e=$("rv_"+k.replace(/\W+/g,"_"));if(!e)return;const v=remarksSurvey(e.value,prevRows.filter(r=>r.s),nowRows);if(v!==e.value){e.value=v;(rv.touched=rv.touched||new Set()).add(e.id)}});prevRows=JSON.parse(JSON.stringify(rows));
+    h.value=JSON.stringify(rows.filter(r=>r.s));const d=svSync({},rows.filter(r=>r.s));["New survey no","Subdivision","Linked survey numbers","Old survey numbers"].forEach(k=>{const e=$("rv_"+k.replace(/\W+/g,"_"));if(e)e.value=d[k]||""});["Survey rows","New survey no","Subdivision","Linked survey numbers","Old survey numbers"].forEach(k=>(rv.touched=rv.touched||new Set()).add("rv_"+k.replace(/\W+/g,"_")))};
   const draw=()=>{box.innerHTML=rows.length?rows.map((r,i)=>i===edit?`<div class="svrow" style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin:4px 0">Row ${i+1}: <input data-k="s" placeholder="Survey No. e.g. 20" value="${esc(r.s)}" style="width:110px"> <input data-k="sd" placeholder="Sub Division e.g. 2B2" value="${esc(r.sd)}" style="width:130px"> <input data-k="old" placeholder="Old survey no(s), e.g. 20/2" value="${esc(r.old)}" style="flex:1;min-width:160px"> <button type="button" class="btn primary" data-sv="ok">Done</button></div>`
       :`<div class="svrow" style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin:4px 0">Row ${i+1}: Survey No. <b>${esc(r.s||"—")}</b> · Sub Division <b>${esc(r.sd||"—")}</b> · Old survey no. <b>${esc(r.old||"—")}</b> <button type="button" class="btn" data-sv="e${i}">Edit</button><button type="button" class="btn danger" data-sv="d${i}">Delete</button></div>`).join("")
       :`<p class="sf-note">No survey number yet - press "+ Add survey row".</p>`;

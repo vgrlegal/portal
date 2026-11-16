@@ -230,3 +230,23 @@ check("Clean-up never touches cases or documents",/async function cleanPlan\(/.t
  check("one title holder case unchanged",mf({docs:{th_kyc:[{}]}},{})["Title holders"],"1");
  check("case saves the title holders (MODT only)",/if\(isModtT\(b\.type\)\)\{b\.thCount=draftTh\.length;b\.thNames=/.test(html),true);}
 check("MODT type gets the title holder rows",new Function(html.match(/const isRD=[^\n]*/)[0]+";"+html.match(/const flowOf=[^\n]*/)[0]+";"+html.match(/const isModtT=[^\n]*/)[0]+";return [isModtT('MODT'),isModtT('Deed of Receipt'),isModtT('Legal Report')]")(),[true,false,false]);
+{/* 16 Nov 2026 (VGR-20261116-0155): answered doubts never come back; removing a title holder; remarks follow the survey number */
+ const grabFn=(start,end)=>{const a=html.indexOf(start),b=html.indexOf(end,a);return html.slice(a,b)};
+ const RS=new Function(grabFn("const svTok=","\n  return t}")+"\n  return t};return remarksSurvey")();
+ const rem="Suleeswaranpatti Village, New Survey No. 152, an extent of 1350 Sq.ft., Plot No. 71, Door No. 152.";
+ check("remarks: sub division added to the survey number only",RS(rem,[{s:"152",sd:"6"}],[{s:"152",sd:"6"}]),"Suleeswaranpatti Village, New Survey No. 152/6, an extent of 1350 Sq.ft., Plot No. 71, Door No. 152.");
+ check("remarks: survey number changed",RS("Village, New Survey No. 152/6, extent",[{s:"152",sd:"6"}],[{s:"153",sd:"2"}]),"Village, New Survey No. 153/2, extent");
+ check("remarks: Tamil follows",RS("சூலேஸ்வரன்பட்டி கிராமம், புதிய சர்வே எண் 152, 1350 சதுர அடி",[{s:"152",sd:"6"}],[{s:"152",sd:"6"}]),"சூலேஸ்வரன்பட்டி கிராமம், புதிய சர்வே எண் 152/6, 1350 சதுர அடி");
+ check("remarks: already right - unchanged",RS("New Survey No. 152/6 and 153",[{s:"152",sd:"6"}],[{s:"152",sd:"6"}]),"New Survey No. 152/6 and 153");
+ check("remarks: second survey in a list",RS("S.No. 150/1, 152, extent",[{s:"152",sd:""}],[{s:"152",sd:"4"}]),"S.No. 150/1, 152/4, extent");
+ const DH=new Function(grabFn("function dropHolder(","\n/* which Drafting")+";return dropHolder")();
+ const r=DH({"Title holders":"2","Mortgagor 1 name":"M Selvaraj","Mortgagor 1 Aadhaar":"1","Mortgagor 2 name":"Mahalakshmi","Mortgagor 2 Aadhaar":"2","Presenter":"Title holder 2"},1,[{field:"Mortgagor 1 name Tamil",q:"x"},{field:"Mortgagor 2 address",q:"Check Mortgagor 2 address"},{field:"Title holders",answer:"1"}]);
+ check("remove holder 1: holder 2 moves up",[r.d["Title holders"],r.d["Mortgagor 1 name"],r.d["Mortgagor 1 Aadhaar"],r.d["Mortgagor 2 name"],r.d.Presenter],["1","Mahalakshmi","2",undefined,"Title holder 1"]);
+ check("remove holder 1: doubts move with the holders",r.qs.map(q=>q.field),["Mortgagor 1 address","Title holders"]);
+ check("remove holder: never below one",DH({"Title holders":"1","Mortgagor 1 name":"A"},1,[]).d["Mortgagor 1 name"],"A");
+ const HF=new Function(grabFn("function holderOfFile(","\n/* 16 Nov 2026: MODT title holders")+";return holderOfFile")();
+ check("which holder a deleted Aadhaar belongs to",HF({draft:{"Title holders":"2","Mortgagor 1 name":"M Selvaraj","Mortgagor 2 name":"Mahalakshmi"},thKyc:[{url:"u1",name:"M SELVARAJ"}]},{url:"u1",name:"x.pdf"}),1);
+ check("answered doubt never asked again",/list=\(list\|\|\[\]\)\.filter\(q=>!done\.some\(x=>x\.field===q\.field\)\);/.test(html),true);
+ const mf=new Function("profOf","cleanAddrPair",html.match(/function modtFill\(c,d\)\{[\s\S]*?\n  return d\}/)[0]+";return modtFill")(()=>null,()=>{});
+ check("two Aadhaars but answered one holder: stays one",mf({docs:{th_kyc:[{},{}]}},{"Title holders":"1"})["Title holders"],"1");
+ check("Drafting save keeps the case's holder count in step",/ch\.thCount=n;ch\.thNames=/.test(html),true);}
