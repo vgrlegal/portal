@@ -402,6 +402,14 @@ class Portal:
         return self.popup_ok()
 
 
+def login_error_shown(page):
+    """16 Nov 2026: TNREGINET answered the sign-in with an error box (wrong captcha / password) - no need to wait longer."""
+    try:
+        return bool(page.evaluate("()=>[...document.querySelectorAll('.alert,.error,.text-danger,.swal2-popup,.jconfirm-box,.bootbox,.modal.show .modal-body')].some(e=>e.offsetParent&&e.innerText.trim()&&e.innerText.trim().length<200&&!/PRESENCE/i.test(e.innerText))"))
+    except Exception:
+        return False
+
+
 def logged_in(page):
     """Signed in = a Logout / வெளியேறு item exists (often inside the user-name menu) and no visible login box."""
     try:
@@ -531,7 +539,11 @@ def do_login(page, job, acc):
             if(b){b.click();return (b.value||b.textContent).trim()} return ''}""")
         if not clicked:
             page.locator("#txt_Captcha_login:visible").first.press("Enter")
-        page.wait_for_timeout(6000)
+        # 16 Nov 2026: TNREGINET slow - wait up to 20 s for the sign-in instead of a fixed 6 s; stop early if it shows an error
+        t1 = time.time()
+        page.wait_for_timeout(3000)
+        while not logged_in(page) and time.time() - t1 < 20 and not DLG and not login_error_shown(page):
+            page.wait_for_timeout(2000)
         if logged_in(page):
             job.upd(status="filling", captchaImg="", message="", step="Signed in as " + acc["username"], at=now())
             return
@@ -544,7 +556,7 @@ def do_login(page, job, acc):
                     b.first.click(timeout=2000)
                 except Exception:
                     pass
-        job.upd(message=(msg or "Login did not go through. Check the captcha and try again.") + f" (try {attempt + 2} of 6)")
+        job.upd(message=(msg or "Login did not go through (no message from TNREGINET after 20 s). Check the captcha; if it keeps failing, check this case's TNREGINET login in Clients & Staff.") + f" (try {attempt + 2} of 6)")
     raise Stop("Login failed 5 times. Check the login ID and password in Clients & Staff.")
 
 
