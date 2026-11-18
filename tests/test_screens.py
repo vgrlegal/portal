@@ -17,7 +17,7 @@ def check(name, got, want):
 asked = []
 W.survey_shot = lambda *a, **k: ""
 W.survey_question = lambda job, q, *a, **k: asked.append(q)
-W.survey_ok = lambda job: False
+W.survey_ok = lambda job, q=None: False
 job = types.SimpleNamespace(id="t", d={}, step=lambda *a, **k: None, cancelled=lambda: False)
 D88 = {"Land type": "Rural", "Street name": "Kuppusamy Nayakkar Street", "Unit": "Sq.ft", "Extent": "2499 Sq.Ft.",
        "New survey no": "20", "Subdivision": "2B2", "Linked survey numbers": "20/2C1A", "Old survey numbers": "20/2, 20/2C1"}

@@ -2409,6 +2409,9 @@ def aadhaar_problems(case, kind):
 def record_stop(job, case_id, reason):
     """Keep on the case where and why the TP Desk stopped (and the TNREGINET draft number if one was seen)."""
     try:
+        prev = getattr(job, "asked_before", None)
+        if prev:  # 18 Nov 2026: not asked again - say what the office answered earlier
+            reason = f"{reason} (Not asked again: you answered '{str(prev.get('answer') or '')[:60]}' on {str(prev.get('at') or '')[:10]} - correct Drafting if it is still wrong.)"
         kv_merge("cases", case_id, {"tpStop": {"at": now(), "step": job.last, "reason": str(reason)[:400],
                                                "draftNo": job.d.get("draftNo", ""), "job": job.id, "timing": job.timing()}})
     except Exception as e:
@@ -3339,11 +3342,39 @@ def survey_shot(page, job, i, when):
         return ""
 
 
-def survey_ok(job):
+# 18 Nov 2026 (the MD: the survey question still came again and again): "go on" answers that let the TP Desk carry on
+GO_ON_RE = re.compile(r"looks right|go on|fixed by hand", re.I)
+
+
+def survey_key(q):
+    """One key for the same problem asked in different words: the live table text, option lists / counts, the
+    Draft Listing click note and try counts change from run to run, so they are left out. Survey numbers, extent and
+    the reason stay in - a different survey or a corrected Drafting value is a new question."""
+    t = re.sub(r"\s+", " ", str(q or "")).strip().lower()
+    t = re.split(r"\btable now:", t)[0]
+    t = re.sub(r"\(\d+ options:.*?\)", "", t)
+    t = re.sub(r"\(its list:.*?\)|\(and its list is empty\)|\(clicked:.*?\)", "", t)
+    t = re.sub(r"\b(?:even )?after \d+ (?:delete )?tries\b(?: \(\d+ seconds each\))?|\btwice\b", "", t)
+    return re.sub(r"\s+", " ", t).strip(" .")[:220]
+
+
+def survey_answered(qs, q):
+    """The earlier ANSWERED TP Desk question with the same key (the newest), or None."""
+    k = survey_key(q)
+    hit = [x for x in (qs or []) if x.get("kind") in ("survey", "survey-pick") and x.get("answer") and survey_key(x.get("q")) == k]
+    return hit[-1] if hit else None
+
+
+def survey_ok(job, q=None):
+    """True when the office already said 'go on' to THIS question (same key) on this case."""
     cid = job.d.get("case") or job.d.get("caseId") or ""
     try:
         c = kv_get("cases", cid) or {}
-        return any(q.get("kind") == "survey" and str(q.get("answer") or "").startswith("Looks right") for q in (c.get("robotQs") or []))
+        qs = c.get("robotQs") or []
+        if q is None:
+            return False
+        x = survey_answered(qs, q)
+        return bool(x and GO_ON_RE.search(str(x.get("answer") or "")))
     except Exception:
         return False
 
@@ -3352,7 +3383,7 @@ def survey_qs_keep(qs, q, job_id):
     """13 Nov 2026 (the MD: the survey question kept coming again and again): a new run's question replaces the
     unanswered survey questions of earlier runs, and the same unanswered question is never added twice.
     Answered questions stay as history. None = this exact question is already waiting."""
-    same = lambda x: re.sub(r"\s+", " ", str(x or "")).strip().lower()
+    same = survey_key  # 18 Nov 2026: same problem in different words is the same question
     mine = lambda x: x.get("kind") in ("survey", "survey-pick")
     if any(mine(x) and not x.get("answer") and same(x.get("q")) == same(q) for x in qs):
         return None
@@ -3360,12 +3391,19 @@ def survey_qs_keep(qs, q, job_id):
 
 
 def survey_question(job, q, shot, options=None, field=None):
-    """Stop and ask the office on the case (Drafting → TP Desk questions), with the screenshot."""
+    """Stop and ask the office on the case (Drafting → TP Desk questions), with the screenshot.
+    18 Nov 2026: a question the office already answered on this case is never asked again - the earlier answer is
+    returned and kept on the job, so the stop note says what was answered instead of adding a new question."""
     cid = job.d.get("case") or job.d.get("caseId") or ""
     if not cid:
-        return
+        return None
     try:
         c = kv_get("cases", cid) or {}
+        prev = survey_answered(c.get("robotQs") or [], q[:400])
+        if prev:
+            job.asked_before = prev
+            log("survey question already answered - not asked again:", q[:120], "->", prev.get("answer"))
+            return prev
         qs = survey_qs_keep(c.get("robotQs") or [], q[:400], job.id)
         if qs is None:
             return  # the same question is already waiting on the case - do not ask it again
@@ -3376,6 +3414,7 @@ def survey_question(job, q, shot, options=None, field=None):
         kv_merge("cases", cid, {"robotQs": qs})
     except Exception as e:
         log("survey question failed", e)
+    return None
 
 
 # 12 Nov 2026: what TNREGINET's survey screen really has (kept with the job when the survey list is not found)
@@ -3525,10 +3564,11 @@ def survey_extent(P, job, page, d, i, s, sd, src, ptype, u, cu, note, linked=Fal
     ex_ok = bool(e) and any(x and (x in tbl) for x in [e, e.split(".")[0], *(e_typed[1:] if len(e_typed) > 1 else [])])
     if not sv_ok or not ex_ok or (m and re.search(r"invalid|not|exceed|error|greater|must", m, re.I)):
         why = ("TNREGINET said: " + m[:140]) if m else (f"survey {s}/{sd} not in the table" if not sv_ok else f"extent {e} {u} not in the table")
-        if survey_ok(job):
+        qtext = f"Survey screen: {why}. We typed survey {s}{('/' + sd) if sd else ''}, extent {e} {u}. Table now: {tbl[:160] or '(empty)'}"
+        if survey_ok(job, qtext):
             note(f"survey screen: {why} - you answered 'Looks right - go on' earlier, so the TP Desk went on (screenshot kept on the case)")
             return
-        survey_question(job, f"Survey screen: {why}. We typed survey {s}{('/' + sd) if sd else ''}, extent {e} {u}. Table now: {tbl[:160] or '(empty)'}", after or before)
+        survey_question(job, qtext, after or before)
         raise Stop(f"Survey screen did not match ({why}). Screenshots and a question are on the case; the draft is saved - answer the TP Desk question, then start again.")
 
 
@@ -3737,7 +3777,11 @@ def survey_tab(P, job, page, d, ptype, note):
             if not r or (m and re.search(r"invalid|not|exist|error|select|please", m, re.I)) or (want not in sv_norm(tbl) and tbl == before_tbl):
                 shot = survey_shot(page, job, i, "linked-add")
                 why = ("TNREGINET said: " + m[:140]) if m else ("the Add button next to Pymash No. was not found" if not r else f"survey {s}/{sd} did not show in the table")
-                survey_question(job, f"Survey screen, linked survey row {i + 1} ({s} + {sd}): {why}. Table now: {tbl[:160] or '(empty)'}", shot)
+                qtext = f"Survey screen, linked survey row {i + 1} ({s} + {sd}): {why}. Table now: {tbl[:160] or '(empty)'}"
+                if survey_ok(job, qtext):  # 18 Nov 2026: answered 'go on' before - go on, do not ask again
+                    note(f"linked survey row {i + 1} ({s}/{sd}): {why} - you answered 'go on' earlier, so the TP Desk went on")
+                    continue
+                survey_question(job, qtext, shot)
                 raise Stop(f"Linked survey row {i + 1} ({s}/{sd}) was not added ({why}). A question with the screenshot is on the case; the draft is saved.")
             job.step(f"7 · Survey row {i + 1} added: {s} + {sd}", page)
             continue

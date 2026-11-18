@@ -314,6 +314,11 @@ Deno.serve(async (req) => {
     if (body?.kind === "client_file") return await clientFile(sb, role, body.doc, body.url);
     if (body?.kind === "logo") return await logo(role, body);
     if (role === "client") return json({ error: "Not allowed" }, 403);
+    // 18 Nov 2026: Stop Claude (Admin, Claude plan tab) - no Claude call at all, even from a portal window opened before the stop
+    {
+      const { data: off } = await sb.from("kv").select("off:data->claudeOff").eq("collection", "config").eq("id", "lists").maybeSingle();
+      if ((off as { off?: { all?: boolean } } | null)?.off?.all) return json({ error: "Claude stopped by the Admin - all Claude reading is paused (Admin: Claude plan tab)", stopped: true }, 503);
+    }
     const key = Deno.env.get("ANTHROPIC_API_KEY");
     if (!key) return json({ error: "ANTHROPIC_API_KEY is not set" }, 500);
     const { images, kind = "aadhaar", hints = [], texts } = body;

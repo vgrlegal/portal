@@ -83,6 +83,35 @@ if(globalThis.__MORE__)globalThis.__MORE__(T,check,html);
 (async()=>{const c={draft:{"Mortgagor 1 district":"Chennai"},robotQs:[{id:1,field:"Mortgagor 1 district",read:"Tiruvallur",answer:"Chennai",store:"draft"}]};
  const out=await T.doubtQs(c,[{field:"Mortgagor 1 district",read:"Tiruvallur",options:[]},{field:"Deed 2 SRO",read:"Kundrathur",options:[]}],"draft","MODT");
  check("doubtQs: answered not asked again",out.filter(q=>!q.answer).map(q=>q.field),["Deed 2 SRO"]);
+ // 18 Nov 2026 (the MD: same question again and again): Drafting checks, mail split and Aadhaar doubts are asked once
+ {const Q={};new Function("Q",grab("const qNorm=","/* doubts become questions")+";Q.addQs=addQs;Q.qKey=qKey;Q.qNorm=qNorm")(Q);
+  const L=[{id:1,field:"Boundary North",q:"Boundary North is not in the MODT draft",answer:"Road"},{id:2,key:"extent|1 Acre|0.5 Acre",q:"Mortgaged extent…",src:"Extent check"}];
+  check("addQs: answered field not asked again",Q.addQs(L,[{id:3,field:"Boundary North",q:"Boundary North is not in the MODT draft"}]).length,2);
+  check("addQs: waiting check with same values not added twice",Q.addQs(L,[{id:4,key:"extent|1 Acre|0.5 Acre",q:"x"}]).length,2);
+  check("addQs: new values are a new question",Q.addQs(L,[{id:5,key:"extent|2 Acre|0.5 Acre",q:"x"}]).length,3);
+  check("addQs: same question twice in one go added once",Q.addQs([],[{id:6,field:"Land type"},{id:7,field:"Land type"}]).length,1);
+  check("addQs: no field, same words = same question",Q.addQs([{q:"Split  it?",src:"Mail"}],[{q:"split it?",src:"Mail"}]).length,1);
+  check("Land type asked only when Drafting has none",/!String\(d\["Land type"\]\|\|""\)\.trim\(\)\)ch\.robotQs=addQs\(/.test(html),true);
+  check("Aadhaar doubt answers remembered per card",/A\[k\]!==undefined\)c\[q\.key\]=/.test(html)&&/aadAnsPut\(add\)/.test(html),true);
+  check("last answer carries the TP Desk on from the saved draft",/resumeAfterAnswers\(\{\.\.\.c,\.\.\.ch\}\)/.test(html)&&/tpDraftResume:true/.test(html),true);}
+ // 18 Nov 2026: Stop Claude, waiting cases, login alert
+ {const Z={};new Function("Z","var cfg={claudeOff:{}};const isRD=t=>/receipt/i.test(t||''),flowOf=t=>/legal/i.test(t||'')?'legal':'modt';"+grab("const claudeOn=","\nfunction claudeAreaOf(")+";Z.set=o=>cfg.claudeOff=o;Z.claudeOn=claudeOn;Z.claudeWait=claudeWait;Z.claudeOffNow=claudeOffNow")(Z);
+  check("claudeOn: on by default",[Z.claudeOn("modt"),Z.claudeOn("dor"),Z.claudeOn("any")],[true,true,true]);
+  Z.set({all:true});check("Stop Claude: everything off",[Z.claudeOn("modt"),Z.claudeOn("dor"),Z.claudeOn("any")],[false,false,false]);
+  check("Stop Claude: waiting case is shown as waiting (not failed)",Z.claudeWait({type:"MODT",needsRead:true}),true);
+  check("Stop Claude: a failed-read case is not 'waiting'",Z.claudeWait({type:"MODT",needsRead:true,readFailed:true}),false);
+  check("Stop Claude: an error while stopped is not counted as a failure",Z.claudeOffNow({type:"Deed of Receipt"},new Error("x")),true);
+  Z.set({modt:true});check("MODT off, Receipt on",[Z.claudeOn("modt"),Z.claudeOn("dor"),Z.claudeOn("any")],[false,true,true]);
+  Z.set({});check("Claude on: a real error still counts",Z.claudeOffNow({type:"Deed of Receipt"},new Error("No JSON in reply")),false);
+  check("Claude on: 'stopped' reply from the server does not count",Z.claudeOffNow({type:"Deed of Receipt"},new Error("Claude stopped by the Admin - all Claude reading is paused")),true);}
+ {const L={};new Function("L",grab("const devName=","\nconst istTime=")+";L.devName=devName")(L);
+  check("devName Windows Chrome",L.devName("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36"),"Windows computer · Chrome");
+  check("devName iPhone Safari",L.devName("Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1"),"iPhone · Safari");
+  check("devName Android Chrome",L.devName("Mozilla/5.0 (Linux; Android 14; SM-A146B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Mobile Safari/537.36"),"Android phone · Chrome");
+  check("devName Mac Edge",L.devName("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36 Edg/126.0"),"Mac · Edge");
+  check("login alert: device tick every 30 s, new page = fresh",/sb\.rpc\("device_seen",\{p_dev:dev,p_ua:navigator\.userAgent,p_fresh:fresh\}\)/.test(html)&&/setInterval\(tick,30000\)/.test(html),true);
+  check("login alert: not me signs out other devices + their sessions",/devices_sign_out",\{p_email:a\.email,p_keep:window\.__dev/.test(html)&&/signOut\(\{scope:"others"\}\)/.test(html),true);
+  check("login alert: Admin-only devices card",/devCard:!isMD/.test(html),true);}
  console.log("portal tests:",fails?fails+" FAILED":"OK");process.exit(fails?1:0)})();
 // 12 Nov 2026 (Rajeswari 0088): survey rows - survey and sub-division apart, each linked survey its own row, old numbers per row
 {const d={"New survey no":"20 / 2B2 with linked 20/2C1A","Subdivision":"2B2","Linked survey numbers":"20/2C1A","Old survey numbers":"20/2, 20/2C1"};T.surveyClean(d);
@@ -168,7 +197,7 @@ check("area from the kind when no case",[T.claudeAreaOf({kind:"modt_case"}),T.cl
 T.cfg.claudeOff={modt:true,dor:true};check("both off blocks everything",T.claudeOn("any"),false);T.cfg.claudeOff={};
 check("Claude plan tab: Admin only, switch checked in the reading wrapper and the mail reads",/if\(t==="__claude"\)return isMD;/.test(html)&&/if\(!claudeOn\(a\)\)return Promise\.resolve/.test(html)&&(html.match(/claudeOn\(areaOfCase\(x\)/g)||[]).length===2,true);
 check("Claude plan: old days show about how many cases were made (~)",/const MADE=\{\};cases\.forEach/.test(html)&&/cpN\(d,v,"modt"\)/.test(html)&&/cpN\(d,v,"dor"\)/.test(html),true);
-check("TP jobs carry the organisation (partner laptops take only their own)",(html.match(/status:"queued",org:myOrg\(\),/g)||[]).length,4);
+check("TP jobs carry the organisation (partner laptops take only their own)",(html.match(/status:"queued",org:myOrg\(\),/g)||[]).length,5);// 18 Nov 2026: +1 = TP Desk carries on after the last question is answered
 {const f=new Function("myOrg",html.match(/const tpOnline=[^\n]*/)[0].replace("const tpOnline=","return ")).call(null,()=>"");const n=Date.parse("2026-11-13T00:00:00Z");
  check("Dashboard counts TP computers that are on (VGR view hides partner laptops)",f([{at:"2026-11-12T23:59:00Z",org:"vgr"},{at:"2026-11-12T23:59:30Z",org:"oo"},{at:"2026-11-12T23:00:00Z",org:"vgr"},{at:"2026-11-12T23:58:00Z"}],n).length,2)}
 {/* 13 Nov 2026: the word "robot" never shows on screen - "TP Desk" (code names like robotQs stay) */

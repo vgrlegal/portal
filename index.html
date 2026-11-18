@@ -493,6 +493,8 @@ tr.hf input,tr.hf select{font-size:12.5px;padding:5px 7px;margin:2px 0}
     <div class="card" style="margin-top:16px" data-part="set"><h2>Staff</h2><p>Tick the work each person can open. Staff sign in with this email. Save, then press <b>Invite</b>: they get an email link and set their own password. They see only the work you tick.</p>
       <div style="overflow-x:auto"><table class="mini stafft" id="staffTbl"></table></div>
       <div style="display:flex;gap:8px;margin-top:10px"><button class="btn" id="staffAdd" type="button">+ Add staff</button><button class="btn primary" id="staffSave" type="button">Save staff</button></div></div>
+    <div class="card" style="margin-top:16px" id="devCard" data-part="set" hidden><h2>Login alerts &amp; devices</h2><p>Admin only. Every device where a login is open (seen in the last 30 days), and every alert when a login was opened on a second device while it was already in use. A signed-out device leaves the portal within 30 seconds.</p>
+      <div id="devBox"><p class="sf-note">Loading…</p></div></div>
     <details class="card fold" style="margin-top:16px" id="rulesCard" data-part="tools"><summary><h2 style="display:inline">Learning list</h2> <span class="sf-note" id="rulesSum"></span></summary><p>Rules Claude and the TP Desk follow when reading documents and filling TNREGINET, for example how to tell Urban, Rural or Natham. When the TP Desk is unsure it asks a question on the case; your answer and its reason become a rule here. Only the Admin can change this list.</p>
       <div id="rulesList"></div>
       <form class="addline" id="ruleAdd" style="margin-top:8px;display:flex;gap:6px"><input id="ruleIn" placeholder="New rule, e.g. Extent in cents or acres means Agricultural land"><button class="btn primary" type="submit">Add rule</button></form></details>
@@ -569,7 +571,7 @@ window.__sb=sb;
 /* 12 Nov 2026: every Claude reading carries which case/file it was for (window.__readRef), so the cost report can show exact repeats */
 {const inv=sb.functions.invoke.bind(sb.functions);sb.functions.invoke=(name,o)=>{try{const b=o&&o.body;if(name==="read-aadhaar"&&b&&!b.ref&&(b.images||b.texts||b.pdfText)&&window.__readRef)b.ref=String(window.__readRef).slice(0,160);
   /* 12 Nov 2026: Claude plan tab - MODT / Deed of Receipt switched off = no Claude reading for that work anywhere (mail cases too) */
-  if(name==="read-aadhaar"&&b&&(b.images||b.texts||b.pdfText||b.draft)){const a=claudeAreaOf(b);if(!claudeOn(a))return Promise.resolve({data:null,error:new Error(`Claude reading is switched off for ${a==="modt"?"MODT":a==="dor"?"Deed of Receipt":"MODT and Deed of Receipt"} (Admin: Claude plan tab)`)})}}catch(e){}return inv(name,o)}}
+  if(name==="read-aadhaar"&&b&&(b.images||b.texts||b.pdfText||b.draft)){const a=claudeAreaOf(b);if(!claudeOn(a))return Promise.resolve({data:null,error:new Error(((cfg||{}).claudeOff||{}).all?"Claude stopped by the Admin - all Claude reading is paused (Admin: Claude plan tab)":`Claude reading is switched off for ${a==="modt"?"MODT":a==="dor"?"Deed of Receipt":"MODT and Deed of Receipt"} (Admin: Claude plan tab)`)})}}catch(e){}return inv(name,o)}}
 const uuid=()=>(crypto.randomUUID?crypto.randomUUID():"xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g,c=>{const r=crypto.getRandomValues(new Uint8Array(1))[0]&15;return(c==="x"?r:(r&3|8)).toString(16)}));
 const gate=document.getElementById("authGate"),msg=t=>document.getElementById("agMsg").textContent=t||"";
 let session=null,role=null,readyResolve;const ready=new Promise(r=>readyResolve=r);
@@ -593,7 +595,7 @@ sb.auth.onAuthStateChange(async(ev,s)=>{
     if(p){const{error}=await sb.auth.updateUser({password:p});alert(error?error.message:"Password set. Use your email and this password to sign in next time.")}}
   if(ev==="PASSWORD_RECOVERY"){const p=prompt("Type a new password (at least 8 characters)");if(p&&p.length>=8){const{error}=await sb.auth.updateUser({password:p});alert(error?error.message:"Password changed.")}}
   if(ev==="SIGNED_OUT"&&session){location.reload()}});
-(async()=>{const{data}=await sb.auth.getSession();if(data.session)afterLogin(data.session);else gate.hidden=false})();
+(async()=>{const{data}=await sb.auth.getSession();if(data.session)afterLogin(data.session);else{gate.hidden=false;try{const m=sessionStorage.getItem("vgr.out");if(m){msg(m);sessionStorage.removeItem("vgr.out")}}catch(e){}}})();
 
 /* ---- db (same shape the portal already uses) ---- */
 const wrap=r=>({id:r.id,exists:true,data:()=>r.data});
@@ -667,7 +669,16 @@ ready.then(()=>{const hdr=document.body;const d=document.createElement("div");d.
   const tm=document.createElement("span");tm.id="acTime";tm.style.color="var(--muted,#777)";d.insertBefore(tm,d.children[1]);
   const ping=async()=>{if(document.visibilityState!=="visible")return;try{await sb.rpc("ping_presence");const k=(session.user.email||"").toLowerCase()+"|"+new Date(Date.now()+19800000).toISOString().slice(0,10);
     const{data}=await sb.from("kv").select("data").eq("collection","presence").eq("id",k).maybeSingle();const m=data&&data.data?+data.data.minutes||0:0;tm.textContent=m?`Today ${Math.floor(m/60)}h ${m%60}m`:""}catch(e){}};
-  ping();setInterval(ping,60000);document.addEventListener("visibilitychange",ping)});
+  ping();setInterval(ping,60000);document.addEventListener("visibilitychange",ping);
+  /* 18 Nov 2026: login alert - this browser's own device id; every 30 seconds the database hears it is in use.
+     A device the Admin or the person signed out from elsewhere signs itself out here on its next tick. */
+  window.__email=(session.user.email||"").toLowerCase();
+  const DEVK="vgr.dev";let dev="";try{dev=localStorage.getItem(DEVK)||""}catch(e){}if(!dev){dev=uuid();try{localStorage.setItem(DEVK,dev)}catch(e){}}window.__dev=dev;
+  let fresh=true;const tick=async()=>{try{const{data,error}=await sb.rpc("device_seen",{p_dev:dev,p_ua:navigator.userAgent,p_fresh:fresh});if(error)return;fresh=false;
+      if(data&&data.revoked){try{localStorage.removeItem(DEVK)}catch(e){}try{sessionStorage.setItem("vgr.out",`This device was signed out${data.by?" by "+data.by:""} from another device. Sign in again if it was you.`)}catch(e){}
+        await sb.auth.signOut({scope:"local"});location.reload();return}
+      if(typeof window.__loginAlerts==="function")window.__loginAlerts()}catch(e){}};
+  tick();setInterval(tick,30000)});
 })();
 </script>
 
@@ -975,7 +986,7 @@ function render(){
   $("tbody").innerHTML=rows.map(c=>{
     const cm=(c.comments||[]).length;
     return`<tr data-id="${esc(c._doc)}">
-    <td>${bulkOk()?`<input type="checkbox" class="selbox" data-sel="${esc(c._doc)}" ${SEL.has(c._doc)?"checked":""} aria-label="Select ${esc(c.applicant)}">`:""}${c.applicantFromMail?`<span class="strong">${c.readFailed?"⚠ MODT could not be read · open Drafting":"⏳ Reading documents…"}</span><span class="sub">${esc((c.mailSubject||c.applicant||"").slice(0,70))}</span>`:`<span class="strong">${esc(c.applicant)}</span>`}${c.loanNo?`<span class="sub mono">Loan ${esc(c.loanNo)}</span>`:""}${c.noModt?`<span class="pill p-bad" style="margin-top:4px">No MODT</span> `:""}${(c.robotQs||[]).some(q=>q.kind==="doubt"&&!q.answer)?`<span class="pill p-warn" style="margin-top:4px" title="Open the case: each doubt shows the spot in the document">🔔 ${(c.robotQs||[]).filter(q=>q.kind==="doubt"&&!q.answer).length} to check</span> `:""}${bioHtml(c)}${c.stage==="TP Creation"&&/^TP\//.test(c.tpNo||"")&&c.tpChecks&&(c.tpChecks.missing||[]).length?`<span class="pill p-warn" style="margin-top:4px;white-space:normal">TP made · missing: ${esc(c.tpChecks.missing.join(", "))}</span> `:""}${c.tpPrintCheck&&(c.tpPrintCheck.missing||[]).length?`<span class="pill p-warn" style="margin-top:4px;white-space:normal" title="Read from TNREGINET's TP print after the TP was made">TP print check · not seen: ${esc(c.tpPrintCheck.missing.join(", "))}</span> `:""}${partSurvey(c)?`<span class="pill p-bad" style="margin-top:4px;white-space:normal" title="${esc(PART_REASON(partSurvey(c)))}">⏸ Survey No. ${esc(partSurvey(c))} · ${((c.docs||{}).revenue||[]).length?"revenue document received: enter the new survey number":"revenue document needed"}</span> `:""}${c.tpStop&&!c.tpNo?`<span class="pill p-bad" style="margin-top:4px;white-space:normal" title="${esc(c.tpStop.reason||"")}">⛔ TP Desk stopped: ${esc(String(c.tpStop.step||"").slice(0,50))}${c.tpStop.draftNo||c.tnDraftNo?" · Draft "+esc(c.tpStop.draftNo||c.tnDraftNo):""}</span><span class="sub" style="color:#b42318;white-space:normal">${esc(String(c.tpStop.reason||"").slice(0,160))}</span>`:""}${doubtful(c)?`<span class="pill p-warn" style="margin-top:4px" title="${c.dupOf?"Looks like the same customer as "+esc(c.dupOf):"This mail may hold more than one customer"}. Open the mail files and press Same case / Split / Separate.">🔔 Check this mail${c.dupOf?" · same as "+esc(c.dupOf)+"?":" · 2 customers?"}</span> `:""}${c.source==="mail"&&!c.bank?`<span class="pill p-warn" style="margin-top:4px">Company?</span> `:""}${!c.phone&&!FINAL.has(c.stage)?`<span class="pill p-info" style="margin-top:4px;font-size:11px" title="Customer phone needed for payment">📞 Phone needed</span>`:""}<span class="sub mono">${esc(c.id)}</span>${tab==="__all"?`<span class="sub">${esc(c.type)}</span>`:""}</td>
+    <td>${bulkOk()?`<input type="checkbox" class="selbox" data-sel="${esc(c._doc)}" ${SEL.has(c._doc)?"checked":""} aria-label="Select ${esc(c.applicant)}">`:""}${c.applicantFromMail?`<span class="strong">${c.readFailed?"⚠ MODT could not be read · open Drafting":claudeWait(c)?"⏸ Claude stopped · waiting to be read":"⏳ Reading documents…"}</span><span class="sub">${esc((c.mailSubject||c.applicant||"").slice(0,70))}</span>`:`<span class="strong">${esc(c.applicant)}</span>`}${c.loanNo?`<span class="sub mono">Loan ${esc(c.loanNo)}</span>`:""}${!c.applicantFromMail&&claudeWait(c)?`<span class="pill p-warn" style="margin-top:4px" title="Claude reading is off or stopped (Admin: Claude plan tab). The case waits here and is read when Claude is on again.">⏸ Claude stopped · waiting</span> `:""}${c.noModt?`<span class="pill p-bad" style="margin-top:4px">No MODT</span> `:""}${(c.robotQs||[]).some(q=>q.kind==="doubt"&&!q.answer)?`<span class="pill p-warn" style="margin-top:4px" title="Open the case: each doubt shows the spot in the document">🔔 ${(c.robotQs||[]).filter(q=>q.kind==="doubt"&&!q.answer).length} to check</span> `:""}${bioHtml(c)}${c.stage==="TP Creation"&&/^TP\//.test(c.tpNo||"")&&c.tpChecks&&(c.tpChecks.missing||[]).length?`<span class="pill p-warn" style="margin-top:4px;white-space:normal">TP made · missing: ${esc(c.tpChecks.missing.join(", "))}</span> `:""}${c.tpPrintCheck&&(c.tpPrintCheck.missing||[]).length?`<span class="pill p-warn" style="margin-top:4px;white-space:normal" title="Read from TNREGINET's TP print after the TP was made">TP print check · not seen: ${esc(c.tpPrintCheck.missing.join(", "))}</span> `:""}${partSurvey(c)?`<span class="pill p-bad" style="margin-top:4px;white-space:normal" title="${esc(PART_REASON(partSurvey(c)))}">⏸ Survey No. ${esc(partSurvey(c))} · ${((c.docs||{}).revenue||[]).length?"revenue document received: enter the new survey number":"revenue document needed"}</span> `:""}${c.tpStop&&!c.tpNo?`<span class="pill p-bad" style="margin-top:4px;white-space:normal" title="${esc(c.tpStop.reason||"")}">⛔ TP Desk stopped: ${esc(String(c.tpStop.step||"").slice(0,50))}${c.tpStop.draftNo||c.tnDraftNo?" · Draft "+esc(c.tpStop.draftNo||c.tnDraftNo):""}</span><span class="sub" style="color:#b42318;white-space:normal">${esc(String(c.tpStop.reason||"").slice(0,160))}</span>`:""}${doubtful(c)?`<span class="pill p-warn" style="margin-top:4px" title="${c.dupOf?"Looks like the same customer as "+esc(c.dupOf):"This mail may hold more than one customer"}. Open the mail files and press Same case / Split / Separate.">🔔 Check this mail${c.dupOf?" · same as "+esc(c.dupOf)+"?":" · 2 customers?"}</span> `:""}${c.source==="mail"&&!c.bank?`<span class="pill p-warn" style="margin-top:4px">Company?</span> `:""}${!c.phone&&!FINAL.has(c.stage)?`<span class="pill p-info" style="margin-top:4px;font-size:11px" title="Customer phone needed for payment">📞 Phone needed</span>`:""}<span class="sub mono">${esc(c.id)}</span>${tab==="__all"?`<span class="sub">${esc(c.type)}</span>`:""}</td>
     <td><span class="strong">${esc(c.bank||"—")}</span><span class="sub">${esc(c.branch||"")}</span></td>
     <td>${datesCell(c)}</td>
     <td>${statusCell(c)}</td>
@@ -1236,14 +1247,14 @@ async function bankReads(){try{await fixBankNames()}catch(e){}if(!(isMD||isAdmin
   if(window.__noCredit)return;
   for(const c of cases.filter(x=>x.source==="mail"&&!x.classified&&!x.classifyFailed&&!x.notCase&&!x.mergedInto&&claudeOn(areaOfCase(x)==="legal"?"any":areaOfCase(x))&&!BR.has("k"+x._doc))){if(window.__noCredit)break;BR.add("k"+c._doc);
     if(!await claimRead(c,"lockCls"))continue;
-    try{await classifyMail(c)}catch(e){console.warn(e);const n=(c.classifyFails||0)+1;
+    try{await classifyMail(c)}catch(e){console.warn(e);if(claudeOffNow(c,e)){await db.collection("cases").doc(c._doc).update({lockCls:null}).catch(()=>{});BR.delete("k"+c._doc);continue}const n=(c.classifyFails||0)+1;
       await db.collection("cases").doc(c._doc).update(n>=2?{classifyFails:n,classifyFailed:true,lockCls:null,log:[...(c.log||[]),{at:nowISO(),by:"Claude",text:"Mail files could not be sorted automatically (tried twice): "+String(e.message||e).slice(0,120)+". Open the case and put the files in their boxes by hand."}].slice(-80)}:{classifyFails:n,lockCls:null}).catch(()=>{});
       if(n<2)setTimeout(()=>BR.delete("k"+c._doc),10*60000)}}
   for(const c of cases.filter(x=>x.needsRead&&!x.readFailed&&!(x.source==="mail"&&!x.classified)&&!x.notCase&&!x.mergedInto&&claudeOn(areaOfCase(x)==="legal"?"any":areaOfCase(x))&&!BR.has(x._doc))){BR.add(c._doc);
   if(window.__noCredit)break;if(!await claimRead(c,"lockRead"))continue;
-  try{if(c.needsRead==="modt2")await readSuppModt(c);else if(c.modtReadOf&&c.modtReadOf===(((c.docs||{}).modt||[])[0]||{}).url&&c.tpAuto){}else if(!await rereadModt(c,false)){const n=(c.readFails||0)+1;
+  try{if(c.needsRead==="modt2")await readSuppModt(c);else if(c.modtReadOf&&c.modtReadOf===(((c.docs||{}).modt||[])[0]||{}).url&&c.tpAuto){}else if(!await rereadModt(c,false)){if(claudeOffNow(c)){await db.collection("cases").doc(c._doc).update({lockRead:null}).catch(()=>{});BR.delete(c._doc);continue}const n=(c.readFails||0)+1;
       await db.collection("cases").doc(c._doc).update(n>=2?{readFails:n,needsRead:null,readFailed:true,log:[...(c.log||[]),{at:nowISO(),by:"Claude",text:"MODT could not be read automatically (tried twice). Open Drafting: check the MODT file, upload a clearer copy, or press Read MODT again."}].slice(-80)}:{readFails:n});continue}
-    await db.collection("cases").doc(c._doc).update({needsRead:null,readFails:0,readFailed:null,lockRead:null})}catch(e){console.warn(e);const n=(c.readFails||0)+1;
+    await db.collection("cases").doc(c._doc).update({needsRead:null,readFails:0,readFailed:null,lockRead:null})}catch(e){console.warn(e);if(claudeOffNow(c,e)){await db.collection("cases").doc(c._doc).update({lockRead:null}).catch(()=>{});BR.delete(c._doc);continue}const n=(c.readFails||0)+1;
     await db.collection("cases").doc(c._doc).update(n>=2?{readFails:n,needsRead:null,readFailed:true,lockRead:null,log:[...(c.log||[]),{at:nowISO(),by:"Claude",text:"MODT could not be read automatically (tried twice): "+String(e.message||e).slice(0,120)+". Open Drafting and press Read MODT again."}].slice(-80)}:{readFails:n,lockRead:null}).catch(()=>{});
     if(n<2)setTimeout(()=>BR.delete(c._doc),10*60000)}}
   /* after the reads, in every Admin window (lock per case): merge duplicates by the MD's rule */
@@ -1762,7 +1773,24 @@ function wireRobotQs(c){document.querySelectorAll("#rqBox img.dshot").forEach(as
     if(q.kind==="doubt"&&q.read&&ans!==q.read)ch.fixes=[...(c.fixes||[]),{field:q.field,read:q.read,fixed:ans,at:nowISO(),by:who()}].slice(-60);
     await patch(c,ch,`TP Desk question answered: ${q.q} → ${ans}`);
     if(admin&&why)await addRule(`${why} (asked: ${q.q} → ${ans})`,c.id);
-    box.remove();toast(admin||!why?"Answer saved":"Answer saved. The Admin will add it to the learning list.")}})}
+    box.remove();toast(admin||!why?"Answer saved":"Answer saved. The Admin will add it to the learning list.");
+    resumeAfterAnswers({...c,...ch})}})}
+/* 18 Nov 2026 (the MD): when the last TP Desk question on a stopped MODT case is answered, the TP Desk carries on from the
+   saved TNREGINET draft by itself - same login, same draft, no new TP. Deed of Receipt has no saved draft to go on from,
+   so there it only says "press Start TP". A job still running, a TP already made or a Mac (captcha) run: nothing is done. */
+async function resumeAfterAnswers(c){try{
+  const f={...(cases.find(x=>x._doc===c._doc)||{}),...c};
+  if((f.robotQs||[]).some(q=>!q.answer)||!f.tpStop||/^TP\//.test(f.tpNo||"")||(typeof canTp==="function"&&!canTp()))return;
+  const jid=f.tpJob||f.tpStop.job;if(!jid)return;
+  const s=await db.doc("tp_jobs/"+jid).get().catch(()=>null),j=s&&s.exists?s.data()||{}:null;
+  if(!j||!["error","cancelled"].includes(j.status)||!j.login)return;
+  const dn=String(f.tpDraft||"").trim(),stg=f.tpDraftStage||"parties";
+  if(j.kind!=="modt"||!dn||!["parties","property"].includes(stg)){toast("All TP Desk questions answered - press Start TP in TP Generate to go on");return}
+  const id=crypto.randomUUID();
+  await patch(f,{tpDraftResume:true},null);
+  await db.doc("tp_jobs/"+id).set({kind:"modt",case:f._doc,caseId:f.id,login:j.login,loginUser:j.loginUser||"",status:"queued",org:myOrg(),by:who(),at:nowISO(),log:[],resumeOf:jid});
+  await patch(f,{tpJob:id,tpLogin:j.loginUser||f.tpLogin||""},`All TP Desk questions answered → TP Desk carries on from draft ${dn} (${j.loginUser||""})`);
+  toast(`All questions answered - the TP Desk carries on from draft ${dn}`)}catch(e){toast("Answers saved. Could not restart the TP Desk by itself: "+(e.message||e)+" - press Start TP")}}
 async function addRule(text,from){const r={id:crypto.randomUUID(),text:text.slice(0,300),from:from||"",by:who(),at:nowISO()};await saveCfg({...cfg,rules:[...(cfg.rules||[]),r]})}
 function ruleHints(){return(cfg.rules||[]).slice(-40).map(r=>"Office rule: "+r.text)}
 function renderRules(ro){const box=$("rulesList");if(!box)return;$("rulesCard").hidden=!(isMD||isAdmin);
@@ -1796,7 +1824,10 @@ function applyBrand(){const o=ORGS[myOrg()];const h=document.querySelector("head
    stronger model $2 in / $10 out, cheaper model $0.80 / $4 per million tokens. ₹ per credit dollar = what the card paid
    (₹2,867 for $24.41 incl. GST and bank charges ≈ ₹117). */
 /* 12 Nov 2026: Claude on / off per work (Admin, Claude plan tab). Nothing stops by itself - only the Admin switches. */
-const claudeOn=a=>{const o=(typeof cfg!=="undefined"&&cfg&&cfg.claudeOff)||{};return a==="any"?!(o.modt&&o.dor):!o[a]};
+const claudeOn=a=>{const o=(typeof cfg!=="undefined"&&cfg&&cfg.claudeOff)||{};if(o.all)return false;return a==="any"?!(o.modt&&o.dor):!o[a]};
+/* 18 Nov 2026: a case waiting for Claude reading while Claude is off / stopped - it waits in its stage, it does not fail */
+const claudeOffNow=(c,e)=>!claudeOn(areaOfCase(c)==="legal"?"any":areaOfCase(c))||/Claude stopped|switched off/i.test(String((e&&e.message)||e||""));
+const claudeWait=c=>!!c&&!c.notCase&&!c.mergedInto&&((c.source==="mail"&&!c.classified&&!c.classifyFailed)||(c.needsRead&&!c.readFailed))&&!claudeOn(areaOfCase(c)==="legal"?"any":areaOfCase(c));
 const caseOfRef=ref=>{const id=String(ref||"").split(" · ")[0].trim();return id&&typeof cases!=="undefined"?cases.find(c=>c.id===id):null};
 const areaOfCase=c=>c?(isRD(c.type)?"dor":flowOf(c.type)==="legal"?"legal":"modt"):"";
 function claudeAreaOf(b){const c=caseOfRef(b.ref||window.__readRef);if(c)return areaOfCase(c)==="legal"?"any":areaOfCase(c);
@@ -1868,7 +1899,7 @@ async function cleanUp(){let P;try{toast("Counting what can be cleaned…");P=aw
       await saveCfg({...cfg,cleanAt:nowISO()});toast(`Cleaned: ${n} items`);render()}catch(e){toast("Clean-up stopped: "+(e.message||e))}},"Delete")}
 /* 12 Nov 2026: Claude plan tab (Admin only) - on / off per work, plan payments, daily use per case, wasted reads.
    Reports is not changed; this tab shows the Claude cost whether or not "Show money on screens" is on. */
-const CP={range:"today"};
+const CP={range:"30d"};/* 18 Nov 2026: opens on the last 30 days; today's total is always on top */
 function cpWaste(U){/* wasted = the same case + file read again within 6 h, a reply cut off (read again), or a read for a removed / merged case */
   const S={},rep=new Set(),LIM={modt_case:16000,modt:6000};U.slice().sort((a,b)=>String(a.at).localeCompare(String(b.at))).forEach(u=>{if(!u.ref)return;const k=u.kind+"|"+u.ref,L=S[k];if(L&&new Date(u.at)-new Date(L)<6*3600000)rep.add(u);S[k]=u.at});
   const cut=u=>u.cut!==undefined?!!u.cut:(+u.outTok||0)>=(LIM[u.kind]||3000)-5;
@@ -1881,35 +1912,45 @@ async function savePay(list){try{await db.doc("usage/_claude_pay").set({list,sav
 async function renderClaudePlan(){const box=$("claudeBox");if(!box||!isMD)return;if(CPAY===null)await loadPay();
   const off=cfg.claudeOff||{},pays=(CPAY||[]).slice().sort((a,b)=>String(b.date).localeCompare(String(a.date)));
   const ist=t=>new Date(new Date(t).getTime()+19800000).toISOString().slice(0,10),today=ist(Date.now());
-  const from=CP.range==="today"?today:CP.range==="7d"?ist(Date.now()-6*86400000):today.slice(0,8)+"01";
+  const from=CP.range==="today"?today:CP.range==="7d"?ist(Date.now()-6*86400000):CP.range==="30d"?ist(Date.now()-29*86400000):today.slice(0,8)+"01";
+  const tk=n=>{n=+n||0;return n>=1e6?(n/1e6).toFixed(2)+"M":n>=1e4?Math.round(n/1e3)+"k":n>=1e3?(n/1e3).toFixed(1)+"k":String(n)};
   const rs=v=>"₹"+(v*USD_INR).toLocaleString("en-IN",{maximumFractionDigits:v*USD_INR<10?1:0});
-  box.innerHTML=`<div class="card"><h2>Claude plan</h2><p class="sf-note">Only you see this tab. Switch Claude reading on or off for each work - nothing switches off by itself. When off, no Claude reading happens anywhere for that work (Drafting buttons, mail cases, the TP Desk's translations); you see a message instead.</p>
+  box.innerHTML=`<div class="card" style="border:2px solid ${off.all?"#b42318":"var(--line)"}"><h2>${off.all?"⛔ Claude is STOPPED":"Claude is running"}</h2><p class="sf-note">${off.all?`Stopped${off.allBy?" by "+esc(off.allBy):""}${off.allAt?" on "+esc(new Date(off.allAt).toLocaleString("en-IN")):""}. No Claude reading anywhere - MODT, Deed of Receipt, Legal report, KYC, mail cases. Cases wait in their stage with “⏸ Claude stopped”; nothing fails. Press Start Claude and they are read again by themselves.`:"One button stops every Claude call at once (all work). The switches below stay as they are and come back when you start Claude again."}</p>
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><button type="button" class="btn ${off.all?"primary":"danger"}" id="cpStop" style="font-size:15px;padding:10px 18px">${off.all?"▶ Start Claude":"⛔ Stop Claude"}</button><span id="cpToday" class="sf-note"></span></div></div>
+   <div class="card" style="margin-top:14px"><h2>Claude plan</h2><p class="sf-note">Only you see this tab. Switch Claude reading on or off for each work - nothing switches off by itself. When off, no Claude reading happens anywhere for that work (Drafting buttons, mail cases, the TP Desk's translations); you see a message instead.</p>
     <div style="display:flex;gap:10px;flex-wrap:wrap">${[["modt","MODT"],["dor","Deed of Receipt"]].map(([k,l])=>`<div class="kv" style="border:1px solid var(--line);border-radius:10px;padding:10px 14px;min-width:240px"><span>${l}</span><b style="color:${off[k]?"#b42318":"#067647"}">${off[k]?"Off":"On"}</b> <button type="button" class="btn ${off[k]?"primary":"danger"}" data-cpsw="${k}">${off[k]?"Switch on":"Switch off"}</button></div>`).join("")}</div></div>
    <div class="card" style="margin-top:14px"><h2>Plan payments</h2><div id="cpPays">${pays.length?`<table class="mini"><tr><th>Date</th><th class="c">Amount</th><th>Note</th><th></th></tr>${pays.map(p=>`<tr><td>${esc(p.date)}</td><td class="c">₹${Number(p.amt||0).toLocaleString("en-IN")}</td><td>${esc(p.note||"")}</td><td><button type="button" class="btn danger" data-cpdel="${esc(p.id)}">Delete</button></td></tr>`).join("")}</table>`:`<p class="sf-note">No payments entered yet.</p>`}</div>
     <div class="fgrid" style="margin-top:8px"><label>Date paid<input type="date" id="cpDate" value="${today}"></label><label>Amount (₹)<input type="number" id="cpAmt" min="0" step="1"></label><label class="full">Note (plan, card, invoice no.)<input id="cpNote"></label></div>
     <button type="button" class="btn primary" id="cpAdd" style="margin-top:6px">Add payment</button></div>
    <div class="card" style="margin-top:14px"><h2>Storage clean-up</h2><p class="sf-note">Last clean-up: ${cfg.cleanAt?esc(new Date(cfg.cleanAt).toLocaleString("en-IN")):"never"}. Every ${CLEAN_DAYS} days the Dashboard reminds you. Removes only the TP Desk's old working data (finished jobs, saved screens, screen notes, survey screenshots, recordings) - never cases or documents, and nothing of an open case.</p><button type="button" class="btn" id="cpClean">🧹 Clean up now</button></div>
-   <div class="card" style="margin-top:14px"><h2>Use and waste</h2><div style="display:flex;gap:6px;margin-bottom:8px">${[["today","Today"],["7d","Last 7 days"],["month","This month"]].map(([k,l])=>`<button type="button" class="btn ${CP.range===k?"primary":""}" data-cprange="${k}">${l}</button>`).join("")}</div><div id="cpUse"><p class="sf-note">Loading…</p></div></div>`;
+   <div class="card" style="margin-top:14px"><h2>Use and waste</h2><div style="display:flex;gap:6px;margin-bottom:8px">${[["today","Today"],["7d","Last 7 days"],["30d","Last 30 days"],["month","This month"]].map(([k,l])=>`<button type="button" class="btn ${CP.range===k?"primary":""}" data-cprange="${k}">${l}</button>`).join("")}</div><div id="cpUse"><p class="sf-note">Loading…</p></div></div>`;
+  $("cpStop").onclick=()=>{const stop=!off.all,go=async()=>{$("cpStop").disabled=true;await saveCfg({...cfg,claudeOff:{...(cfg.claudeOff||{}),all:stop,allBy:stop?who():"",allAt:stop?nowISO():""}});toast(stop?"Claude STOPPED - no Claude reading anywhere":"Claude started again");renderClaudePlan()};
+    if(stop)ask("Stop all Claude reading?",`<p class="sf-note">MODT, Deed of Receipt, Legal report, KYC and mail cases all stop using Claude at once, in every open window. Cases wait in their stage with “⏸ Claude stopped” - nothing fails. Start Claude again here any time.</p>`,go,"Stop Claude");else go()};
   box.querySelectorAll("[data-cpsw]").forEach(b=>b.onclick=async()=>{const k=b.dataset.cpsw,now={...(cfg.claudeOff||{}),[k]:!(cfg.claudeOff||{})[k]};b.disabled=true;await saveCfg({...cfg,claudeOff:now});toast(`Claude for ${k==="modt"?"MODT":"Deed of Receipt"} is ${now[k]?"OFF":"ON"}`);renderClaudePlan()});
   box.querySelectorAll("[data-cpdel]").forEach(b=>b.onclick=()=>ask("Delete this payment entry?",`<p class="sf-note">Only the entry in this list is removed.</p>`,async()=>{await savePay((CPAY||[]).filter(p=>p.id!==b.dataset.cpdel));renderClaudePlan()},"Delete"));
   $("cpAdd").onclick=async()=>{const date=$("cpDate").value,amt=+$("cpAmt").value;if(!date||!(amt>0)){toast("Enter the date and the amount");return}
     await savePay([...(CPAY||[]),{id:uuid(),date,amt,note:$("cpNote").value.trim(),by:me||"",at:nowISO()}]);toast("Payment added");renderClaudePlan()};
   box.querySelectorAll("[data-cprange]").forEach(b=>b.onclick=()=>{CP.range=b.dataset.cprange;renderClaudePlan()});$("cpClean").onclick=cleanUp;
   let U=[];try{const fromUtc=new Date(new Date(from+"T00:00:00+05:30").getTime()).toISOString();const{data}=await window.__sb.from("kv").select("data").eq("collection","usage").gte("data->>at",fromUtc).limit(5000);U=(data||[]).map(r=>r.data)}catch(e){$("cpUse").innerHTML=`<p class="banner">Could not load the use: ${esc(e.message||e)}</p>`;return}
-  const usd=u=>+u.usd||aiUsd(u),why=cpWaste(U),D={},C={},A={modt:"MODT",dor:"Deed of Receipt",legal:"Legal report",other:"Other (KYC Master, no case)"};let tot=0,waste=0;
-  U.forEach(u=>{const v=usd(u),a=cpArea(u),w=why(u),day=ist(u.at),c=caseOfRef(u.ref);tot+=v;if(w)waste+=v;
-    const d=D[day]||(D[day]={modt:new Set(),dor:new Set(),usd:{modt:0,dor:0,legal:0,other:0},n:0,w:0,wu:0,nc:0});d.n++;if(!c)d.nc++;d.usd[a]=(d.usd[a]||0)+v;if(c&&d[a])d[a].add(c.id);if(w){d.w++;d.wu+=v}
-    const key=c?c.id:"(no case recorded)",x=C[key]||(C[key]={c,area:a,n:0,usd:0,w:0,wu:0,why:{},by:new Set()});x.n++;x.usd+=v;x.by.add(u.name||u.email||"?");if(w){x.w++;x.wu+=v;x.why[w]=(x.why[w]||0)+1}});
+  const usd=u=>+u.usd||aiUsd(u),why=cpWaste(U),D={},C={},W={},A={modt:"MODT",dor:"Deed of Receipt",legal:"Legal report",other:"Other (KYC Master, no case)"};let tot=0,waste=0,tok=0,tdU=0,tdT=0,tdN=0;
+  const tok1=u=>(+u.inTok||0)+(+u.outTok||0);
+  U.forEach(u=>{const v=usd(u),a=cpArea(u),w=why(u),day=ist(u.at),c=caseOfRef(u.ref),t=tok1(u);tot+=v;tok+=t;if(w)waste+=v;if(day===today){tdU+=v;tdT+=t;tdN++}
+    const d=D[day]||(D[day]={modt:new Set(),dor:new Set(),usd:{modt:0,dor:0,legal:0,other:0},n:0,w:0,wu:0,nc:0,tok:0});d.n++;d.tok+=t;if(!c)d.nc++;d.usd[a]=(d.usd[a]||0)+v;if(c&&d[a])d[a].add(c.id);if(w){d.w++;d.wu+=v}
+    const y=W[a]||(W[a]={n:0,usd:0,inT:0,outT:0});y.n++;y.usd+=v;y.inT+=+u.inTok||0;y.outT+=+u.outTok||0;
+    const key=c?c.id:"(no case recorded)",x=C[key]||(C[key]={c,area:a,n:0,usd:0,w:0,wu:0,why:{},by:new Set(),tok:0});x.n++;x.usd+=v;x.tok+=t;x.by.add(u.name||u.email||"?");if(w){x.w++;x.wu+=v;x.why[w]=(x.why[w]||0)+1}});
+  if($("cpToday"))$("cpToday").innerHTML=`Today: <b>${rs(tdU)}</b> · ${tk(tdT)} tokens · ${tdN} reading${tdN===1?"":"s"}`;
   /* 13 Nov 2026: old readings do not record their case - show about how many cases were made that day instead (marked ~) */
   const MADE={};cases.forEach(c=>{if(!c.createdAt||c.notCase||c.mergedInto)return;const k=ist(c.createdAt),a=areaOfCase(c);if(a!=="modt"&&a!=="dor")return;(MADE[k]||(MADE[k]={modt:0,dor:0}))[a]++});
   const cpN=(day,v,a)=>v[a].size?String(v[a].size):v.nc&&(MADE[day]||{})[a]?`<span title="About: cases made that day (these readings did not record their case)" style="color:var(--muted)">~${MADE[day][a]}</span>`:"0";
   const paidM=(CPAY||[]).filter(p=>String(p.date).slice(0,7)===today.slice(0,7)).reduce((t,p)=>t+(+p.amt||0),0);
   const kv=(l,v)=>`<div class="kv"><span>${l}</span><b>${v}</b></div>`;
-  $("cpUse").innerHTML=`<div class="kvs">${kv("Spent",rs(tot)+` · ${U.length} readings`)}${kv("Wasted",`<span style="color:${waste?"#b42318":""}">${rs(waste)}</span> (read again, reply cut off, removed case)`)}${kv("Paid this month",paidM?"₹"+paidM.toLocaleString("en-IN"):"-")}</div>
-    <h3 style="margin:12px 0 4px">Each day</h3><div style="overflow-x:auto"><table class="mini"><tr><th>Day</th><th class="c">MODT cases</th><th class="c">MODT cost</th><th class="c">Receipt cases</th><th class="c">Receipt cost</th><th class="c">Other</th><th class="c">Readings</th><th class="c">Wasted</th></tr>
-    ${Object.entries(D).sort((a,b)=>b[0].localeCompare(a[0])).map(([d,v])=>`<tr><td>${d}</td><td class="c">${cpN(d,v,"modt")}</td><td class="c">${rs(v.usd.modt||0)}</td><td class="c">${cpN(d,v,"dor")}</td><td class="c">${rs(v.usd.dor||0)}</td><td class="c">${rs((v.usd.legal||0)+(v.usd.other||0))}</td><td class="c">${v.n}</td><td class="c">${v.w?`${v.w} · ${rs(v.wu)}`:"0"}</td></tr>`).join("")||`<tr><td colspan="8">No Claude reading in this period.</td></tr>`}</table></div>
-    <h3 style="margin:12px 0 4px">Each case (most wasted first)</h3><div style="overflow-x:auto"><table class="mini"><tr><th>Case</th><th>Work</th><th class="c">Readings</th><th class="c">Cost</th><th class="c">Wasted</th><th>Why wasted</th><th>Login</th></tr>
-    ${Object.entries(C).sort((a,b)=>b[1].wu-a[1].wu||b[1].usd-a[1].usd).map(([k,x])=>`<tr><td>${esc(k)}${x.c?`<span class="sub">${esc(x.c.applicant||"")}</span>`:""}</td><td>${esc(A[x.area]||x.area)}</td><td class="c">${x.n}</td><td class="c">${rs(x.usd)}</td><td class="c">${x.w?`<b style="color:#b42318">${x.w} · ${rs(x.wu)}</b>`:"0"}</td><td>${esc(Object.entries(x.why).map(([w,n])=>`${w} ×${n}`).join(", "))}</td><td>${esc([...x.by].join(", "))}</td></tr>`).join("")}</table></div>
+  $("cpUse").innerHTML=`<div class="kvs">${kv("Today",`<b>${rs(tdU)}</b> · ${tk(tdT)} tokens`)}${kv("Spent in this period",rs(tot)+` · ${tk(tok)} tokens · ${U.length} readings`)}${kv("Wasted",`<span style="color:${waste?"#b42318":""}">${rs(waste)}</span> (read again, reply cut off, removed case)`)}${kv("Paid this month",paidM?"₹"+paidM.toLocaleString("en-IN"):"-")}</div>
+    <h3 style="margin:12px 0 4px">Each work type</h3><div style="overflow-x:auto"><table class="mini"><tr><th>Work</th><th class="c">Readings</th><th class="c">Tokens in</th><th class="c">Tokens out</th><th class="c">Cost</th></tr>
+    ${["modt","dor","legal","other"].filter(k=>W[k]).map(k=>`<tr><td>${esc(A[k])}</td><td class="c">${W[k].n}</td><td class="c">${tk(W[k].inT)}</td><td class="c">${tk(W[k].outT)}</td><td class="c">${rs(W[k].usd)}</td></tr>`).join("")||`<tr><td colspan="5">No Claude reading in this period.</td></tr>`}</table></div>
+    <h3 style="margin:12px 0 4px">Each day</h3><div style="overflow-x:auto"><table class="mini"><tr><th>Day</th><th class="c">MODT cases</th><th class="c">MODT cost</th><th class="c">Receipt cases</th><th class="c">Receipt cost</th><th class="c">Legal report</th><th class="c">Other</th><th class="c">Total</th><th class="c">Tokens</th><th class="c">Readings</th><th class="c">Wasted</th></tr>
+    ${Object.entries(D).sort((a,b)=>b[0].localeCompare(a[0])).map(([d,v])=>`<tr><td>${d}${d===today?" <b>(today)</b>":""}</td><td class="c">${cpN(d,v,"modt")}</td><td class="c">${rs(v.usd.modt||0)}</td><td class="c">${cpN(d,v,"dor")}</td><td class="c">${rs(v.usd.dor||0)}</td><td class="c">${rs(v.usd.legal||0)}</td><td class="c">${rs(v.usd.other||0)}</td><td class="c"><b>${rs(Object.values(v.usd).reduce((t,x)=>t+(x||0),0))}</b></td><td class="c">${tk(v.tok)}</td><td class="c">${v.n}</td><td class="c">${v.w?`${v.w} · ${rs(v.wu)}`:"0"}</td></tr>`).join("")||`<tr><td colspan="11">No Claude reading in this period.</td></tr>`}</table></div>
+    <h3 style="margin:12px 0 4px">Each case (most wasted first)</h3><div style="overflow-x:auto"><table class="mini"><tr><th>Case</th><th>Work</th><th class="c">Readings</th><th class="c">Tokens</th><th class="c">Cost</th><th class="c">Wasted</th><th>Why wasted</th><th>Login</th></tr>
+    ${Object.entries(C).sort((a,b)=>b[1].wu-a[1].wu||b[1].usd-a[1].usd).map(([k,x])=>`<tr><td>${esc(k)}${x.c?`<span class="sub">${esc(x.c.applicant||"")}</span>`:""}</td><td>${esc(A[x.area]||x.area)}</td><td class="c">${x.n}</td><td class="c">${tk(x.tok)}</td><td class="c">${rs(x.usd)}</td><td class="c">${x.w?`<b style="color:#b42318">${x.w} · ${rs(x.wu)}</b>`:"0"}</td><td>${esc(Object.entries(x.why).map(([w,n])=>`${w} ×${n}`).join(", "))}</td><td>${esc([...x.by].join(", "))}</td></tr>`).join("")}</table></div>
     <p class="sf-note">Readings made before 12 Nov 2026 (or from an old portal window) do not record their case, so they show as "(no case recorded)"; for those days "~" shows about how many cases were made that day. Cost is worked out from the tokens at ₹${USD_INR} a dollar.</p>`}
 async function renderTime(from,to,want,on){const t=$("timeTbl");if(!t)return;let rows=[];
   try{const{data}=await window.__sb.from("kv").select("data").eq("collection","presence").gte("data->>date",from).lt("data->>date",to).limit(5000);rows=(data||[]).map(r=>r.data)}catch(e){}
@@ -1971,7 +2012,7 @@ async function classifyMail(c){window.__readRef=c.id+" · sort mail files";const
   if(!c.bank&&data.fields.lender){const b=await bankFromName(data.fields.lender);if(b){ch.bank=b;ch.mailBankDone=true}}
   const ln=(R.find(x=>x.type==="modt"&&x.loan_no)||R.find(x=>x.loan_no)||{}).loan_no||lanOf(c.mailSubject);if(!c.loanNo&&ln)ch.loanNo=String(ln);
   const nm=(R.find(x=>x.type==="modt"&&x.customer)||R.find(x=>x.customer)||{}).customer;if(c.applicantFromMail&&nm){ch.applicant=cleanCust(nm)}
-  if(multi)ch.robotQs=[...(c.robotQs||[]),{id:crypto.randomUUID(),q:"This mail seems to have more than one customer / MODT. Split it?",options:["Yes, I'll use Split case","No, one case"],hint:[...custs].join(", ")}];
+  if(multi)ch.robotQs=addQs(c.robotQs,[{id:crypto.randomUUID(),key:"split",q:"This mail seems to have more than one customer / MODT. Split it?",options:["Yes, I'll use Split case","No, one case"],hint:[...custs].join(", ")}]);
   await db.collection("cases").doc(c._doc).update(ch)}
 let ATTN=false;
 /* a lender not in the company list: add it (Admin) and use it, instead of holding the case */
@@ -2598,10 +2639,50 @@ function renderSettings(){
   const p=cfg.pay||{};["account","upi","link","wa","waOo"].forEach(k=>{$("pay_"+k).value=p[k]||"";$("pay_"+k).disabled=ro});$("paySave").hidden=ro;
   tnRender(ro);renderStageTool();
   const PART=tab==="__reg"?"reg":tab==="__tools"?"tools":"set",onlyStage=isPartner()&&!isMD&&!isAdmin;
-  const roleHide={robotDlCard:!isMD,clientCard:!isMD,rulesCard:!(isMD||isAdmin),bakCard:!isMD,stageCard:false};
+  const roleHide={robotDlCard:!isMD,clientCard:!isMD,rulesCard:!(isMD||isAdmin),bakCard:!isMD,stageCard:false,devCard:!isMD};if(isMD)renderDevices();
   document.querySelectorAll("#v-set [data-part]").forEach(e=>{e.hidden=e.dataset.part!==PART||!!roleHide[e.id]||(onlyStage&&PART!=="reg"&&e.id!=="stageCard")});
   $("setNote").hidden=!ro||PART==="tools";
 }
+/* ---- 18 Nov 2026: login alert (the MD) ----
+   A login opened on a second device while it is in use on another: the person and the Admin see this banner at once
+   (checked every 30 seconds). "This was not me" signs out every other device of that login and ends their Supabase
+   sessions; the Admin can also sign out any one device. Every alert and what was done is kept (Settings → Login alerts). */
+const devName=ua=>{ua=String(ua||"");const os=/android/i.test(ua)?"Android phone":/iphone/i.test(ua)?"iPhone":/ipad/i.test(ua)?"iPad":/windows/i.test(ua)?"Windows computer":/mac os|macintosh/i.test(ua)?"Mac":/linux/i.test(ua)?"Linux computer":"Device";
+  const br=/edg\//i.test(ua)?"Edge":/opr\//i.test(ua)?"Opera":/chrome|crios/i.test(ua)?"Chrome":/firefox|fxios/i.test(ua)?"Firefox":/safari/i.test(ua)?"Safari":"browser";return os+" · "+br};
+const istTime=t=>t?new Date(t).toLocaleString("en-IN",{day:"2-digit",month:"short",hour:"2-digit",minute:"2-digit",hour12:true,timeZone:"Asia/Kolkata"}):"";
+const LA={hide:new Set(),L:[]};
+async function loginAlerts(){if(!window.__sb)return;let L;try{const{data,error}=await window.__sb.rpc("login_alerts_list");if(error)return;L=data||[]}catch(e){return}LA.L=L;
+  const mine=(window.__email||"").toLowerCase(),open=L.filter(a=>a.status==="open"&&!LA.hide.has(a.id));let box=$("loginAlert");
+  if(!open.length){if(box)box.remove();return}
+  if(!box){box=document.createElement("div");box.id="loginAlert";box.setAttribute("role","alert");box.style.cssText="position:fixed;top:10px;left:50%;transform:translateX(-50%);z-index:9500;width:min(640px,calc(100% - 24px));display:flex;flex-direction:column;gap:8px";document.body.appendChild(box)}
+  box.innerHTML=open.map(a=>{const own=a.email===mine,oth=(a.others||[]).map(o=>`${esc(devName(o.ua))} (seen ${esc(istTime(o.last))})`).join(", ")||"another device";
+    return`<div class="card" style="border:2px solid #b42318;background:#fff5f4;padding:12px 14px;box-shadow:0 8px 24px rgba(0,0,0,.18)"><b style="color:#b42318">🔐 ${own?"Your login":esc(a.name||a.email)+"'s login"} was opened on another device</b>
+      <div class="sf-note" style="margin:4px 0 8px">New: <b>${esc(devName(a.ua))}</b> at <b>${esc(istTime(a.at))}</b>${own?"":` · ${esc(a.email)}`}<br>Already in use on: ${oth}</div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap">${own?`<button type="button" class="btn danger" data-lano="${esc(a.id)}">This was not me – sign out other devices</button><button type="button" class="btn" data-lame="${esc(a.id)}">It was me</button>`
+        :`<button type="button" class="btn danger" data-lanew="${esc(a.id)}">Sign out the new device</button><button type="button" class="btn danger" data-laall="${esc(a.id)}">Sign out all their other devices</button><button type="button" class="btn" data-lame="${esc(a.id)}">OK – it is fine</button>`}
+        <button type="button" class="btn" data-lahide="${esc(a.id)}" title="Hide here for now; it stays open in Settings">Later</button></div></div>`}).join("");
+  const A=id=>LA.L.find(x=>x.id===id),done=()=>{loginAlerts();if(isMD&&$("devBox"))renderDevices()};
+  box.querySelectorAll("[data-lano]").forEach(b=>b.onclick=async()=>{const a=A(b.dataset.lano);if(!a)return;b.disabled=true;
+    try{const{data,error}=await window.__sb.rpc("devices_sign_out",{p_email:a.email,p_keep:window.__dev||"",p_dev:"",p_alert:a.id});if(error)throw error;
+      try{await window.__sb.auth.signOut({scope:"others"})}catch(e){}
+      toast(`Signed out ${data||0} other device${data===1?"":"s"}. Change your password now (top right) if you think someone knows it.`)}catch(e){toast("Could not sign out: "+(e.message||e));b.disabled=false}done()});
+  box.querySelectorAll("[data-lanew]").forEach(b=>b.onclick=async()=>{const a=A(b.dataset.lanew);if(!a)return;b.disabled=true;
+    try{const{error}=await window.__sb.rpc("devices_sign_out",{p_email:a.email,p_keep:"",p_dev:a.dev,p_alert:a.id});if(error)throw error;toast(`${devName(a.ua)} of ${a.name||a.email} is signed out`)}catch(e){toast("Could not sign out: "+(e.message||e));b.disabled=false}done()});
+  box.querySelectorAll("[data-laall]").forEach(b=>b.onclick=async()=>{const a=A(b.dataset.laall);if(!a)return;b.disabled=true;
+    try{const{data,error}=await window.__sb.rpc("devices_sign_out",{p_email:a.email,p_keep:"",p_dev:"",p_alert:a.id});if(error)throw error;toast(`${data||0} device(s) of ${a.name||a.email} signed out`)}catch(e){toast("Could not sign out: "+(e.message||e));b.disabled=false}done()});
+  box.querySelectorAll("[data-lame]").forEach(b=>b.onclick=async()=>{b.disabled=true;try{await window.__sb.rpc("login_alert_close",{p_alert:b.dataset.lame,p_action:b.textContent.trim()})}catch(e){}done()});
+  box.querySelectorAll("[data-lahide]").forEach(b=>b.onclick=()=>{LA.hide.add(b.dataset.lahide);loginAlerts()})}
+window.__loginAlerts=loginAlerts;if(window.__email)setTimeout(loginAlerts,800);/* signed in before this script ran: check now, not after 30 s */
+async function renderDevices(){const box=$("devBox");if(!box||!isMD)return;let D=[];try{const{data,error}=await window.__sb.rpc("devices_list");if(error)throw error;D=data||[]}catch(e){box.innerHTML=`<p class="banner">Could not load devices: ${esc(e.message||e)}. Run supabase/login_alert.sql once in Supabase → SQL Editor.</p>`;return}
+  if(!LA.L.length)try{const{data}=await window.__sb.rpc("login_alerts_list");LA.L=data||[]}catch(e){}
+  const live=D.filter(d=>!d.revoked),act=live.filter(d=>d.active).length;
+  box.innerHTML=`<h3 style="margin:6px 0 4px">Devices (${live.length} · ${act} in use now)</h3><div style="overflow-x:auto"><table class="mini"><tr><th>Person</th><th>Device</th><th>Last seen</th><th>First seen</th><th></th></tr>
+    ${D.map(d=>`<tr${d.revoked?' style="opacity:.55"':""}><td>${esc(d.name||d.email)}<span class="sub">${esc(d.email)}</span></td><td>${esc(devName(d.ua))}${d.dev===window.__dev?' <span class="pill p-info">this device</span>':""}</td><td>${d.revoked?`Signed out ${esc(istTime(d.revokedAt))}${d.revokedBy?" by "+esc(d.revokedBy):""}`:d.active?'<span class="ok">● In use</span>':esc(ago(d.last))}</td><td>${esc(istTime(d.first))}</td>
+      <td>${d.revoked||d.dev===window.__dev?"":`<button type="button" class="btn danger" data-devout="${esc(d.dev)}" data-em="${esc(d.email)}">Sign out</button>`}</td></tr>`).join("")||`<tr><td colspan="5" class="sf-note">No devices yet.</td></tr>`}</table></div>
+    <h3 style="margin:12px 0 4px">Alert log (last 60 days)</h3><div style="overflow-x:auto"><table class="mini"><tr><th>When</th><th>Person</th><th>New device</th><th>Already in use on</th><th>What was done</th></tr>
+    ${LA.L.map(a=>`<tr><td>${esc(istTime(a.at))}</td><td>${esc(a.name||a.email)}</td><td>${esc(devName(a.ua))}</td><td>${esc((a.others||[]).map(o=>devName(o.ua)).join(", "))}</td><td>${a.status==="open"?'<b style="color:#b42318">Open</b>':`${esc(a.action||"Closed")}${a.by?" · "+esc(a.by):""}${a.doneAt?" · "+esc(istTime(a.doneAt)):""}`}</td></tr>`).join("")||`<tr><td colspan="5" class="sf-note">No alerts.</td></tr>`}</table></div>`;
+  box.querySelectorAll("[data-devout]").forEach(b=>b.onclick=()=>ask("Sign out this device?",`<p class="sf-note">${esc(b.dataset.em)} · ${esc(b.closest("tr").children[1].textContent)}. It leaves the portal within 30 seconds; signing in again needs the password.</p>`,async()=>{
+    const{error}=await window.__sb.rpc("devices_sign_out",{p_email:b.dataset.em,p_keep:"",p_dev:b.dataset.devout,p_alert:""});if(error){toast(error.message);return}toast("Device signed out");renderDevices()},"Sign out"))}
 /* ---- Tools: move ONE case to any stage (Admin; a partner only his team's cases) ---- */
 function teamCase(c){const o=myOrg();if(!o)return true;const L=cfg.staff.map(staffObj).filter(m=>(m.team||m.partner)===o).map(m=>m.name);
   return c.org===o||c.source==="mail"||L.includes(c.assignee)||L.includes((stageLog(c)[0]||{}).by)}
@@ -3259,12 +3340,21 @@ async function claudeRead(canvases){if(!window.__sb)return null;
 function verhoeff(n){const d=[[0,1,2,3,4,5,6,7,8,9],[1,2,3,4,0,6,7,8,9,5],[2,3,4,0,1,7,8,9,5,6],[3,4,0,1,2,8,9,5,6,7],[4,0,1,2,3,9,5,6,7,8],[5,9,8,7,6,0,4,3,2,1],[6,5,9,8,7,1,0,4,3,2],[7,6,5,9,8,2,1,0,4,3],[8,7,6,5,9,3,2,1,0,4],[9,8,7,6,5,4,3,2,1,0]],p=[[0,1,2,3,4,5,6,7,8,9],[1,5,7,6,2,8,3,0,9,4],[5,8,0,3,7,9,6,1,4,2],[8,9,1,6,0,4,3,5,2,7],[9,4,5,3,1,2,6,8,7,0],[4,2,8,6,5,7,3,9,0,1],[2,7,9,3,8,0,6,4,1,5],[7,0,4,6,9,1,3,2,5,8]];
   n=String(n||"");if(!/^[2-9]\d{11}$/.test(n))return false;let c=0;n.split("").reverse().forEach((x,i)=>{c=d[c][p[i%8][+x]]});return c===0}
 function aadhaarGood(o){return!!(o&&o.name&&o.name.split(/\s+/).join("").length>=3&&verhoeff(o.aadhaar)&&o.dob&&o.gender)}
+/* 18 Nov 2026: answers to Aadhaar doubts, by card (last 4 digits + name) + field + the value read. This browser always keeps them;
+   the Admin's answers also go to the shared settings so every login gets them */
+const AAD_ANS_K="vgr.aadAns";
+function aadAnsGet(){let L={};try{L=JSON.parse(localStorage.getItem(AAD_ANS_K)||"{}")||{}}catch(e){}return{...L,...((typeof cfg!=="undefined"&&cfg&&cfg.aadAns)||{})}}
+const aadAnsKey=(c,q)=>[String(c.aadhaar||"").replace(/\D/g,"").slice(-4),qNorm(c.name),q.key,qNorm(q.read)].join("|");
+async function aadAnsPut(add){if(!add||!Object.keys(add).length)return;const trim=o=>Object.fromEntries(Object.entries(o).slice(-500));
+  try{let L={};try{L=JSON.parse(localStorage.getItem(AAD_ANS_K)||"{}")||{}}catch(e){}localStorage.setItem(AAD_ANS_K,JSON.stringify(trim({...L,...add})))}catch(e){}
+  if(typeof isMD!=="undefined"&&(isMD||isAdmin))try{await saveCfg({...cfg,aadAns:trim({...(cfg.aadAns||{}),...add})})}catch(e){}}
 /* ID cards (Aadhaar of witness, representative, mortgagor, KYC): always read by Claude, no free OCR */
 async function readAadhaar(files,say,noAsk){const{canvases}=await canvasesOf(files,say);
   say("Reading the card with Claude… about 5–10 seconds.");const c=await claudeRead(canvases);
   if(!c||!c.name)throw new Error(window.__noCredit?"Claude credit is finished":"Claude could not read this card. Try a clearer photo or PDF.");
-  const dq=c._doubts||[];delete c._doubts;
-  if(dq.length&&!noAsk){const ans=await doubtDialog(dq);dq.forEach((q,i)=>{if(ans[i])c[q.key]=q.key==="aadhaar"?digits(ans[i]):ans[i]});cleanAddrPair(c,"addr","addr_ta","district")}
+  /* 18 Nov 2026: a doubt answered once on a card is not asked again when the same card is read again */
+  const A=aadAnsGet(),dq=[],kOf=new Map();(c._doubts||[]).forEach(q=>{const k=aadAnsKey(c,q);kOf.set(q,k);if(A[k]!==undefined)c[q.key]=q.key==="aadhaar"?digits(A[k]):A[k];else dq.push(q)});delete c._doubts;
+  if(dq.length&&!noAsk){const ans=await doubtDialog(dq),add={};dq.forEach((q,i)=>{if(ans[i]){c[q.key]=q.key==="aadhaar"?digits(ans[i]):ans[i];add[kOf.get(q)]=ans[i]}});aadAnsPut(add);cleanAddrPair(c,"addr","addr_ta","district")}
   if(c.name)c.name=c.name.toUpperCase();if(c.rel_name)c.rel_name=c.rel_name.toUpperCase();c._how="claude";return c}
 /* English → Tamil (same as TNREGINET's F8 typing), via Google Input Tools */
 async function toTamil(text){text=String(text||"").trim();if(!text)return"";const segs=text.split(/(\s*[,\/\-]\s*|\s+)/);const out=[];
@@ -3472,6 +3562,11 @@ async function claudeModt(file){if(!window.__sb)return null;const{canvases,text}
   return{d,doubts,src:file.name,bankText:[f.bank,f.bank_branch].filter(Boolean).join(" ")}}
 const MODT_KEY={sro:"SRO",sro_ta:"SRO Tamil",book:"Book",doc_no:"Doc No",year:"Year",mortgagor_sal:"Mortgagor salutation",mortgagor:"Mortgagor",mortgagor_ta:"Mortgagor name (Tamil)",age:"Mortgagor Age",rel_type:"Mortgagor relation",rel_name:"Mortgagor relative name",aadhaar:"Mortgagor Aadhaar",address:"Mortgagor address",pincode:"Mortgagor pincode",mobile:"Mortgagor mobile",bank_address:"Company address",bank_address_ta:"Company address (Tamil)",branch_address:"Company address",branch_address_ta:"Company address (Tamil)",bank_state:"Company state",bank_district:"Company district",bank_pincode:"Company pincode",loan_amount:"Loan Amount",loan_account:"Loan account",property_district:"Property district",property_sro:"Property SRO",village:"Village",survey_no:"Survey number",extent:"Extent",north:"Boundary North",east:"Boundary East",west:"Boundary West",south:"Boundary South",earlier_doc_no:"Supp MODT Doc No",earlier_year:"Supp MODT Year",earlier_sro:"Supp MODT SRO",earlier_loan_amount:"Supp loan amount"};
 function modtKey(k){k=String(k||"");if(MODT_KEY[k])return MODT_KEY[k];const m=k.match(/co_mortgagors\W*(\d)\W*(\w+)/);if(!m)return"";const n=+m[1]+2,sub={name:"name",name_ta:"name (Tamil)",age:"age",rel_type:"relation",rel_name:"relative name"}[m[2]];return sub?`Mortgagor ${n} ${sub}`:""}
+/* 18 Nov 2026: one key per question - the same field (Drafting / TP store), or the same check with the same text; answered or
+   waiting, a question with the same key is never added again (re-reads, re-runs, other windows) */
+const qNorm=x=>String(x??"").trim().toLowerCase().replace(/\s+/g," ");
+const qKey=q=>q.key||(q.field?`${q.store||"draft"}|${q.field}`:`${q.src||q.kind||""}|${qNorm(q.q)}`);
+function addQs(list,add){const L=list||[];return[...L,...(add||[]).filter((q,i,a)=>!L.some(x=>qKey(x)===qKey(q))&&a.findIndex(y=>qKey(y)===qKey(q))===i)]}
 /* doubts become questions on the case, each with a picture of the exact spot (kept in storage, shown next to the question) */
 async function doubtQs(c,list,store,src){const out=[];
   /* 12 Nov 2026: a re-read never asks again what was already answered (or saved in Drafting), unless Claude now reads a new value */
@@ -3645,9 +3740,11 @@ async function readModtCase(c,force){window.__readRef=c.id+" · MODT case read";
     if(lodHtml)for(let i=dq.length-1;i>=0;i--)if(dq[i].field==="List of documents deposited")dq.splice(i,1);/* the Word table is pasted as it is - no question */
     const ch={draft:d,draftText:draft.slice(0,20000),...(legal.trim()?{legalText:legal.slice(0,20000)}:{}),tpAuto:{...(c.tpAuto||{}),...Object.fromEntries(Object.entries(F).map(([k,v])=>[k,String(v??"")]))},tpNotes:doubts};if(lodHtml){ch.lodHtml=lodHtml;ch.lodFrom=null;ch.lodWord=null}
     if(dq.length)ch.robotQs=await doubtQs(c,dq,"draft","MODT documents");
-    {const u=caseUnit(d),a=areaSqm(extFull(d)),b=areaSqm(d["Total survey extent"]);if(a&&b&&a>b*1.002&&/agri/i.test(d["Property type"]||""))ch.robotQs=[...(ch.robotQs||c.robotQs||[]),{id:crypto.randomUUID(),q:`Mortgaged extent (MODT) ${d.Extent} is MORE than the patta total ${areaIn(d["Total survey extent"],u)} ${u}. Which is right?`,options:[`MODT is right: ${d.Extent}`,"Patta is right - I will correct the MODT extent"],hint:"The mortgaged extent cannot be more than the whole survey extent in the patta",src:"Extent check",at:nowISO()}]}
-    {const miss=["North","South","East","West"].filter(x=>String(d["Boundary "+x]??"")===""||String(d[`Boundary ${x} Tamil`]??"")==="");if(miss.length)ch.robotQs=[...(ch.robotQs||c.robotQs||[]),...miss.map(x=>({id:crypto.randomUUID(),q:`Boundary ${x} is not in the MODT draft or the title deed reading. Type it (English) from the title deed.`,options:[],field:"Boundary "+x,hint:"All four boundaries are needed in English and Tamil",src:"Boundary check",at:nowISO()}))]}
-    if(/urban|rural|natham/i.test(doubts)&&!(ch.robotQs||c.robotQs||[]).some(q=>q.field==="Land type"&&!q.answer))ch.robotQs=[...(ch.robotQs||c.robotQs||[]),{id:crypto.randomUUID(),q:"Is this property Urban, Rural or Natham?",options:["Urban","Rural","Natham"],field:"Land type",hint:doubts.slice(0,300)}];
+    /* 18 Nov 2026 (the MD: the same question again and again): these checks run on every re-read - addQs adds a question only
+       when the same one (same field, or same check with the same values) was never answered and is not waiting */
+    {const u=caseUnit(d),a=areaSqm(extFull(d)),b=areaSqm(d["Total survey extent"]);if(a&&b&&a>b*1.002&&/agri/i.test(d["Property type"]||""))ch.robotQs=addQs(ch.robotQs||c.robotQs,[{id:crypto.randomUUID(),key:`extent|${d.Extent}|${d["Total survey extent"]}`,q:`Mortgaged extent (MODT) ${d.Extent} is MORE than the patta total ${areaIn(d["Total survey extent"],u)} ${u}. Which is right?`,options:[`MODT is right: ${d.Extent}`,"Patta is right - I will correct the MODT extent"],hint:"The mortgaged extent cannot be more than the whole survey extent in the patta",src:"Extent check",at:nowISO()}])}
+    {const miss=["North","South","East","West"].filter(x=>String(d["Boundary "+x]??"")===""||String(d[`Boundary ${x} Tamil`]??"")==="");if(miss.length)ch.robotQs=addQs(ch.robotQs||c.robotQs,miss.map(x=>({id:crypto.randomUUID(),q:`Boundary ${x} is not in the MODT draft or the title deed reading. Type it (English) from the title deed.`,options:[],field:"Boundary "+x,hint:"All four boundaries are needed in English and Tamil",src:"Boundary check",at:nowISO()})))}
+    if(/urban|rural|natham/i.test(doubts)&&!String(d["Land type"]||"").trim())ch.robotQs=addQs(ch.robotQs||c.robotQs,[{id:crypto.randomUUID(),q:"Is this property Urban, Rural or Natham?",options:["Urban","Rural","Natham"],field:"Land type",hint:doubts.slice(0,300)}]);
     await patch(c,ch,`MODT documents read by Claude (${n} fields filled)`);
     let fresh=cases.find(x=>x._doc===c._doc)||{...c,...ch};if(rv.c&&rv.c._doc===c._doc)openReview(fresh,rv.gen);
     /* saved first; now the customer's own witnesses (Aadhaar uploaded in this case: used for this case only, never added to KYC Master) and the name on each title holder Aadhaar */

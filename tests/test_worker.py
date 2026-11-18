@@ -96,11 +96,25 @@ P2 = _P()
 check("until gives up after the longest wait", ns["until"](P2, lambda: False, 0.3, 0.1), False)
 check("watch: live screen only while watched, nothing clicked", 'getattr(self.job, "watching", False)' in src and '"select": "st:data->>status,w:data->>watch"' in src, True)
 # 13 Nov 2026: the survey question is not asked again and again
+a = src.index("GO_ON_RE = "); exec(src[a:src.index("\n\n\ndef survey_ok(", a)], ns)
 a = src.index("def survey_qs_keep("); exec(src[a:src.index("\n\n\ndef survey_question(", a)], ns)
 Q = [{"kind": "survey", "q": "Survey screen: X", "job": "j1"}, {"kind": "survey", "q": "Old", "job": "j1", "answer": "Fixed by hand"}, {"kind": "doubt", "q": "D"}]
 check("same question waiting -> not added", ns["survey_qs_keep"](Q, "Survey  screen: x", "j2"), None)
 check("new run replaces old unanswered survey qs, keeps answered + others", [x["q"] for x in ns["survey_qs_keep"](Q, "Other", "j2")], ["Old", "D"])
 check("same run keeps its own questions", len(ns["survey_qs_keep"](Q, "Other", "j1")), 3)
+# 18 Nov 2026: the survey question still came again - same problem in different words = same question; answered = never asked again
+a = src.index("GO_ON_RE = "); exec(src[a:src.index("\n\n\ndef survey_ok(", a)], ns)
+K = ns["survey_key"]
+check("key: table text left out", K("Survey screen: extent 10 not in the table. We typed survey 12/3, extent 10 Sq.Ft. Table now: 12/3 9"), K("Survey screen: extent 10 not in the table. We typed survey 12/3, extent 10 Sq.Ft. Table now: (empty)"))
+check("key: option list / count left out", K("Survey screen: survey number 45 is not in TNREGINET's Survey No. list (12 options: 1, 2, 3). Pick the right one, then start the TP again."), K("Survey screen: survey number 45 is not in TNREGINET's Survey No. list (14 options: 1, 2, 3, 4). Pick the right one, then start the TP again."))
+check("key: try counts left out", K("Survey screen: 'Rural' is not selected even after 3 tries. What does TNREGINET show? (screenshot)"), K("Survey screen: 'Rural' is not selected after 4 tries. What does TNREGINET show? (screenshot)"))
+check("key: a different survey number is a new question", K("We typed survey 12/3, extent 10") == K("We typed survey 12/4, extent 10"), False)
+QA = [{"kind": "survey", "q": "Survey screen: x. We typed survey 1/2, extent 5 Sq.Ft. Table now: a", "answer": "Looks right - go on", "at": "2026-11-18"}, {"kind": "doubt", "q": "D", "answer": "y"}]
+check("answered before is found (table differs)", (ns["survey_answered"](QA, "Survey screen: x. We typed survey 1/2, extent 5 Sq.Ft. Table now: b") or {}).get("answer"), "Looks right - go on")
+check("not answered -> None", ns["survey_answered"](QA, "Survey screen: other"), None)
+check("go-on answers", [bool(ns["GO_ON_RE"].search(x)) for x in ("Looks right - go on", "Fixed by hand - start again", "Wrong - I will correct Drafting")], [True, True, False])
+check("survey_question never asks an answered question again", "prev = survey_answered(" in src and "job.asked_before = prev" in src, True)
+check("stop note says it was answered before", "Not asked again: you answered" in src, True)
 check("live / latest screen is the whole page, not only the top", src.count("full_page=False"), 0)
 # 13 Nov 2026: staff Windows laptops - a VGR computer takes every TP, a partner laptop only its own
 a = src.index("def job_for_me("); 
